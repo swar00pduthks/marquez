@@ -52,6 +52,7 @@ import marquez.service.models.Node;
 import marquez.service.models.NodeId;
 import marquez.service.models.NodeType;
 import marquez.service.models.Run;
+import marquez.common.models.RunId;
 import org.assertj.core.api.AbstractObjectAssert;
 import org.assertj.core.api.Condition;
 import org.assertj.core.api.InstanceOfAssertFactories;
@@ -668,5 +669,158 @@ public class LineageServiceTest {
             5);
 
     assertThat(lineage.getGraph()).hasSize(2);
+  }
+
+  @Test
+  public void testRunLineage() {
+    // Create a run with input and output datasets
+    Dataset inputDataset = Dataset.builder()
+        .name("input-dataset")
+        .namespace(NAMESPACE)
+        .build();
+    Dataset outputDataset = Dataset.builder()
+        .name("output-dataset")
+        .namespace(NAMESPACE)
+        .build();
+    UUID runId = UUID.randomUUID();
+
+    // Create a run that reads from input and writes to output
+    UpdateLineageRow runRow = LineageTestUtils.createLineageRow(
+        openLineageDao,
+        "testJob",
+        runId,
+        "COMPLETE",
+        jobFacet,
+        Arrays.asList(inputDataset),
+        Arrays.asList(outputDataset),
+        null,
+        ImmutableMap.of());
+
+    // Get lineage using the run ID
+    Lineage lineage = lineageService.lineage(
+        NodeId.of(RunId.of(runId)),
+        2);
+
+    // Verify the graph structure
+    assertThat(lineage.getGraph())
+        .hasSize(3) // 1 run node + 2 dataset nodes
+        .areExactly(1, new Condition<>(n -> n.getType().equals(NodeType.RUN), "run"))
+        .areExactly(2, new Condition<>(n -> n.getType().equals(NodeType.DATASET), "dataset"));
+
+    // Verify run node
+    Node runNode = lineage.getGraph().stream()
+        .filter(n -> n.getType().equals(NodeType.RUN))
+        .findFirst()
+        .get();
+    assertThat(runNode.getId().getValue()).isEqualTo("run:" + runId.toString());
+    
+    // Verify input dataset edges
+    assertThat(runNode.getInEdges())
+        .hasSize(1)
+        .first()
+        .matches(e -> e.getOrigin().getValue().equals("dataset:namespace:input-dataset"));
+
+    // Verify output dataset edges
+    assertThat(runNode.getOutEdges())
+        .hasSize(1)
+        .first()
+        .matches(e -> e.getDestination().getValue().equals("dataset:namespace:output-dataset"));
+  }
+
+  @Test
+  public void testRunLineageWithMultipleInputsAndOutputs() {
+    // Create multiple input and output datasets
+    Dataset input1 = Dataset.builder().name("input1").namespace(NAMESPACE).build();
+    Dataset input2 = Dataset.builder().name("input2").namespace(NAMESPACE).build();
+    Dataset output1 = Dataset.builder().name("output1").namespace(NAMESPACE).build();
+    Dataset output2 = Dataset.builder().name("output2").namespace(NAMESPACE).build();
+    
+    UUID runId = UUID.randomUUID();
+
+    // Create a run with multiple inputs and outputs
+    UpdateLineageRow runRow = LineageTestUtils.createLineageRow(
+        openLineageDao,
+        "testJob",
+        runId,
+        "COMPLETE",
+        jobFacet,
+        Arrays.asList(input1, input2),
+        Arrays.asList(output1, output2),
+        null,
+        ImmutableMap.of());
+
+    // Get lineage using the run ID
+    Lineage lineage = lineageService.lineage(
+        NodeId.of(RunId.of(runId)),
+        2);
+
+    // Verify the graph structure
+    assertThat(lineage.getGraph())
+        .hasSize(5) // 1 run node + 4 dataset nodes
+        .areExactly(1, new Condition<>(n -> n.getType().equals(NodeType.RUN), "run"))
+        .areExactly(4, new Condition<>(n -> n.getType().equals(NodeType.DATASET), "dataset"));
+
+    // Verify run node
+    Node runNode = lineage.getGraph().stream()
+        .filter(n -> n.getType().equals(NodeType.RUN))
+        .findFirst()
+        .get();
+
+    // Verify input dataset edges
+    assertThat(runNode.getInEdges())
+        .hasSize(2)
+        .extracting(e -> e.getOrigin().asDatasetId().getName().getValue())
+        .containsExactlyInAnyOrder("input1", "input2");
+
+    // Verify output dataset edges
+    assertThat(runNode.getOutEdges())
+        .hasSize(2)
+        .extracting(e -> e.getDestination().asDatasetId().getName().getValue())
+        .containsExactlyInAnyOrder("output1", "output2");
+  }
+
+  @Test
+  public void testRunLineageWithNoDatasets() {
+    UUID runId = UUID.randomUUID();
+
+    // Create a run with no inputs or outputs
+    UpdateLineageRow runRow = LineageTestUtils.createLineageRow(
+        openLineageDao,
+        "testJob",
+        runId,
+        "COMPLETE",
+        jobFacet,
+        Collections.emptyList(),
+        Collections.emptyList(),
+        null,
+        ImmutableMap.of());
+
+    // Get lineage using the run ID
+    Lineage lineage = lineageService.lineage(
+        NodeId.of(RunId.of(runId)),
+        2);
+
+    // Verify the graph structure - should only contain the run node
+    assertThat(lineage.getGraph())
+        .hasSize(1) // Just the run node
+        .areExactly(1, new Condition<>(n -> n.getType().equals(NodeType.RUN), "run"));
+
+    // Verify run node has no edges
+    Node runNode = lineage.getGraph().iterator().next();
+    assertThat(runNode.getInEdges()).isEmpty();
+    assertThat(runNode.getOutEdges()).isEmpty();
+  }
+
+  @Test
+  public void testRunLineageWithNonexistentRun() {
+    UUID nonexistentRunId = UUID.randomUUID();
+
+    // Get lineage using a non-existent run ID
+    Lineage lineage = lineageService.lineage(
+        NodeId.of(RunId.of(nonexistentRunId)),
+        2);
+
+    // Verify the graph is empty
+    assertThat(lineage.getGraph()).isEmpty();
   }
 }
