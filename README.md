@@ -37,7 +37,7 @@ Want to be added? Send a pull request our way!
 
 ## Try it!
 
-[![Open in Gitpod](https://gitpod.io/button/open-in-gitpod.svg)](https://gitpod.io/#https://github.com/MarquezProject/marquez)
+[![Open in Gitpod](https://gitpod.io/button/open-in-gitpod.svg)](https://gitpod.io/#https://github.com/swar00pduthks/marquez)
 
 ## Quickstart
 
