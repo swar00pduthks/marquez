@@ -1,9 +1,10 @@
-<div align="center">
-  <img src="./docs/assets/images/marquez-logo.png" width="500px" />
-  <a href="https://lfaidata.foundation/projects">
-    <img src="./docs/assets/images/lfaidata-project-badge-graduate-black.png" width="125px" />
-  </a>
-</div>
+
+
+## Note : # Swaroop's Metadata Service (Based on Marquez)
+
+This is a custom fork of [Marquez](https://github.com/MarquezProject/marquez), a metadata service for the modern data stack. This version is tailored for internal use, with enhancements and changes to suit specific data workflows.
+
+---
 
 Marquez is an open source **metadata service** for the **collection**, **aggregation**, and **visualization** of a data ecosystem's metadata. It maintains the provenance of how datasets are consumed and produced, provides global visibility into job runtime and frequency of dataset access, centralization of dataset lifecycle management, and much more. Marquez was released and open sourced by [WeWork](https://www.wework.com).
 
@@ -36,7 +37,7 @@ Want to be added? Send a pull request our way!
 
 ## Try it!
 
-[![Open in Gitpod](https://gitpod.io/button/open-in-gitpod.svg)](https://gitpod.io/#https://github.com/MarquezProject/marquez)
+[![Open in Gitpod](https://gitpod.io/button/open-in-gitpod.svg)](https://gitpod.io/#https://github.com/swar00pduthks/marquez)
 
 ## Quickstart
 
