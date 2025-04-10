@@ -41,9 +41,13 @@ import marquez.service.models.JobData;
 import marquez.service.models.LineageEvent;
 import marquez.service.models.LineageEvent.Dataset;
 import marquez.service.models.LineageEvent.JobFacet;
+import marquez.service.models.LineageEvent.JobLink;
+import marquez.service.models.LineageEvent.ParentRunFacet;
+import marquez.service.models.LineageEvent.RunLink;
 import marquez.service.models.LineageEvent.SchemaField;
 import marquez.service.models.LineageEvent.SourceCodeLocationJobFacet;
 import marquez.service.models.Run;
+import marquez.service.models.RunData;
 import org.assertj.core.api.InstanceOfAssertFactories;
 import org.assertj.core.api.ObjectAssert;
 import org.jdbi.v3.core.Jdbi;
@@ -972,5 +976,232 @@ public class LineageDaoTest {
       assertThat(upstream2.get(2).job().name().getValue())
           .isEqualTo(upstreamJob.getJob().getName());
     }
+  }
+
+  @Test
+  public void testGetRunLineageWithParentChildAggregation() {
+    // Create test datasets
+    Dataset parentInput = new Dataset(NAMESPACE, "parentInput", newDatasetFacet());
+    Dataset parentOutput = new Dataset(NAMESPACE, "parentOutput", newDatasetFacet());
+    Dataset child1Output = new Dataset(NAMESPACE, "child1Output", newDatasetFacet());
+    Dataset child2Output = new Dataset(NAMESPACE, "child2Output", newDatasetFacet());
+
+    // Create parent job and run
+    UpdateLineageRow parentJob =
+        LineageTestUtils.createLineageRow(
+            openLineageDao,
+            "parentJob",
+            "COMPLETE",
+            jobFacet,
+            Arrays.asList(parentInput),
+            Arrays.asList(parentOutput));
+
+    // Create child job 1 and run (uses parent's output as input)
+    UpdateLineageRow child1Job =
+        LineageTestUtils.createLineageRow(
+            openLineageDao,
+            "child1Job",
+            "COMPLETE",
+            jobFacet,
+            Arrays.asList(parentOutput),
+            Arrays.asList(child1Output),
+            new ParentRunFacet(
+                PRODUCER_URL,
+                SCHEMA_URL,
+                new RunLink(parentJob.getRun().getUuid().toString()),
+                new JobLink(NAMESPACE, "parentJob")),
+            LineageTestUtils.EMPTY_MAP);
+
+    // Create child job 2 and run (also uses parent's output as input)
+    UpdateLineageRow child2Job =
+        LineageTestUtils.createLineageRow(
+            openLineageDao,
+            "child2Job",
+            "COMPLETE",
+            jobFacet,
+            Arrays.asList(parentOutput),
+            Arrays.asList(child2Output),
+            new ParentRunFacet(
+                PRODUCER_URL,
+                SCHEMA_URL,
+                new RunLink(parentJob.getRun().getUuid().toString()),
+                new JobLink(NAMESPACE, "parentJob")),
+            LineageTestUtils.EMPTY_MAP);
+
+    // Get the aggregated lineage for the parent run
+    Set<RunData> runLineage = lineageDao.getRunLineage(parentJob.getRun().getUuid(), 2);
+
+    // Verify the results
+    assertThat(runLineage).isNotEmpty();
+
+    // Find the parent run in the results
+    Optional<RunData> parentRun =
+        runLineage.stream()
+            .filter(run -> run.getUuid().equals(parentJob.getRun().getUuid()))
+            .findFirst();
+
+    assertThat(parentRun).isPresent();
+
+    // Get the dataset UUIDs for verification
+    UUID parentInputUuid = parentJob.getInputs().get().get(0).getDatasetRow().getUuid();
+    UUID parentOutputUuid = parentJob.getOutputs().get().get(0).getDatasetRow().getUuid();
+    UUID child1OutputUuid = child1Job.getOutputs().get().get(0).getDatasetRow().getUuid();
+    UUID child2OutputUuid = child2Job.getOutputs().get().get(0).getDatasetRow().getUuid();
+
+    // Verify parent run's aggregated lineage includes:
+    // - Its own direct input (parentInput)
+    // - Its own direct output (parentOutput)
+    // - Child 1's output (child1Output)
+    // - Child 2's output (child2Output)
+    assertThat(parentRun.get().getInputUuids()).containsExactlyInAnyOrder(parentInputUuid);
+    assertThat(parentRun.get().getOutputUuids())
+        .containsExactlyInAnyOrder(parentOutputUuid, child1OutputUuid, child2OutputUuid);
+
+    // Verify child runs are included
+    List<RunData> childRuns =
+        runLineage.stream()
+            .filter(run -> !run.getUuid().equals(parentJob.getRun().getUuid()))
+            .collect(Collectors.toList());
+
+    assertThat(childRuns).hasSize(2);
+
+    // Verify each child run's inputs/outputs
+    for (RunData childRun : childRuns) {
+      // Each child should have parentOutput as input
+      assertThat(childRun.getInputUuids()).contains(parentOutputUuid);
+
+      // Each child should have either child1Output or child2Output as output
+      assertThat(childRun.getOutputUuids())
+          .anyMatch(uuid -> uuid.equals(child1OutputUuid) || uuid.equals(child2OutputUuid));
+    }
+
+    // Verify that between the two child runs, both child1Output and child2Output are present
+    Set<UUID> allChildOutputs =
+        childRuns.stream()
+            .flatMap(run -> run.getOutputUuids().stream())
+            .collect(Collectors.toSet());
+    assertThat(allChildOutputs).contains(child1OutputUuid, child2OutputUuid);
+  }
+
+  @Test
+  public void testGetRunLineageWithSharedInputsOutputs() {
+    // Create test datasets
+    Dataset parentOnlyInput = new Dataset(NAMESPACE, "parentOnlyInput", newDatasetFacet());
+    Dataset sharedInput = new Dataset(NAMESPACE, "sharedInput", newDatasetFacet());
+    Dataset sharedOutput = new Dataset(NAMESPACE, "sharedOutput", newDatasetFacet());
+    Dataset child1OnlyInput = new Dataset(NAMESPACE, "child1OnlyInput", newDatasetFacet());
+    Dataset child2OnlyInput = new Dataset(NAMESPACE, "child2OnlyInput", newDatasetFacet());
+    Dataset child1OnlyOutput = new Dataset(NAMESPACE, "child1OnlyOutput", newDatasetFacet());
+    Dataset child2OnlyOutput = new Dataset(NAMESPACE, "child2OnlyOutput", newDatasetFacet());
+
+    // Create parent job and run with its own input/output and a shared input/output
+    UpdateLineageRow parentJob =
+        LineageTestUtils.createLineageRow(
+            openLineageDao,
+            "parentJob",
+            "COMPLETE",
+            jobFacet,
+            Arrays.asList(
+                parentOnlyInput, sharedInput), // Parent has its own input and shared input
+            Arrays.asList(sharedOutput) // Parent outputs to shared output
+            );
+
+    // Create child job 1 that shares some inputs/outputs with parent and has its own
+    UpdateLineageRow child1Job =
+        LineageTestUtils.createLineageRow(
+            openLineageDao,
+            "child1Job",
+            "COMPLETE",
+            jobFacet,
+            Arrays.asList(sharedInput, child1OnlyInput), // Uses shared input and has its own input
+            Arrays.asList(
+                sharedOutput, child1OnlyOutput), // Outputs to shared output and its own output
+            new ParentRunFacet(
+                PRODUCER_URL,
+                SCHEMA_URL,
+                new RunLink(parentJob.getRun().getUuid().toString()),
+                new JobLink(NAMESPACE, "parentJob")),
+            LineageTestUtils.EMPTY_MAP);
+
+    // Create child job 2 that also shares inputs/outputs and has its own
+    UpdateLineageRow child2Job =
+        LineageTestUtils.createLineageRow(
+            openLineageDao,
+            "child2Job",
+            "COMPLETE",
+            jobFacet,
+            Arrays.asList(sharedInput, child2OnlyInput), // Uses shared input and has its own input
+            Arrays.asList(
+                sharedOutput, child2OnlyOutput), // Outputs to shared output and its own output
+            new ParentRunFacet(
+                PRODUCER_URL,
+                SCHEMA_URL,
+                new RunLink(parentJob.getRun().getUuid().toString()),
+                new JobLink(NAMESPACE, "parentJob")),
+            LineageTestUtils.EMPTY_MAP);
+
+    // Get the lineage for the parent run
+    Set<RunData> runLineage = lineageDao.getRunLineage(parentJob.getRun().getUuid(), 2);
+
+    // Verify we get all three runs
+    assertThat(runLineage).hasSize(3); // Should include parent and both child runs
+
+    // Get all the dataset UUIDs for verification
+    UUID parentOnlyInputUuid = parentJob.getInputs().get().get(0).getDatasetRow().getUuid();
+    UUID sharedInputUuid = parentJob.getInputs().get().get(1).getDatasetRow().getUuid();
+    UUID sharedOutputUuid = parentJob.getOutputs().get().get(0).getDatasetRow().getUuid();
+    UUID child1OnlyInputUuid = child1Job.getInputs().get().get(1).getDatasetRow().getUuid();
+    UUID child2OnlyInputUuid = child2Job.getInputs().get().get(1).getDatasetRow().getUuid();
+    UUID child1OnlyOutputUuid = child1Job.getOutputs().get().get(1).getDatasetRow().getUuid();
+    UUID child2OnlyOutputUuid = child2Job.getOutputs().get().get(1).getDatasetRow().getUuid();
+
+    // Find and verify parent run's aggregated lineage
+    Optional<RunData> parentRun =
+        runLineage.stream()
+            .filter(run -> run.getUuid().equals(parentJob.getRun().getUuid()))
+            .findFirst();
+
+    assertThat(parentRun).isPresent();
+
+    // Parent run should have aggregated unique inputs from itself and all children
+    assertThat(parentRun.get().getInputUuids())
+        .containsExactlyInAnyOrder(
+            parentOnlyInputUuid, // Parent's own input
+            sharedInputUuid, // Shared input (should appear only once)
+            child1OnlyInputUuid, // Child 1's unique input
+            child2OnlyInputUuid // Child 2's unique input
+            );
+
+    // Parent run should have aggregated unique outputs from itself and all children
+    assertThat(parentRun.get().getOutputUuids())
+        .containsExactlyInAnyOrder(
+            sharedOutputUuid, // Shared output (should appear only once)
+            child1OnlyOutputUuid, // Child 1's unique output
+            child2OnlyOutputUuid // Child 2's unique output
+            );
+
+    // Verify child run 1's lineage (should only include its own inputs/outputs)
+    Optional<RunData> child1Run =
+        runLineage.stream()
+            .filter(run -> run.getUuid().equals(child1Job.getRun().getUuid()))
+            .findFirst();
+
+    assertThat(child1Run).isPresent();
+    assertThat(child1Run.get().getInputUuids())
+        .containsExactlyInAnyOrder(sharedInputUuid, child1OnlyInputUuid);
+    assertThat(child1Run.get().getOutputUuids())
+        .containsExactlyInAnyOrder(sharedOutputUuid, child1OnlyOutputUuid);
+
+    // Verify child run 2's lineage (should only include its own inputs/outputs)
+    Optional<RunData> child2Run =
+        runLineage.stream()
+            .filter(run -> run.getUuid().equals(child2Job.getRun().getUuid()))
+            .findFirst();
+
+    assertThat(child2Run).isPresent();
+    assertThat(child2Run.get().getInputUuids())
+        .containsExactlyInAnyOrder(sharedInputUuid, child2OnlyInputUuid);
+    assertThat(child2Run.get().getOutputUuids())
+        .containsExactlyInAnyOrder(sharedOutputUuid, child2OnlyOutputUuid);
   }
 }

@@ -81,7 +81,7 @@ public class LineageService extends DelegatingLineageDao {
 
     if (nodeId.isRunType()) {
       log.debug("Attempting to get lineage for run '{}'", nodeId.asRunId().getValue());
-      Set<RunData> runData = getRunLineage(nodeId.asRunId().getValue(), depth);
+      Set<RunData> runData = getRunLineage(Collections.singleton(nodeId.asRunId().getValue()), depth);
       if (runData.isEmpty()) {
         log.warn("Failed to get lineage for run '{}', returning empty graph...", nodeId.getValue());
         return new Lineage(ImmutableSortedSet.of());
@@ -356,20 +356,19 @@ public class LineageService extends DelegatingLineageDao {
               .filter(Objects::nonNull)
               .collect(Collectors.toSet());
 
-      data.setInputs(buildDatasetId(inputs));
-      data.setOutputs(buildDatasetId(outputs));
+      final RunData updatedData = data.withInputs(buildDatasetId(inputs)).withOutputs(buildDatasetId(outputs));
 
       inputs.forEach(
-          ds -> dsInputToRun.computeIfAbsent(ds, e -> new HashSet<>()).add(data.getUuid()));
+          ds -> dsInputToRun.computeIfAbsent(ds, e -> new HashSet<>()).add(updatedData.getUuid()));
       outputs.forEach(
-          ds -> dsOutputToRun.computeIfAbsent(ds, e -> new HashSet<>()).add(data.getUuid()));
+          ds -> dsOutputToRun.computeIfAbsent(ds, e -> new HashSet<>()).add(updatedData.getUuid()));
 
-      NodeId origin = NodeId.of(RunId.of(data.getUuid()));
+      NodeId origin = NodeId.of(RunId.of(updatedData.getUuid()));
       Node node =
           new Node(
               origin,
               NodeType.RUN,
-              data,
+              updatedData,
               buildDatasetEdge(inputs, origin), // dataset -> run edges for inputs
               buildDatasetEdge(origin, outputs) // run -> dataset edges for outputs
               );

@@ -3,41 +3,36 @@ package marquez.service.models;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.google.common.collect.ImmutableSet;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import javax.annotation.Nullable;
-import lombok.AllArgsConstructor;
-import lombok.Getter;
 import lombok.NonNull;
-import lombok.Setter;
-import lombok.ToString;
+import lombok.Value;
+import lombok.With;
 import marquez.common.models.DatasetId;
-import marquez.common.models.JobName;
-import marquez.common.models.NamespaceName;
-import marquez.common.models.RunId;
 import marquez.common.models.RunState;
 
-@Getter
-@AllArgsConstructor
-@ToString(of = {"namespace", "jobName", "state"})
+@Value
+@With
 public class RunData implements NodeData {
-  UUID uuid;
-  @NonNull RunId id;
-  @NonNull JobName jobName;
-  @NonNull NamespaceName namespace;
-  @NonNull RunState state;
+  @NonNull UUID uuid;
   @NonNull Instant createdAt;
   @NonNull Instant updatedAt;
   @Nullable Instant startedAt;
   @Nullable Instant endedAt;
-  @Nullable Long durationMs;
-  @Nullable UUID jobUuid;
+  @NonNull RunState state;
+  @NonNull UUID jobUuid;
   @Nullable UUID jobVersionUuid;
-  @Setter ImmutableSet<DatasetId> inputs = ImmutableSet.of();
-  @Setter ImmutableSet<UUID> inputUuids = ImmutableSet.of();
-  @Setter ImmutableSet<DatasetId> outputs = ImmutableSet.of();
-  @Setter ImmutableSet<UUID> outputUuids = ImmutableSet.of();
+  @NonNull String namespaceName;
+  @NonNull String jobName;
+  @NonNull List<UUID> inputUuids;
+  @NonNull List<UUID> outputUuids;
+  int depth;
+  @Nullable UUID parentRunUuid;
+  @With @Nullable ImmutableSet<DatasetId> inputs;
+  @With @Nullable ImmutableSet<DatasetId> outputs;
 
   public Optional<Instant> getStartedAt() {
     return Optional.ofNullable(startedAt);
@@ -47,18 +42,6 @@ public class RunData implements NodeData {
     return Optional.ofNullable(endedAt);
   }
 
-  public Optional<Long> getDurationMs() {
-    return Optional.ofNullable(durationMs);
-  }
-
-  public Optional<UUID> getJobUuid() {
-    return Optional.ofNullable(jobUuid);
-  }
-
-  public Optional<UUID> getJobVersionUuid() {
-    return Optional.ofNullable(jobVersionUuid);
-  }
-
   @JsonIgnore
   public UUID getUuid() {
     return uuid;
@@ -66,11 +49,11 @@ public class RunData implements NodeData {
 
   @JsonIgnore
   public Set<UUID> getInputUuids() {
-    return inputUuids;
+    return ImmutableSet.copyOf(inputUuids);
   }
 
   @JsonIgnore
   public Set<UUID> getOutputUuids() {
-    return outputUuids;
+    return ImmutableSet.copyOf(outputUuids);
   }
 }
