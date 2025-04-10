@@ -28,6 +28,7 @@ import marquez.common.models.InputDatasetVersion;
 import marquez.common.models.JobId;
 import marquez.common.models.JobName;
 import marquez.common.models.NamespaceName;
+import marquez.common.models.RunId;
 import marquez.common.models.RunState;
 import marquez.db.DatasetDao;
 import marquez.db.JobDao;
@@ -52,7 +53,6 @@ import marquez.service.models.Node;
 import marquez.service.models.NodeId;
 import marquez.service.models.NodeType;
 import marquez.service.models.Run;
-import marquez.common.models.RunId;
 import org.assertj.core.api.AbstractObjectAssert;
 import org.assertj.core.api.Condition;
 import org.assertj.core.api.InstanceOfAssertFactories;
@@ -674,32 +674,25 @@ public class LineageServiceTest {
   @Test
   public void testRunLineage() {
     // Create a run with input and output datasets
-    Dataset inputDataset = Dataset.builder()
-        .name("input-dataset")
-        .namespace(NAMESPACE)
-        .build();
-    Dataset outputDataset = Dataset.builder()
-        .name("output-dataset")
-        .namespace(NAMESPACE)
-        .build();
+    Dataset inputDataset = Dataset.builder().name("input-dataset").namespace(NAMESPACE).build();
+    Dataset outputDataset = Dataset.builder().name("output-dataset").namespace(NAMESPACE).build();
     UUID runId = UUID.randomUUID();
 
     // Create a run that reads from input and writes to output
-    UpdateLineageRow runRow = LineageTestUtils.createLineageRow(
-        openLineageDao,
-        "testJob",
-        runId,
-        "COMPLETE",
-        jobFacet,
-        Arrays.asList(inputDataset),
-        Arrays.asList(outputDataset),
-        null,
-        ImmutableMap.of());
+    UpdateLineageRow runRow =
+        LineageTestUtils.createLineageRow(
+            openLineageDao,
+            "testJob",
+            runId,
+            "COMPLETE",
+            jobFacet,
+            Arrays.asList(inputDataset),
+            Arrays.asList(outputDataset),
+            null,
+            ImmutableMap.of());
 
     // Get lineage using the run ID
-    Lineage lineage = lineageService.lineage(
-        NodeId.of(RunId.of(runId)),
-        2);
+    Lineage lineage = lineageService.lineage(NodeId.of(RunId.of(runId)), 2);
 
     // Verify the graph structure
     assertThat(lineage.getGraph())
@@ -708,12 +701,10 @@ public class LineageServiceTest {
         .areExactly(2, new Condition<>(n -> n.getType().equals(NodeType.DATASET), "dataset"));
 
     // Verify run node
-    Node runNode = lineage.getGraph().stream()
-        .filter(n -> n.getType().equals(NodeType.RUN))
-        .findFirst()
-        .get();
+    Node runNode =
+        lineage.getGraph().stream().filter(n -> n.getType().equals(NodeType.RUN)).findFirst().get();
     assertThat(runNode.getId().getValue()).isEqualTo("run:" + runId.toString());
-    
+
     // Verify input dataset edges
     assertThat(runNode.getInEdges())
         .hasSize(1)
@@ -734,25 +725,24 @@ public class LineageServiceTest {
     Dataset input2 = Dataset.builder().name("input2").namespace(NAMESPACE).build();
     Dataset output1 = Dataset.builder().name("output1").namespace(NAMESPACE).build();
     Dataset output2 = Dataset.builder().name("output2").namespace(NAMESPACE).build();
-    
+
     UUID runId = UUID.randomUUID();
 
     // Create a run with multiple inputs and outputs
-    UpdateLineageRow runRow = LineageTestUtils.createLineageRow(
-        openLineageDao,
-        "testJob",
-        runId,
-        "COMPLETE",
-        jobFacet,
-        Arrays.asList(input1, input2),
-        Arrays.asList(output1, output2),
-        null,
-        ImmutableMap.of());
+    UpdateLineageRow runRow =
+        LineageTestUtils.createLineageRow(
+            openLineageDao,
+            "testJob",
+            runId,
+            "COMPLETE",
+            jobFacet,
+            Arrays.asList(input1, input2),
+            Arrays.asList(output1, output2),
+            null,
+            ImmutableMap.of());
 
     // Get lineage using the run ID
-    Lineage lineage = lineageService.lineage(
-        NodeId.of(RunId.of(runId)),
-        2);
+    Lineage lineage = lineageService.lineage(NodeId.of(RunId.of(runId)), 2);
 
     // Verify the graph structure
     assertThat(lineage.getGraph())
@@ -761,10 +751,8 @@ public class LineageServiceTest {
         .areExactly(4, new Condition<>(n -> n.getType().equals(NodeType.DATASET), "dataset"));
 
     // Verify run node
-    Node runNode = lineage.getGraph().stream()
-        .filter(n -> n.getType().equals(NodeType.RUN))
-        .findFirst()
-        .get();
+    Node runNode =
+        lineage.getGraph().stream().filter(n -> n.getType().equals(NodeType.RUN)).findFirst().get();
 
     // Verify input dataset edges
     assertThat(runNode.getInEdges())
@@ -784,21 +772,20 @@ public class LineageServiceTest {
     UUID runId = UUID.randomUUID();
 
     // Create a run with no inputs or outputs
-    UpdateLineageRow runRow = LineageTestUtils.createLineageRow(
-        openLineageDao,
-        "testJob",
-        runId,
-        "COMPLETE",
-        jobFacet,
-        Collections.emptyList(),
-        Collections.emptyList(),
-        null,
-        ImmutableMap.of());
+    UpdateLineageRow runRow =
+        LineageTestUtils.createLineageRow(
+            openLineageDao,
+            "testJob",
+            runId,
+            "COMPLETE",
+            jobFacet,
+            Collections.emptyList(),
+            Collections.emptyList(),
+            null,
+            ImmutableMap.of());
 
     // Get lineage using the run ID
-    Lineage lineage = lineageService.lineage(
-        NodeId.of(RunId.of(runId)),
-        2);
+    Lineage lineage = lineageService.lineage(NodeId.of(RunId.of(runId)), 2);
 
     // Verify the graph structure - should only contain the run node
     assertThat(lineage.getGraph())
@@ -816,9 +803,7 @@ public class LineageServiceTest {
     UUID nonexistentRunId = UUID.randomUUID();
 
     // Get lineage using a non-existent run ID
-    Lineage lineage = lineageService.lineage(
-        NodeId.of(RunId.of(nonexistentRunId)),
-        2);
+    Lineage lineage = lineageService.lineage(NodeId.of(RunId.of(nonexistentRunId)), 2);
 
     // Verify the graph is empty
     assertThat(lineage.getGraph()).isEmpty();

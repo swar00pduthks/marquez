@@ -183,7 +183,8 @@ public abstract class BaseIntegrationTest {
             CONFIG_FILE_PATH,
             ConfigOverride.config("db.url", POSTGRES.getJdbcUrl()),
             ConfigOverride.config("db.user", POSTGRES.getUsername()),
-            ConfigOverride.config("db.password", POSTGRES.getPassword()));
+            ConfigOverride.config("db.password", POSTGRES.getPassword()),
+            ConfigOverride.config("server.applicationConnectors[0].port", "8082"));
 
     APP.before();
   }

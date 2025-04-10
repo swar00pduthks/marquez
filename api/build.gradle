@@ -19,7 +19,7 @@ plugins {
     id 'maven-publish'
     id 'signing'
     id 'application'
-    id 'com.github.johnrengelman.shadow'
+    id 'com.github.johnrengelman.shadow' version '8.1.1'
 }
 
 ext {
@@ -205,13 +205,8 @@ shadowJar {
         include 'LICENSE'
     }
     mergeServiceFiles()
-    dependencies {
-        include(dependency('jakarta.platform:jakarta.jakartaee-api'))
-        include(dependency('jakarta.platform:jakarta.jakartaee-bom'))
-        include(dependency('jakarta.annotation:jakarta.annotation-api'))
-        include(dependency('jakarta.validation:jakarta.validation-api'))
-        include(dependency('io.dropwizard:dropwizard-jdbi3'))
-    }
+    // Include all runtime dependencies
+    configurations = [project.configurations.runtimeClasspath]
     manifest {
         attributes(
                 'Created-By': "Gradle ${gradle.gradleVersion}",

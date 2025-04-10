@@ -12,7 +12,6 @@ import com.google.common.base.Functions;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
 import com.google.common.collect.Maps;
-import jakarta.validation.constraints.NotNull;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -50,6 +49,7 @@ import marquez.service.models.Node;
 import marquez.service.models.NodeId;
 import marquez.service.models.NodeType;
 import marquez.service.models.Run;
+import marquez.service.models.RunData;
 
 @Slf4j
 public class LineageService extends DelegatingLineageDao {
@@ -78,50 +78,66 @@ public class LineageService extends DelegatingLineageDao {
           nodeId.getValue());
       return toLineageWithOrphanDataset(nodeId.asDatasetId());
     }
-    UUID job = optionalUUID.get();
-    log.debug("Attempting to get lineage for job '{}'", job);
-    Set<JobData> jobData = getLineage(Collections.singleton(job), depth);
 
-    // Ensure job data is not empty, an empty set cannot be passed to LineageDao.getCurrentRuns() or
-    // LineageDao.getCurrentRunsWithFacets().
-    if (jobData.isEmpty()) {
-      // Log warning, then return an orphan lineage graph; a graph should contain at most one
-      // job->dataset relationship.
-      log.warn(
-          "Failed to get lineage for job '{}' associated with node '{}', returning orphan graph...",
-          job,
-          nodeId.getValue());
-      return toLineageWithOrphanDataset(nodeId.asDatasetId());
-    }
+    if (nodeId.isRunType()) {
+      log.debug("Attempting to get lineage for run '{}'", nodeId.asRunId().getValue());
+      Set<RunData> runData = getRunLineage(nodeId.asRunId().getValue(), depth);
+      if (runData.isEmpty()) {
+        log.warn("Failed to get lineage for run '{}', returning empty graph...", nodeId.getValue());
+        return new Lineage(ImmutableSortedSet.of());
+      }
+      return toRunLineage(runData);
+    } else {
 
-    for (JobData j : jobData) {
-      Optional<Run> run = runDao.findRunByUuid(j.getCurrentRunUuid());
-      run.ifPresent(j::setLatestRun);
-    }
+      UUID job = optionalUUID.get();
+      log.debug("Attempting to get lineage for job '{}'", job);
+      Set<JobData> jobData = getLineage(Collections.singleton(job), depth);
 
-    Set<UUID> datasetIds =
-        jobData.stream()
-            .flatMap(jd -> Stream.concat(jd.getInputUuids().stream(), jd.getOutputUuids().stream()))
-            .collect(Collectors.toSet());
-    Set<DatasetData> datasets = new HashSet<>();
-    if (!datasetIds.isEmpty()) {
-      datasets.addAll(this.getDatasetData(datasetIds));
-    }
-
-    if (nodeId.isDatasetType()) {
-      DatasetId datasetId = nodeId.asDatasetId();
-      DatasetData datasetData =
-          this.getDatasetData(datasetId.getNamespace().getValue(), datasetId.getName().getValue());
-
-      if (!datasetIds.contains(datasetData.getUuid())) {
+      // Ensure job data is not empty, an empty set cannot be passed to LineageDao.getCurrentRuns()
+      // or
+      // LineageDao.getCurrentRunsWithFacets().
+      if (jobData.isEmpty()) {
+        // Log warning, then return an orphan lineage graph; a graph should contain at most one
+        // job->dataset relationship.
         log.warn(
-            "Found jobs {} which no longer share lineage with dataset '{}' - discarding",
-            jobData.stream().map(JobData::getId).toList(),
+            "Failed to get lineage for job '{}' associated with node '{}', returning orphan graph...",
+            job,
             nodeId.getValue());
         return toLineageWithOrphanDataset(nodeId.asDatasetId());
       }
+
+      for (JobData j : jobData) {
+        Optional<Run> run = runDao.findRunByUuid(j.getCurrentRunUuid());
+        run.ifPresent(j::setLatestRun);
+      }
+
+      Set<UUID> datasetIds =
+          jobData.stream()
+              .flatMap(
+                  jd -> Stream.concat(jd.getInputUuids().stream(), jd.getOutputUuids().stream()))
+              .collect(Collectors.toSet());
+      Set<DatasetData> datasets = new HashSet<>();
+      if (!datasetIds.isEmpty()) {
+        datasets.addAll(this.getDatasetData(datasetIds));
+      }
+
+      if (nodeId.isDatasetType()) {
+        DatasetId datasetId = nodeId.asDatasetId();
+        DatasetData datasetData =
+            this.getDatasetData(
+                datasetId.getNamespace().getValue(), datasetId.getName().getValue());
+
+        if (!datasetIds.contains(datasetData.getUuid())) {
+          log.warn(
+              "Found jobs {} which no longer share lineage with dataset '{}' - discarding",
+              jobData.stream().map(JobData::getId).toList(),
+              nodeId.getValue());
+          return toLineageWithOrphanDataset(nodeId.asDatasetId());
+        }
+      }
+
+      return toLineage(jobData, datasets);
     }
-    return toLineage(jobData, datasets);
   }
 
   private Lineage toLineageWithOrphanDataset(@NonNull DatasetId datasetId) {
@@ -271,6 +287,9 @@ public class LineageService extends DelegatingLineageDao {
       DatasetId datasetId = nodeId.asDatasetId();
       return getJobFromInputOrOutput(
           datasetId.getName().getValue(), datasetId.getNamespace().getValue());
+    } else if (nodeId.isRunType()) {
+      RunId runId = nodeId.asRunId();
+      return Optional.of(runId.getValue());
     } else {
       throw new NodeIdNotFoundException(
           String.format("Node '%s' must be of type dataset, job, or run!", nodeId.getValue()));
@@ -285,7 +304,7 @@ public class LineageService extends DelegatingLineageDao {
    * @param depth the maximum depth of the upstream lineage
    * @return the upstream lineage for that run up to `detph` levels
    */
-  public UpstreamRunLineage upstream(@NotNull RunId runId, int depth) {
+  public UpstreamRunLineage upstream(@NonNull RunId runId, int depth) {
     List<UpstreamRunRow> upstreamRuns = getUpstreamRuns(runId.getValue(), depth);
     Map<RunId, List<UpstreamRunRow>> collect =
         upstreamRuns.stream().collect(groupingBy(r -> r.run().id(), LinkedHashMap::new, toList()));
@@ -303,5 +322,105 @@ public class LineageService extends DelegatingLineageDao {
                 })
             .collect(toList());
     return new UpstreamRunLineage(runs);
+  }
+
+  private Lineage toRunLineage(Set<RunData> runData) {
+    Set<Node> nodes = new LinkedHashSet<>();
+
+    Set<UUID> datasetIds =
+        runData.stream()
+            .flatMap(rd -> Stream.concat(rd.getInputUuids().stream(), rd.getOutputUuids().stream()))
+            .collect(Collectors.toSet());
+
+    Set<DatasetData> datasets = new HashSet<>();
+    if (!datasetIds.isEmpty()) {
+      datasets.addAll(this.getDatasetData(datasetIds));
+    }
+
+    Map<UUID, DatasetData> datasetById =
+        datasets.stream().collect(Collectors.toMap(DatasetData::getUuid, Functions.identity()));
+
+    Map<DatasetData, Set<UUID>> dsInputToRun = new HashMap<>();
+    Map<DatasetData, Set<UUID>> dsOutputToRun = new HashMap<>();
+
+    Map<UUID, RunData> runDataMap = Maps.uniqueIndex(runData, RunData::getUuid);
+    for (RunData data : runData) {
+      Set<DatasetData> inputs =
+          data.getInputUuids().stream()
+              .map(datasetById::get)
+              .filter(Objects::nonNull)
+              .collect(Collectors.toSet());
+      Set<DatasetData> outputs =
+          data.getOutputUuids().stream()
+              .map(datasetById::get)
+              .filter(Objects::nonNull)
+              .collect(Collectors.toSet());
+
+      data.setInputs(buildDatasetId(inputs));
+      data.setOutputs(buildDatasetId(outputs));
+
+      inputs.forEach(
+          ds -> dsInputToRun.computeIfAbsent(ds, e -> new HashSet<>()).add(data.getUuid()));
+      outputs.forEach(
+          ds -> dsOutputToRun.computeIfAbsent(ds, e -> new HashSet<>()).add(data.getUuid()));
+
+      NodeId origin = NodeId.of(RunId.of(data.getUuid()));
+      Node node =
+          new Node(
+              origin,
+              NodeType.RUN,
+              data,
+              buildDatasetEdge(inputs, origin), // dataset -> run edges for inputs
+              buildDatasetEdge(origin, outputs) // run -> dataset edges for outputs
+              );
+      nodes.add(node);
+    }
+
+    for (DatasetData dataset : datasets) {
+      NodeId origin = NodeId.of(new DatasetId(dataset.getNamespace(), dataset.getName()));
+      Node node =
+          new Node(
+              origin,
+              NodeType.DATASET,
+              dataset,
+              buildRunEdge(
+                  dsOutputToRun.get(dataset), origin, runDataMap), // producer runs -> dataset
+              buildRunEdge(
+                  origin,
+                  dsInputToRun.get(dataset),
+                  runDataMap) // dataset -> consumer runs  // dataset -> consumer runs
+              );
+      nodes.add(node);
+    }
+
+    return new Lineage(Lineage.withSortedNodes(Graph.directed().nodes(nodes).build()));
+  }
+
+  private ImmutableSet<Edge> buildRunEdge(
+      NodeId origin, Set<UUID> uuids, Map<UUID, RunData> runDataMap) {
+    if (uuids == null) {
+      return ImmutableSet.of();
+    }
+    return uuids.stream()
+        .map(runDataMap::get)
+        .filter(Objects::nonNull)
+        .map(r -> new Edge(origin, buildEdge(r)))
+        .collect(ImmutableSet.toImmutableSet());
+  }
+
+  private ImmutableSet<Edge> buildRunEdge(
+      Set<UUID> uuids, NodeId origin, Map<UUID, RunData> runDataMap) {
+    if (uuids == null) {
+      return ImmutableSet.of();
+    }
+    return uuids.stream()
+        .map(runDataMap::get)
+        .filter(Objects::nonNull)
+        .map(r -> new Edge(buildEdge(r), origin))
+        .collect(ImmutableSet.toImmutableSet());
+  }
+
+  private NodeId buildEdge(RunData r) {
+    return NodeId.of(RunId.of(r.getUuid()));
   }
 }

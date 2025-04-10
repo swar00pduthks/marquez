@@ -10,18 +10,15 @@ import static marquez.db.Columns.uuidOrThrow;
 import com.google.common.collect.ImmutableSet;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.time.Instant;
 import java.util.UUID;
 import lombok.NonNull;
 import marquez.common.models.JobName;
 import marquez.common.models.NamespaceName;
 import marquez.common.models.RunId;
 import marquez.common.models.RunState;
-import marquez.db.Columns;
 import marquez.service.models.RunData;
 import org.jdbi.v3.core.mapper.RowMapper;
 import org.jdbi.v3.core.statement.StatementContext;
-import org.postgresql.util.PGobject;
 
 public class RunDataMapper implements RowMapper<RunData> {
   @Override
@@ -46,4 +43,4 @@ public class RunDataMapper implements RowMapper<RunData> {
         ImmutableSet.of(), // outputs will be set later
         ImmutableSet.copyOf(uuidArrayOrEmpty(results, "output_uuids")));
   }
-} 
+}
