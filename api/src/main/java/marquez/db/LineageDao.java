@@ -27,6 +27,7 @@ import marquez.service.models.JobData;
 import marquez.service.models.Run;
 import marquez.service.models.RunData;
 import org.jdbi.v3.sqlobject.config.RegisterRowMapper;
+import org.jdbi.v3.sqlobject.customizer.Bind;
 import org.jdbi.v3.sqlobject.customizer.BindList;
 import org.jdbi.v3.sqlobject.statement.SqlQuery;
 
@@ -242,85 +243,84 @@ public interface LineageDao {
 
   @SqlQuery(
       """
-      WITH RECURSIVE run_io AS (
-          SELECT
-              r.uuid AS run_uuid,
-              r.namespace_name AS run_namespace,
-              r.job_name AS run_job_name,
-              r.current_run_state AS run_state,
-              r.created_at AS run_created_at,
-              r.started_at AS run_started_at,
-              r.ended_at AS run_ended_at,
-              r.job_uuid AS run_job_uuid,
-              r.job_version_uuid AS run_job_version_uuid,
-              rim.dataset_version_uuid AS input_version_uuid,
-              rim.dataset_uuid AS input_dataset_uuid,
-              dv.namespace_name AS input_namespace,
-              dv.dataset_name AS input_name,
-              rom.dataset_version_uuid AS output_version_uuid,
-              rom.dataset_uuid AS output_dataset_uuid,
-              dv2.namespace_name AS output_namespace,
-              dv2.dataset_name AS output_name,
-              r.parent_run_uuid
-          FROM runs r
-          LEFT JOIN runs_input_mapping rim ON rim.run_uuid = r.uuid
-          LEFT JOIN dataset_versions dv ON dv.uuid = rim.dataset_version_uuid
-          LEFT JOIN runs_output_mapping rom ON rom.run_uuid = r.uuid
-          LEFT JOIN dataset_versions dv2 ON dv2.uuid = rom.dataset_version_uuid
-      ),
-      lineage(run_uuid, run_namespace, run_job_name, run_state, run_created_at, run_started_at, run_ended_at,
-             run_job_uuid, run_job_version_uuid,
-             input_version_uuid, input_dataset_uuid, input_namespace, input_name,
-             output_version_uuid, output_dataset_uuid, output_namespace, output_name,
-             depth, parent_run_uuid) AS (
-          -- Base case: start with the given run
-          SELECT
-              run_uuid, run_namespace, run_job_name, run_state, run_created_at, run_started_at, run_ended_at,
-              run_job_uuid, run_job_version_uuid,
-              input_version_uuid, input_dataset_uuid, input_namespace, input_name,
-              output_version_uuid, output_dataset_uuid, output_namespace, output_name,
-              0 AS depth,
-              parent_run_uuid
-          FROM run_io
-          WHERE run_uuid IN (<runIds>)
-
-          UNION
-
-          -- Recursive case: find child runs
-          SELECT
-              io.run_uuid, io.run_namespace, io.run_job_name, io.run_state, io.run_created_at, io.run_started_at, io.run_ended_at,
-              io.run_job_uuid, io.run_job_version_uuid,
-              io.input_version_uuid, io.input_dataset_uuid, io.input_namespace, io.input_name,
-              io.output_version_uuid, io.output_dataset_uuid, io.output_namespace, io.output_name,
-              l.depth + 1,
-              io.parent_run_uuid
-          FROM run_io io
-          INNER JOIN lineage l ON io.parent_run_uuid = l.run_uuid
-          WHERE l.depth < :depth
-      )
-      SELECT DISTINCT ON (r.uuid)
-          r.uuid,
+    WITH RECURSIVE
+      run_io AS (
+        SELECT
+          r.uuid AS run_uuid,
+          r.namespace_name,
+          r.job_name,
+          r.current_run_state AS state,
           r.created_at,
           r.updated_at,
           r.started_at,
           r.ended_at,
-          r.current_run_state,
           r.job_uuid,
           r.job_version_uuid,
-          r.namespace_name,
-          r.job_name,
-          -- Aggregate all inputs from this run and its children
-          ARRAY_AGG(DISTINCT l.input_dataset_uuid) FILTER (WHERE l.input_dataset_uuid IS NOT NULL) as input_uuids,
-          -- Aggregate all outputs from this run and its children
-          ARRAY_AGG(DISTINCT l.output_dataset_uuid) FILTER (WHERE l.output_dataset_uuid IS NOT NULL) as output_uuids,
-          MIN(l.depth) as depth
-      FROM lineage l
-      INNER JOIN runs r ON r.uuid = l.run_uuid
-      GROUP BY r.uuid, r.created_at, r.updated_at, r.started_at, r.ended_at, r.current_run_state,
-              r.job_uuid, r.job_version_uuid, r.namespace_name, r.job_name
-      ORDER BY r.uuid, depth ASC;
-      """)
-  Set<RunData> getRunLineage(@BindList Set<UUID> runIds, int depth);
+          rim.dataset_version_uuid AS input_version_uuid,
+          dvin.dataset_uuid AS input_dataset_uuid,
+          dvout.uuid AS output_version_uuid,
+          dvout.dataset_uuid AS output_dataset_uuid,
+          r.parent_run_uuid
+        FROM runs r
+        LEFT JOIN runs_input_mapping rim ON rim.run_uuid = r.uuid
+        LEFT JOIN dataset_versions dvin ON dvin.uuid = rim.dataset_version_uuid
+        LEFT JOIN dataset_versions dvout ON dvout.run_uuid = r.uuid
+      ),
+      lineage AS (
+        SELECT
+          *,
+          0 AS depth
+        FROM run_io
+        WHERE run_uuid IN (<runIds>)
+
+        UNION ALL
+
+        SELECT
+          io.*,
+          l.depth + 1
+        FROM run_io io
+        JOIN lineage l
+          ON (io.input_version_uuid = l.output_version_uuid OR io.output_version_uuid = l.input_version_uuid)
+         AND io.run_uuid != l.run_uuid
+        WHERE l.depth < :depth
+      )
+    SELECT
+      run_uuid AS uuid,
+      created_at,
+      updated_at,
+      started_at,
+      ended_at,
+      state,
+      job_uuid,
+      job_version_uuid,
+      namespace_name,
+      job_name,
+      ARRAY_AGG(DISTINCT input_dataset_uuid) FILTER (WHERE input_dataset_uuid IS NOT NULL) AS input_uuids,
+      ARRAY_AGG(DISTINCT output_dataset_uuid) FILTER (WHERE output_dataset_uuid IS NOT NULL) AS output_uuids,
+      MIN(depth) AS depth,
+      parent_run_uuid
+    FROM lineage
+    GROUP BY
+      run_uuid, created_at, updated_at, started_at, ended_at,
+      state, job_uuid, job_version_uuid, namespace_name, job_name, parent_run_uuid
+    """)
+  Set<RunData> getRunLineage(@BindList("runIds") Set<UUID> runIds, @Bind("depth") int depth);
+
+  @SqlQuery(
+      """
+          SELECT EXISTS (
+              SELECT 1 FROM runs
+              WHERE parent_run_uuid = :runId
+          )
+          """)
+  boolean hasChildRuns(@Bind("runId") UUID runId);
+
+  @SqlQuery(
+      """
+          SELECT parent_run_uuid FROM runs
+          WHERE uuid = :runId
+          """)
+  Optional<UUID> getParentRunUuid(@Bind("runId") UUID runId);
 
   public record RunLineageRow(
       UUID runUuid,
@@ -338,4 +338,102 @@ public interface LineageDao {
       UUID jobVersionUuid,
       String jobNamespace,
       String jobName) {}
+
+  @SqlQuery(
+      """
+        WITH RECURSIVE lineage_graph AS (
+            SELECT
+                r.uuid AS run_uuid,
+                r.job_name,
+                r.namespace_name,
+                r.current_run_state,
+                r.started_at,
+                r.ended_at,
+                dv.uuid AS dataset_version_uuid,
+                dv.dataset_uuid,
+                dv.namespace_name AS dataset_namespace,
+                dv.dataset_name,
+                dv.run_uuid AS producer_run_uuid,
+                NULL::uuid AS consumer_run_uuid,
+                'BASE' AS edge_type,
+                0 AS depth
+            FROM runs r
+            LEFT JOIN runs_input_mapping rim ON rim.run_uuid = r.uuid
+            LEFT JOIN dataset_versions dv ON dv.uuid = rim.dataset_version_uuid
+            WHERE r.uuid IN (<runIds>)
+
+            UNION
+
+            SELECT
+                downstream.uuid AS run_uuid,
+                downstream.job_name,
+                downstream.namespace_name,
+                downstream.current_run_state,
+                downstream.started_at,
+                downstream.ended_at,
+                input_dv.uuid AS dataset_version_uuid,
+                input_dv.dataset_uuid,
+                input_dv.namespace_name,
+                input_dv.dataset_name,
+                input_dv.run_uuid AS producer_run_uuid,
+                downstream.uuid AS consumer_run_uuid,
+                'DOWNSTREAM' AS edge_type,
+                lg.depth + 1
+            FROM lineage_graph lg
+            JOIN dataset_versions dv ON dv.run_uuid = lg.run_uuid
+            JOIN runs_input_mapping rim ON rim.dataset_version_uuid = dv.uuid
+            JOIN dataset_versions input_dv ON input_dv.uuid = rim.dataset_version_uuid
+            JOIN runs downstream ON downstream.uuid = rim.run_uuid
+            WHERE lg.depth < :depth
+
+            UNION
+
+            SELECT
+                upstream.uuid AS run_uuid,
+                upstream.job_name,
+                upstream.namespace_name,
+                upstream.current_run_state,
+                upstream.started_at,
+                upstream.ended_at,
+                input_dv.uuid AS dataset_version_uuid,
+                input_dv.dataset_uuid,
+                input_dv.namespace_name,
+                input_dv.dataset_name,
+                input_dv.run_uuid AS producer_run_uuid,
+                lg.run_uuid AS consumer_run_uuid,
+                'UPSTREAM' AS edge_type,
+                lg.depth + 1
+            FROM lineage_graph lg
+            JOIN runs_input_mapping rim ON rim.run_uuid = lg.run_uuid
+            JOIN dataset_versions input_dv ON input_dv.uuid = rim.dataset_version_uuid
+            JOIN runs upstream ON upstream.uuid = input_dv.run_uuid
+            WHERE input_dv.run_uuid IS NOT NULL
+              AND input_dv.run_uuid != lg.run_uuid
+              AND lg.depth < :depth
+        )
+
+        SELECT DISTINCT ON (run_uuid, dataset_version_uuid, edge_type)
+            run_uuid,
+            dataset_uuid,
+            dataset_version_uuid,
+            dataset_namespace,
+            dataset_name,
+            producer_run_uuid,
+            edge_type,
+            depth,
+            started_at,
+            ended_at,
+            current_run_state AS state,
+            j.uuid AS job_uuid,
+            r.job_version_uuid,
+            r.namespace_name AS job_namespace,
+            r.job_name
+        FROM lineage_graph lg
+        JOIN runs r ON r.uuid = lg.run_uuid
+        JOIN jobs_view j ON j.name = r.job_name AND j.namespace_name = r.namespace_name
+        ORDER BY run_uuid, dataset_version_uuid, edge_type, depth
+        """)
+  Set<RunData> getParentRunLineage(
+      @BindList(value = "runIds", onEmpty = BindList.EmptyHandling.NULL_STRING) Set<UUID> runIds,
+      @Bind("depth") int depth);
 }

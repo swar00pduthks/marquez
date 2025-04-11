@@ -21,15 +21,15 @@ COPY clients/java ./clients/java
 RUN ./gradlew --no-daemon clean :api:shadowJar
 
 FROM eclipse-temurin:17
-# Update packages and install specific secure version of libpam0g
+# Update packages and install required dependencies
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         postgresql-client \
         bash \
         coreutils \
-        libpam0g=1.5.2-5ubuntu1 \
-        libpam-modules=1.5.2-5ubuntu1 \
-        libpam-modules-bin=1.5.2-5ubuntu1 && \
+        libpam0g \
+        libpam-modules \
+        libpam-modules-bin && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
@@ -46,7 +46,8 @@ RUN echo '#!/bin/bash' > /usr/src/app/entrypoint.sh && \
     echo 'fi' >> /usr/src/app/entrypoint.sh && \
     echo 'JAVA_OPTS="${JAVA_OPTS} -Duser.timezone=UTC -Dlog4j2.formatMsgNoLookups=true"' >> /usr/src/app/entrypoint.sh && \
     echo 'java ${JAVA_OPTS} -jar marquez-*.jar server ${MARQUEZ_CONFIG}' >> /usr/src/app/entrypoint.sh && \
-    chmod +x /usr/src/app/entrypoint.sh
+    chmod 755 /usr/src/app/entrypoint.sh && \
+    ls -la /usr/src/app/entrypoint.sh
 
 EXPOSE 5000 5001
-ENTRYPOINT ["/usr/src/app/entrypoint.sh"]
+ENTRYPOINT ["/bin/bash", "/usr/src/app/entrypoint.sh"]

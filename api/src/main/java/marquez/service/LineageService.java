@@ -80,12 +80,22 @@ public class LineageService extends DelegatingLineageDao {
     }
 
     if (nodeId.isRunType()) {
-      log.debug("Attempting to get lineage for run '{}'", nodeId.asRunId().getValue());
-      Set<RunData> runData = getRunLineage(Collections.singleton(nodeId.asRunId().getValue()), depth);
+      UUID runId = nodeId.asRunId().getValue();
+      log.debug("Attempting to get lineage for run '{}'", runId);
+
+      boolean hasChildren = this.hasChildRuns(runId);
+      log.debug("Run '{}' has children: {}", runId, hasChildren);
+      Set<RunData> runData;
+
+      runData = getRunLineage(Set.of(runId), depth);
+      System.out.println("runData: " + runData);
+      log.debug("Retrieved run data for '{}': {}", runId, runData);
+
       if (runData.isEmpty()) {
         log.warn("Failed to get lineage for run '{}', returning empty graph...", nodeId.getValue());
         return new Lineage(ImmutableSortedSet.of());
       }
+
       return toRunLineage(runData);
     } else {
 
@@ -331,10 +341,12 @@ public class LineageService extends DelegatingLineageDao {
         runData.stream()
             .flatMap(rd -> Stream.concat(rd.getInputUuids().stream(), rd.getOutputUuids().stream()))
             .collect(Collectors.toSet());
+    log.debug("Dataset IDs found in run data: {}", datasetIds);
 
     Set<DatasetData> datasets = new HashSet<>();
     if (!datasetIds.isEmpty()) {
       datasets.addAll(this.getDatasetData(datasetIds));
+      log.debug("Retrieved dataset data: {}", datasets);
     }
 
     Map<UUID, DatasetData> datasetById =
@@ -345,6 +357,7 @@ public class LineageService extends DelegatingLineageDao {
 
     Map<UUID, RunData> runDataMap = Maps.uniqueIndex(runData, RunData::getUuid);
     for (RunData data : runData) {
+      log.debug("Processing run data: {}", data);
       Set<DatasetData> inputs =
           data.getInputUuids().stream()
               .map(datasetById::get)
@@ -355,8 +368,10 @@ public class LineageService extends DelegatingLineageDao {
               .map(datasetById::get)
               .filter(Objects::nonNull)
               .collect(Collectors.toSet());
+      log.debug("Run '{}' inputs: {}, outputs: {}", data.getUuid(), inputs, outputs);
 
-      final RunData updatedData = data.withInputs(buildDatasetId(inputs)).withOutputs(buildDatasetId(outputs));
+      final RunData updatedData =
+          data.withInputs(buildDatasetId(inputs)).withOutputs(buildDatasetId(outputs));
 
       inputs.forEach(
           ds -> dsInputToRun.computeIfAbsent(ds, e -> new HashSet<>()).add(updatedData.getUuid()));
@@ -369,9 +384,10 @@ public class LineageService extends DelegatingLineageDao {
               origin,
               NodeType.RUN,
               updatedData,
-              buildDatasetEdge(inputs, origin), // dataset -> run edges for inputs
-              buildDatasetEdge(origin, outputs) // run -> dataset edges for outputs
+              buildDatasetEdge(inputs, origin),
+              buildDatasetEdge(origin, outputs)
               );
+      log.debug("Created node for run '{}': {}", updatedData.getUuid(), node);
       nodes.add(node);
     }
 
@@ -383,11 +399,9 @@ public class LineageService extends DelegatingLineageDao {
               NodeType.DATASET,
               dataset,
               buildRunEdge(
-                  dsOutputToRun.get(dataset), origin, runDataMap), // producer runs -> dataset
+                  dsOutputToRun.get(dataset), origin, runDataMap),
               buildRunEdge(
-                  origin,
-                  dsInputToRun.get(dataset),
-                  runDataMap) // dataset -> consumer runs  // dataset -> consumer runs
+                  origin, dsInputToRun.get(dataset), runDataMap)
               );
       nodes.add(node);
     }
