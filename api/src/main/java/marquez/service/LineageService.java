@@ -87,7 +87,11 @@ public class LineageService extends DelegatingLineageDao {
       log.debug("Run '{}' has children: {}", runId, hasChildren);
       Set<RunData> runData;
 
-      runData = getRunLineage(Set.of(runId), depth);
+      if (hasChildren) {
+        runData = getParentRunLineage(Set.of(runId), depth);
+      } else {
+        runData = getRunLineage(Set.of(runId), depth);
+      }
       System.out.println("runData: " + runData);
       log.debug("Retrieved run data for '{}': {}", runId, runData);
 
@@ -385,8 +389,7 @@ public class LineageService extends DelegatingLineageDao {
               NodeType.RUN,
               updatedData,
               buildDatasetEdge(inputs, origin),
-              buildDatasetEdge(origin, outputs)
-              );
+              buildDatasetEdge(origin, outputs));
       log.debug("Created node for run '{}': {}", updatedData.getUuid(), node);
       nodes.add(node);
     }
@@ -398,11 +401,8 @@ public class LineageService extends DelegatingLineageDao {
               origin,
               NodeType.DATASET,
               dataset,
-              buildRunEdge(
-                  dsOutputToRun.get(dataset), origin, runDataMap),
-              buildRunEdge(
-                  origin, dsInputToRun.get(dataset), runDataMap)
-              );
+              buildRunEdge(dsOutputToRun.get(dataset), origin, runDataMap),
+              buildRunEdge(origin, dsInputToRun.get(dataset), runDataMap));
       nodes.add(node);
     }
 
