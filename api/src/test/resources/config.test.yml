@@ -3,11 +3,11 @@
 server:
   applicationConnectors:
   - type: http
-    port: 8080
+    port: 8082
     httpCompliance: RFC7230_LEGACY
   adminConnectors:
   - type: http
-    port: 8081
+    port: 8083
 
 db:
   driverClass: org.postgresql.Driver
