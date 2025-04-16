@@ -1,0 +1,59 @@
+package marquez.service.models;
+
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.google.common.collect.ImmutableSet;
+import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
+import java.util.Set;
+import java.util.UUID;
+import javax.annotation.Nullable;
+import lombok.NonNull;
+import lombok.Value;
+import lombok.With;
+import marquez.common.models.DatasetId;
+import marquez.common.models.RunState;
+
+@Value
+@With
+public class RunData implements NodeData {
+  @NonNull UUID uuid;
+  @NonNull Instant createdAt;
+  @NonNull Instant updatedAt;
+  @Nullable Instant startedAt;
+  @Nullable Instant endedAt;
+  @NonNull RunState state;
+  @NonNull UUID jobUuid;
+  @Nullable UUID jobVersionUuid;
+  @NonNull String namespaceName;
+  @NonNull String jobName;
+  @NonNull List<UUID> inputUuids;
+  @NonNull List<UUID> outputUuids;
+  int depth;
+  @Nullable UUID parentRunUuid;
+  @With @Nullable ImmutableSet<DatasetId> inputs;
+  @With @Nullable ImmutableSet<DatasetId> outputs;
+
+  public Optional<Instant> getStartedAt() {
+    return Optional.ofNullable(startedAt);
+  }
+
+  public Optional<Instant> getEndedAt() {
+    return Optional.ofNullable(endedAt);
+  }
+
+  @JsonIgnore
+  public UUID getUuid() {
+    return uuid;
+  }
+
+  @JsonIgnore
+  public Set<UUID> getInputUuids() {
+    return ImmutableSet.copyOf(inputUuids);
+  }
+
+  @JsonIgnore
+  public Set<UUID> getOutputUuids() {
+    return ImmutableSet.copyOf(outputUuids);
+  }
+}

@@ -1,10 +1,11 @@
 server:
   applicationConnectors:
     - type: http
-      port: 5000
+      port: ${MARQUEZ_PORT:-5000}
+      httpCompliance: RFC7230_LEGACY
   adminConnectors:
     - type: http
-      port: 5001
+      port: ${MARQUEZ_ADMIN_PORT:-5001}
 
 db:
   driverClass: org.postgresql.Driver
@@ -12,15 +13,28 @@ db:
   user: marquez
   password: marquez
 
+migrateOnStartup: true
+
+graphql:
+  enabled: true
+
 logging:
   level: DEBUG
   appenders:
     - type: console
-      threshold: DEBUG
   loggers:
     marquez.db: DEBUG
     marquez.service: DEBUG
     marquez: DEBUG
     org.eclipse.jetty: INFO
     org.jdbi: DEBUG
-    org.postgresql: DEBUG     
+    org.postgresql: DEBUG
+
+search:
+  enabled: false
+
+tags:
+  - name: PII
+    description: Personally identifiable information
+  - name: SENSITIVE
+    description: Contains sensitive information     

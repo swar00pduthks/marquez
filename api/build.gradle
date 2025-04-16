@@ -74,6 +74,7 @@ dependencies {
     implementation 'org.flywaydb:flyway-core:8.5.13'
     implementation "org.postgresql:postgresql:${postgresqlVersion}"
     implementation "io.openlineage:openlineage-java:0.30.1"
+    implementation 'org.apache.httpcomponents:httpclient:4.5.14'
 
     implementation 'org.opensearch.client:opensearch-rest-client:2.11.1'
     implementation 'org.opensearch.client:opensearch-java:2.11.1'
@@ -86,7 +87,6 @@ dependencies {
     testImplementation "org.junit.vintage:junit-vintage-engine:${junit5Version}"
     testImplementation "org.testcontainers:postgresql:${testcontainersVersion}"
     testImplementation "org.testcontainers:junit-jupiter:${testcontainersVersion}"
-    testImplementation 'org.apache.httpcomponents:httpclient:4.5.14'
     testImplementation "org.junit.jupiter:junit-jupiter-api:${junit5Version}"
     testImplementation "org.junit.jupiter:junit-jupiter-engine:${junit5Version}"
     testImplementation "org.junit.jupiter:junit-jupiter-params:${junit5Version}"
@@ -205,12 +205,13 @@ shadowJar {
         include 'LICENSE'
     }
     mergeServiceFiles()
+    // Include all dependencies by default
     dependencies {
-        include(dependency('jakarta.platform:jakarta.jakartaee-api'))
-        include(dependency('jakarta.platform:jakarta.jakartaee-bom'))
-        include(dependency('jakarta.annotation:jakarta.annotation-api'))
-        include(dependency('jakarta.validation:jakarta.validation-api'))
-        include(dependency('io.dropwizard:dropwizard-jdbi3'))
+        // Exclude test dependencies
+        exclude(dependency('org.junit:.*'))
+        exclude(dependency('org.testcontainers:.*'))
+        exclude(dependency('org.junit.jupiter:.*'))
+        exclude(dependency('org.junit.vintage:.*'))
     }
     manifest {
         attributes(
