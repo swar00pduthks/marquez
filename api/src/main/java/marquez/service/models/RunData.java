@@ -12,6 +12,8 @@ import lombok.NonNull;
 import lombok.Value;
 import lombok.With;
 import marquez.common.models.DatasetId;
+import marquez.common.models.InputDatasetVersion;
+import marquez.common.models.OutputDatasetVersion;
 import marquez.common.models.RunState;
 
 @Value
@@ -30,9 +32,12 @@ public class RunData implements NodeData {
   @NonNull List<UUID> inputUuids;
   @NonNull List<UUID> outputUuids;
   int depth;
-  @Nullable UUID parentRunUuid;
   @With @Nullable ImmutableSet<DatasetId> inputs;
   @With @Nullable ImmutableSet<DatasetId> outputs;
+  @Nullable List<InputDatasetVersion> inputDatasetVersions;
+  @Nullable List<OutputDatasetVersion> outputDatasetVersions;
+  @Nullable List<UUID> childRunIds;
+  @Nullable List<UUID> parentRunIds;
 
   public Optional<Instant> getStartedAt() {
     return Optional.ofNullable(startedAt);

@@ -260,7 +260,16 @@ WITH RECURSIVE
       dvin.dataset_uuid AS input_dataset_uuid,
       dvout.uuid AS output_version_uuid,
       dvout.dataset_uuid AS output_dataset_uuid,
-      r.parent_run_uuid
+      dvin.namespace_name AS input_dataset_namespace,
+    dvin.dataset_name AS input_dataset_name,
+    dvin.version AS input_dataset_version,
+    dvin.uuid AS input_dataset_version_uuid,
+	dvout.namespace_name AS output_dataset_namespace,
+    dvout.dataset_name AS output_dataset_name,
+    dvout.version AS output_dataset_version,
+    dvout.uuid AS output_dataset_version_uuid,
+    r.uuid as uuid,
+	r.parent_run_uuid as parent_run_uuid
     FROM runs r
     LEFT JOIN runs_input_mapping rim ON rim.run_uuid = r.uuid
     LEFT JOIN dataset_versions dvin ON dvin.uuid = rim.dataset_version_uuid
@@ -295,14 +304,24 @@ SELECT
   job_version_uuid,
   namespace_name,
   job_name,
-  ARRAY_AGG(DISTINCT input_dataset_uuid) FILTER (WHERE input_dataset_uuid IS NOT NULL) AS input_uuids,
-  ARRAY_AGG(DISTINCT output_dataset_uuid) FILTER (WHERE output_dataset_uuid IS NOT NULL) AS output_uuids,
-  MIN(depth) AS depth,
-  parent_run_uuid
+  COALESCE(ARRAY_AGG(DISTINCT input_dataset_uuid) FILTER (WHERE input_dataset_uuid IS NOT NULL), Array[]::uuid[]) AS input_uuids,
+  COALESCE(ARRAY_AGG(DISTINCT output_dataset_uuid) FILTER (WHERE output_dataset_uuid IS NOT NULL), Array[]::uuid[]) AS output_uuids,
+  JSON_AGG(json_build_object('namespace', input_dataset_namespace,
+              'name', input_dataset_name,
+              'version', input_dataset_version,
+              'dataset_version_uuid', input_dataset_version_uuid)) AS input_versions,
+  JSON_AGG(json_build_object('namespace', output_dataset_namespace,
+                                                      'name', output_dataset_name,
+                                                      'version', output_dataset_version,
+                                                      'dataset_version_uuid', output_dataset_version_uuid
+                                                      )) AS output_versions,
+  COALESCE(Array_AGG(distinct uuid) FILTER (WHERE uuid IS NOT NULL), Array[]::uuid[]) as child_run_id,
+  COALESCE(Array_AGG(distinct parent_run_uuid) FILTER (WHERE parent_run_uuid IS NOT NULL), Array[]::uuid[]) as parent_run_id,
+  MIN(depth) AS depth
 FROM lineage
 GROUP BY
   run_uuid, created_at, updated_at, started_at, ended_at,
-  state, job_uuid, job_version_uuid, namespace_name, job_name, parent_run_uuid
+  state, job_uuid, job_version_uuid, namespace_name, job_name
 """)
   Set<RunData> getRunLineage(@BindList("runIds") Set<UUID> runIds, @Bind("depth") int depth);
 
@@ -341,67 +360,86 @@ GROUP BY
   @SqlQuery(
       """
      WITH RECURSIVE
-  run_io AS (
-    SELECT DISTINCT
-COALESCE(r.parent_run_uuid,r.uuid) AS run_uuid,
-rp.namespace_name,
-rp.job_name,
-rp.current_run_state AS state,
-rp.created_at,
-rp.updated_at,
-rp.started_at,
-rp.ended_at,
-rp.job_uuid,
-rp.job_version_uuid,
-rim.dataset_version_uuid AS input_version_uuid,
-dvin.dataset_uuid AS input_dataset_uuid,
-dvout.uuid AS output_version_uuid,
-dvout.dataset_uuid AS output_dataset_uuid,
-r.uuid AS parent_run_uuid
-FROM runs r
-LEFT JOIN runs_input_mapping rim ON rim.run_uuid = r.uuid
-LEFT JOIN dataset_versions dvin ON dvin.uuid = rim.dataset_version_uuid
-LEFT JOIN dataset_versions dvout ON dvout.run_uuid = r.uuid
-LEFT JOIN runs rp ON rp.uuid=r.parent_run_uuid
-where r.parent_run_uuid is not null
-  ),
-  lineage AS (
-    SELECT
-      *,
-      0 AS depth
-    FROM run_io
-    WHERE run_uuid IN (<runIds>)
+      run_io AS (
+        SELECT DISTINCT
+    COALESCE(r.parent_run_uuid,r.uuid) AS run_uuid,
+    rp.namespace_name,
+    rp.job_name,
+    rp.current_run_state AS state,
+    rp.created_at,
+    rp.updated_at,
+    rp.started_at,
+    rp.ended_at,
+    rp.job_uuid,
+    rp.job_version_uuid,
+    rim.dataset_version_uuid AS input_version_uuid,
+    dvin.dataset_uuid AS input_dataset_uuid,
+    dvout.uuid AS output_version_uuid,
+    dvout.dataset_uuid AS output_dataset_uuid,
+	  dvin.namespace_name AS input_dataset_namespace,
+    dvin.dataset_name AS input_dataset_name,
+    dvin.version AS input_dataset_version,
+    dvin.uuid AS input_dataset_version_uuid,
+	  dvout.namespace_name AS output_dataset_namespace,
+    dvout.dataset_name AS output_dataset_name,
+    dvout.version AS output_dataset_version,
+    dvout.uuid AS output_dataset_version_uuid,
+    r.uuid as uuid,
+    r.parent_run_uuid as parent_run_uuid
+  FROM runs r
+  LEFT JOIN runs_input_mapping rim ON rim.run_uuid = r.uuid
+  LEFT JOIN dataset_versions dvin ON dvin.uuid = rim.dataset_version_uuid
+  LEFT JOIN dataset_versions dvout ON dvout.run_uuid = r.uuid
+  LEFT JOIN runs rp ON rp.uuid=r.parent_run_uuid
+  where r.parent_run_uuid is not null
+      ),
+      lineage AS (
+        SELECT
+          *,
+          0 AS depth
+        FROM run_io
+        WHERE run_uuid IN (<runIds>)
 
-    UNION ALL
+        UNION ALL
 
+        SELECT
+          io.*,
+          l.depth + 1
+        FROM run_io io
+        JOIN lineage l
+          ON (io.input_version_uuid = l.output_version_uuid OR io.output_version_uuid = l.input_version_uuid)
+         AND io.run_uuid != l.run_uuid
+        WHERE l.depth < :depth
+      )
     SELECT
-      io.*,
-      l.depth + 1
-    FROM run_io io
-    JOIN lineage l
-      ON (io.input_version_uuid = l.output_version_uuid OR io.output_version_uuid = l.input_version_uuid)
-     AND io.run_uuid != l.run_uuid
-    WHERE l.depth < :depth
-  )
-SELECT
-  run_uuid AS uuid,
-  created_at,
-  updated_at,
-  started_at,
-  ended_at,
-  state,
-  job_uuid,
-  job_version_uuid,
-  namespace_name,
-  job_name,
-  ARRAY_AGG(DISTINCT input_dataset_uuid) FILTER (WHERE input_dataset_uuid IS NOT NULL) AS input_uuids,
-  ARRAY_AGG(DISTINCT output_dataset_uuid) FILTER (WHERE output_dataset_uuid IS NOT NULL) AS output_uuids,
-  MIN(depth) AS depth,
-parent_run_uuid AS parent_run_uuid
-FROM lineage
-GROUP BY
-  run_uuid, created_at, updated_at, started_at, ended_at,
-  state, job_uuid, job_version_uuid, namespace_name, job_name,parent_run_uuid
+      run_uuid AS uuid,
+      created_at,
+      updated_at,
+      started_at,
+      ended_at,
+      state,
+      job_uuid,
+      job_version_uuid,
+      namespace_name,
+      job_name,
+      COALESCE(ARRAY_AGG(DISTINCT input_dataset_uuid) FILTER (WHERE input_dataset_uuid IS NOT NULL), Array[]::uuid[]) AS input_uuids,
+      COALESCE(ARRAY_AGG(DISTINCT output_dataset_uuid) FILTER (WHERE output_dataset_uuid IS NOT NULL), Array[]::uuid[]) AS output_uuids,
+	  JSON_AGG(json_build_object('namespace', input_dataset_namespace,
+              'name', input_dataset_name,
+              'version', input_dataset_version,
+              'dataset_version_uuid', input_dataset_version_uuid)) AS input_versions,
+	  JSON_AGG(json_build_object('namespace', output_dataset_namespace,
+                                                      'name', output_dataset_name,
+                                                      'version', output_dataset_version,
+                                                      'dataset_version_uuid', output_dataset_version_uuid
+                                                      )) AS output_versions,
+	COALESCE(Array_AGG(distinct uuid) as child_run_id, Array[]::uuid[]) as child_run_id,
+  COALESCE(Array_AGG(distinct parent_run_uuid) FILTER (WHERE parent_run_uuid IS NOT NULL), Array[]::uuid[]) as parent_run_id,
+      MIN(depth) AS depth
+    FROM lineage
+    GROUP BY
+      run_uuid, created_at, updated_at, started_at, ended_at,
+      state, job_uuid, job_version_uuid, namespace_name, job_name
     """)
   Set<RunData> getParentRunLineage(
       @BindList(value = "runIds", onEmpty = BindList.EmptyHandling.NULL_STRING) Set<UUID> runIds,
