@@ -175,7 +175,8 @@ public final class NodeId implements Comparable<NodeId> {
 
   @JsonIgnore
   public boolean isDatasetVersionType() {
-    return value.startsWith(ID_PREFX_DATASET) && hasVersion();
+    System.out.println("checking if: " + value + " is dataset version type");
+    return value.startsWith(ID_PREFX_DATASET + ID_DELIM) && hasVersion();
   }
 
   @JsonIgnore

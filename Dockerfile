@@ -24,7 +24,7 @@ COPY api ./api
 RUN ls -la api
 COPY clients/java ./clients/java
 RUN ls -la clients/java
-RUN ./gradlew --no-daemon clean :api:shadowJar
+RUN ./gradlew clean :api:shadowJar --no-daemon --refresh-dependencies
 
 FROM eclipse-temurin:17
 RUN apt-get update && apt-get install -y postgresql-client bash coreutils dos2unix

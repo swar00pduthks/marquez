@@ -72,29 +72,25 @@ public class LineageService extends DelegatingLineageDao {
   // TODO make input parameters easily extendable if adding more options like 'withJobFacets'
   public Lineage lineage(NodeId nodeId, int depth) {
     log.debug("Attempting to get lineage for node '{}' with depth '{}'", nodeId.getValue(), depth);
-    Optional<UUID> optionalUUID = getJobUuid(nodeId);
-    if (optionalUUID.isEmpty()) {
-      log.warn(
-          "Failed to get job associated with node '{}', returning orphan graph...",
-          nodeId.getValue());
-      return toLineageWithOrphanDataset(nodeId.asDatasetId());
-    }
 
-    if (nodeId.isRunType()) {
-      UUID runId = nodeId.asRunId().getValue();
-      log.debug("Attempting to get lineage for run '{}'", runId);
+    if (nodeId.isRunType() || nodeId.isDatasetVersionType()) {
+      Set<UUID> runIds =
+          nodeId.isRunType()
+              ? Set.of(nodeId.asRunId().getValue())
+              : runDao.findRunFromDatasetVersionUuids(nodeId.asDatasetVersionId().getVersion());
+      log.debug("Attempting to get lineage for run '{}'", runIds);
 
-      boolean hasChildren = this.hasChildRuns(runId);
-      log.debug("Run '{}' has children: {}", runId, hasChildren);
+      boolean hasChildren = this.hasChildRuns(runIds);
+      log.debug("Run '{}' has children: {}", runIds, hasChildren);
       Set<RunData> runData;
 
       if (hasChildren) {
-        runData = getParentRunLineage(Set.of(runId), depth);
+        runData = getParentRunLineage(runIds, depth);
       } else {
-        runData = getRunLineage(Set.of(runId), depth);
+        runData = getRunLineage(runIds, depth);
       }
       System.out.println("runData: " + runData);
-      log.debug("Retrieved run data for '{}': {}", runId, runData);
+      log.debug("Retrieved run data for '{}': {}", runIds, runData);
 
       if (runData.isEmpty()) {
         log.warn("Failed to get lineage for run '{}', returning empty graph...", nodeId.getValue());
@@ -104,6 +100,13 @@ public class LineageService extends DelegatingLineageDao {
       return toRunLineage(runData);
     } else {
 
+      Optional<UUID> optionalUUID = getJobUuid(nodeId);
+      if (optionalUUID.isEmpty()) {
+        log.warn(
+            "Failed to get job associated with node '{}', returning orphan graph...",
+            nodeId.getValue());
+        return toLineageWithOrphanDataset(nodeId.asDatasetId());
+      }
       UUID job = optionalUUID.get();
       log.debug("Attempting to get lineage for job '{}'", job);
       Set<JobData> jobData = getLineage(Collections.singleton(job), depth);

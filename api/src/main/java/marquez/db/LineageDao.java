@@ -329,10 +329,10 @@ GROUP BY
       """
       SELECT EXISTS (
           SELECT 1 FROM runs
-          WHERE parent_run_uuid = :runId
+          WHERE parent_run_uuid IN (<runIds>)
       )
       """)
-  boolean hasChildRuns(@Bind("runId") UUID runId);
+  boolean hasChildRuns(@BindList("runIds") Set<UUID> runIds);
 
   @SqlQuery("""
       SELECT parent_run_uuid FROM runs

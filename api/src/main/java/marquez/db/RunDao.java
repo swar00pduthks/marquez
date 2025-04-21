@@ -520,6 +520,15 @@ public interface RunDao extends BaseDao {
       """)
   List<Run> findByLatestJob(String namespace, String jobName, int limit, int offset);
 
+  @SqlQuery(
+      """
+          SELECT dv.run_uuid AS run_uuid
+          FROM dataset_versions AS dv WHERE dv.version = :datasetVersion AND dv.run_uuid IS NOT NULL
+          UNION
+          SELECT ri.run_uuid AS run_uuid from runs_input_mapping ri where ri.dataset_version_uuid in (SELECT uuid from dataset_versions AS dv1 WHERE dv1.version=:datasetVersion)
+      """)
+  Set<UUID> findRunFromDatasetVersionUuids(UUID datasetVersion);
+
   @Builder
   record RunUpsert(
       UUID runUuid,
