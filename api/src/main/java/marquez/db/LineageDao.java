@@ -309,12 +309,12 @@ SELECT
   JSON_AGG(DISTINCT jsonb_build_object('namespace', input_dataset_namespace,
               'name', input_dataset_name,
               'version', input_dataset_version,
-              'dataset_version_uuid', input_dataset_version_uuid)) AS input_versions,
+              'dataset_version_uuid', input_dataset_version_uuid)) FILTER (WHERE input_dataset_name IS NOT NULL) AS input_versions,
   JSON_AGG(DISTINCT jsonb_build_object('namespace', output_dataset_namespace,
                                                       'name', output_dataset_name,
                                                       'version', output_dataset_version,
                                                       'dataset_version_uuid', output_dataset_version_uuid
-                                                      )) AS output_versions,
+                                                      )) FILTER (WHERE output_dataset_name IS NOT NULL) AS output_versions,
   COALESCE(Array_AGG(distinct uuid) FILTER (WHERE uuid IS NOT NULL), Array[]::uuid[]) as child_run_id,
   COALESCE(Array_AGG(distinct parent_run_uuid) FILTER (WHERE parent_run_uuid IS NOT NULL), Array[]::uuid[]) as parent_run_id,
   MIN(depth) AS depth
@@ -427,12 +427,12 @@ GROUP BY
 	  JSON_AGG(DISTINCT jsonb_build_object('namespace', input_dataset_namespace,
               'name', input_dataset_name,
               'version', input_dataset_version,
-              'dataset_version_uuid', input_dataset_version_uuid)) AS input_versions,
+              'dataset_version_uuid', input_dataset_version_uuid)) FILTER (WHERE input_dataset_name IS NOT NULL) AS input_versions,
 	  JSON_AGG(DISTINCT jsonb_build_object('namespace', output_dataset_namespace,
                                                       'name', output_dataset_name,
                                                       'version', output_dataset_version,
                                                       'dataset_version_uuid', output_dataset_version_uuid
-                                                      )) AS output_versions,
+                                                      )) FILTER (WHERE output_dataset_name IS NOT NULL) AS output_versions,
 	COALESCE(Array_AGG(distinct uuid), Array[]::uuid[]) as child_run_id,
   COALESCE(Array_AGG(distinct parent_run_uuid), Array[]::uuid[]) as parent_run_id,
       MIN(depth) AS depth
