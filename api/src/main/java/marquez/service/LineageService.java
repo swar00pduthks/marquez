@@ -24,12 +24,16 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import lombok.NonNull;
 import lombok.extern.slf4j.Slf4j;
 import marquez.common.models.DatasetId;
+import marquez.common.models.DatasetVersionId;
+import marquez.common.models.InputDatasetVersion;
 import marquez.common.models.JobId;
+import marquez.common.models.OutputDatasetVersion;
 import marquez.common.models.RunId;
 import marquez.db.JobDao;
 import marquez.db.LineageDao;
@@ -42,6 +46,7 @@ import marquez.service.DelegatingDaos.DelegatingLineageDao;
 import marquez.service.LineageService.UpstreamRunLineage;
 import marquez.service.exceptions.NodeIdNotFoundException;
 import marquez.service.models.DatasetData;
+import marquez.service.models.DatasetVersionData;
 import marquez.service.models.Edge;
 import marquez.service.models.Graph;
 import marquez.service.models.JobData;
@@ -244,6 +249,21 @@ public class LineageService extends DelegatingLineageDao {
         .collect(ImmutableSet.toImmutableSet());
   }
 
+  private ImmutableSet<DatasetVersionId> buildDatasetVersionId(
+      Set<DatasetVersionData> datasetVersionData) {
+    if (datasetVersionData == null) {
+      return ImmutableSet.of();
+    }
+    return datasetVersionData.stream()
+        .map(
+            dv ->
+                new DatasetVersionId(
+                    dv.getDatasetVersion().getNamespace(),
+                    dv.getDatasetVersion().getName(),
+                    dv.getVersion().getValue()))
+        .collect(ImmutableSet.toImmutableSet());
+  }
+
   private ImmutableSet<Edge> buildJobEdge(
       NodeId origin, Set<UUID> uuids, Map<UUID, JobData> jobDataMap) {
     if (uuids == null) {
@@ -286,8 +306,35 @@ public class LineageService extends DelegatingLineageDao {
         .collect(ImmutableSet.toImmutableSet());
   }
 
+  private ImmutableSet<Edge> buildDatasetVersionEdge(
+      Set<DatasetVersionData> datasetVersionData, NodeId nodeId) {
+    if (datasetVersionData == null) {
+      return ImmutableSet.of();
+    }
+    return datasetVersionData.stream()
+        .map(ds -> new Edge(buildEdge(ds), nodeId))
+        .collect(ImmutableSet.toImmutableSet());
+  }
+
+  private ImmutableSet<Edge> buildDatasetVersionEdge(
+      NodeId nodeId, Set<DatasetVersionData> datasetVersionData) {
+    if (datasetVersionData == null) {
+      return ImmutableSet.of();
+    }
+    return datasetVersionData.stream()
+        .map(ds -> new Edge(nodeId, buildEdge(ds)))
+        .collect(ImmutableSet.toImmutableSet());
+  }
+
   private NodeId buildEdge(DatasetData ds) {
     return NodeId.of(new DatasetId(ds.getNamespace(), ds.getName()));
+  }
+
+  private NodeId buildEdge(DatasetVersionData ds) {
+    return NodeId.of(
+        ds.getDatasetVersion().getNamespace(),
+        ds.getDatasetVersion().getName(),
+        ds.getVersion().getValue());
   }
 
   private NodeId buildEdge(JobData e) {
@@ -344,65 +391,92 @@ public class LineageService extends DelegatingLineageDao {
   private Lineage toRunLineage(Set<RunData> runData) {
     Set<Node> nodes = new LinkedHashSet<>();
 
-    Set<UUID> datasetIds =
+    Set<DatasetVersionId> datasetVersionIds =
         runData.stream()
-            .flatMap(rd -> Stream.concat(rd.getInputUuids().stream(), rd.getOutputUuids().stream()))
+            .flatMap(
+                rd ->
+                    Stream.concat(
+                        rd.getInputDatasetVersions().stream()
+                            .map(InputDatasetVersion::getDatasetVersionId),
+                        rd.getOutputDatasetVersions().stream()
+                            .map(OutputDatasetVersion::getDatasetVersionId)))
             .collect(Collectors.toSet());
-    log.debug("Dataset IDs found in run data: {}", datasetIds);
+    log.info("DatasetVersionIds found in run data: {}", datasetVersionIds);
 
-    Set<DatasetData> datasets = new HashSet<>();
-    if (!datasetIds.isEmpty()) {
-      datasets.addAll(this.getDatasetData(datasetIds));
-      log.debug("Retrieved dataset data: {}", datasets);
-    }
+    Set<DatasetVersionData> datasetVersions = new HashSet<>();
 
-    Map<UUID, DatasetData> datasetById =
-        datasets.stream().collect(Collectors.toMap(DatasetData::getUuid, Functions.identity()));
+    datasetVersions.addAll(
+        this.getDatasetVersionData(
+            datasetVersionIds.stream()
+                .map(DatasetVersionId::getVersion)
+                .collect(Collectors.toSet())));
+    log.debug("Retrieved dataset data: {}", datasetVersions);
 
-    Map<DatasetData, Set<UUID>> dsInputToRun = new HashMap<>();
-    Map<DatasetData, Set<UUID>> dsOutputToRun = new HashMap<>();
+    Map<UUID, DatasetVersionData> datasetVersionById =
+        datasetVersions.stream()
+            .filter(dv -> dv.getVersion() != null) // Avoid null keys
+            .collect(
+                Collectors.toMap(
+                    dv -> dv.getVersion().getValue(), // Use the version UUID as key
+                    Function.identity(),
+                    (existing, replacement) -> existing));
+
+    Map<DatasetVersionData, Set<UUID>> dsInputToRun = new HashMap<>();
+    Map<DatasetVersionData, Set<UUID>> dsOutputToRun = new HashMap<>();
 
     Map<UUID, RunData> runDataMap = Maps.uniqueIndex(runData, RunData::getUuid);
     for (RunData data : runData) {
       log.debug("Processing run data: {}", data);
-      Set<DatasetData> inputs =
-          data.getInputUuids().stream()
-              .map(datasetById::get)
+      Set<DatasetVersionData> inputs =
+          data.getInputDatasetVersions().stream()
+              .map(InputDatasetVersion::getDatasetVersionId)
+              .map(DatasetVersionId::getVersion)
+              .map(datasetVersionById::get)
               .filter(Objects::nonNull)
               .collect(Collectors.toSet());
-      Set<DatasetData> outputs =
-          data.getOutputUuids().stream()
-              .map(datasetById::get)
+
+      Set<DatasetVersionData> outputs =
+          data.getOutputDatasetVersions().stream()
+              .map(OutputDatasetVersion::getDatasetVersionId)
+              .map(DatasetVersionId::getVersion)
+              .map(datasetVersionById::get)
               .filter(Objects::nonNull)
               .collect(Collectors.toSet());
       log.debug("Run '{}' inputs: {}, outputs: {}", data.getUuid(), inputs, outputs);
 
-      final RunData updatedData =
-          data.withInputs(buildDatasetId(inputs)).withOutputs(buildDatasetId(outputs));
-
       inputs.forEach(
-          ds -> dsInputToRun.computeIfAbsent(ds, e -> new HashSet<>()).add(updatedData.getUuid()));
+          ds -> dsInputToRun.computeIfAbsent(ds, e -> new HashSet<>()).add(data.getUuid()));
       outputs.forEach(
-          ds -> dsOutputToRun.computeIfAbsent(ds, e -> new HashSet<>()).add(updatedData.getUuid()));
+          ds -> dsOutputToRun.computeIfAbsent(ds, e -> new HashSet<>()).add(data.getUuid()));
 
-      NodeId origin = NodeId.of(RunId.of(updatedData.getUuid()));
+      NodeId origin = NodeId.of(RunId.of(data.getUuid()));
+      log.info(
+          "dsInputToRun: {}, dsOutputToRun: {}, runDataMap: {}",
+          dsInputToRun,
+          dsOutputToRun,
+          runDataMap);
       Node node =
           new Node(
               origin,
               NodeType.RUN,
-              updatedData,
-              buildDatasetEdge(inputs, origin),
-              buildDatasetEdge(origin, outputs));
-      log.debug("Created node for run '{}': {}", updatedData.getUuid(), node);
+              data,
+              buildDatasetVersionEdge(inputs, origin),
+              buildDatasetVersionEdge(origin, outputs));
+      log.debug("Created node for run '{}': {}", data.getUuid(), node);
       nodes.add(node);
     }
 
-    for (DatasetData dataset : datasets) {
-      NodeId origin = NodeId.of(new DatasetId(dataset.getNamespace(), dataset.getName()));
+    for (DatasetVersionData dataset : datasetVersions) {
+      NodeId origin =
+          NodeId.of(
+              new DatasetVersionId(
+                  dataset.getDatasetVersion().getNamespace(),
+                  dataset.getDatasetVersion().getName(),
+                  dataset.getVersion().getValue()));
       Node node =
           new Node(
               origin,
-              NodeType.DATASET,
+              NodeType.DATASET_VERSION,
               dataset,
               buildRunEdge(dsOutputToRun.get(dataset), origin, runDataMap),
               buildRunEdge(origin, dsInputToRun.get(dataset), runDataMap));

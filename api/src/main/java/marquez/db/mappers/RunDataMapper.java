@@ -7,6 +7,7 @@ import static marquez.db.Columns.timestampOrThrow;
 import static marquez.db.Columns.uuidArrayOrEmpty;
 import static marquez.db.Columns.uuidOrNull;
 import static marquez.db.Columns.uuidOrThrow;
+import static marquez.db.mappers.MapperUtils.toFacetsOrNull;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -27,6 +28,8 @@ import marquez.common.Utils;
 import marquez.common.models.DatasetName;
 import marquez.common.models.DatasetVersionId;
 import marquez.common.models.InputDatasetVersion;
+import marquez.common.models.JobName;
+import marquez.common.models.JobVersionId;
 import marquez.common.models.NamespaceName;
 import marquez.common.models.OutputDatasetVersion;
 import marquez.common.models.RunState;
@@ -52,6 +55,7 @@ public class RunDataMapper implements RowMapper<RunData> {
         columnNames.contains(Columns.OUTPUT_VERSIONS)
             ? toQueryDatasetVersion(results, Columns.OUTPUT_VERSIONS)
             : ImmutableList.of();
+
     return new RunData(
         uuidOrThrow(results, Columns.ROW_UUID),
         timestampOrThrow(results, Columns.CREATED_AT),
@@ -60,9 +64,10 @@ public class RunDataMapper implements RowMapper<RunData> {
         timestampOrNull(results, Columns.ENDED_AT),
         RunState.valueOf(stringOrThrow(results, Columns.STATE)),
         uuidOrThrow(results, Columns.JOB_UUID),
-        uuidOrNull(results, Columns.JOB_VERSION_UUID),
-        stringOrThrow(results, Columns.NAMESPACE_NAME),
-        stringOrThrow(results, Columns.JOB_NAME),
+        toJobVersionId(
+            stringOrThrow(results, Columns.NAMESPACE_NAME),
+            stringOrThrow(results, Columns.JOB_NAME),
+            uuidOrNull(results, Columns.JOB_VERSION_UUID)),
         ImmutableList.copyOf(uuidArrayOrEmpty(results, "input_uuids")),
         ImmutableList.copyOf(uuidArrayOrEmpty(results, "output_uuids")),
         results.getInt("depth"),
@@ -71,7 +76,8 @@ public class RunDataMapper implements RowMapper<RunData> {
         toInputDatasetVersions(results, inputDatasetVersions, true),
         toOutputDatasetVersions(results, outputDatasetVersions, false),
         ImmutableList.copyOf(uuidArrayOrEmpty(results, "child_run_id")),
-        ImmutableList.copyOf(uuidArrayOrEmpty(results, "parent_run_id")));
+        ImmutableList.copyOf(uuidArrayOrEmpty(results, "parent_run_id")),
+        toFacetsOrNull(results, Columns.FACETS));
   }
 
   private List<QueryDatasetVersion> toQueryDatasetVersion(ResultSet rs, String column)
@@ -162,11 +168,29 @@ public class RunDataMapper implements RowMapper<RunData> {
       String namespace,
       String name,
       UUID version,
+
       // field required to merge input versions with input dataset facets
       @JsonProperty("dataset_version_uuid") String datasetVersionUUID) {
     public DatasetVersionId toDatasetVersionId() {
       return DatasetVersionId.builder()
           .name(DatasetName.of(name))
+          .namespace(NamespaceName.of(namespace))
+          .version(datasetVersionUUID != null ? UUID.fromString(datasetVersionUUID) : version)
+          .build();
+    }
+  }
+
+  public JobVersionId toJobVersionId(String namespace, String name, UUID version) {
+    if (version == null || name == null || namespace == null) {
+      log.info(
+          "JobVersionId is null for job name: {}, namespace: {}, version: {}",
+          name,
+          namespace,
+          version);
+      return null;
+    } else {
+      return JobVersionId.builder()
+          .name(JobName.of(name))
           .namespace(NamespaceName.of(namespace))
           .version(version)
           .build();

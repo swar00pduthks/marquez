@@ -6,6 +6,7 @@
 package marquez.service.models;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import com.google.common.collect.ImmutableList;
@@ -97,6 +98,7 @@ public abstract class DatasetVersion {
     return Optional.ofNullable(currentSchemaVersion);
   }
 
+  @JsonInclude(JsonInclude.Include.NON_NULL)
   public Optional<Run> getCreatedByRun() {
     return Optional.ofNullable(createdByRun);
   }

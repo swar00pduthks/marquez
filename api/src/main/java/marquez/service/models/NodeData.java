@@ -15,6 +15,7 @@ import marquez.db.models.InputFieldNodeData;
   @JsonSubTypes.Type(DatasetData.class),
   @JsonSubTypes.Type(JobData.class),
   @JsonSubTypes.Type(ColumnLineageNodeData.class),
-  @JsonSubTypes.Type(InputFieldNodeData.class)
+  @JsonSubTypes.Type(InputFieldNodeData.class),
+  @JsonSubTypes.Type(RunData.class)
 })
 public interface NodeData {}

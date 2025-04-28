@@ -1,6 +1,7 @@
 package marquez.service.models;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import java.time.Instant;
 import java.util.List;
@@ -13,6 +14,7 @@ import lombok.Value;
 import lombok.With;
 import marquez.common.models.DatasetId;
 import marquez.common.models.InputDatasetVersion;
+import marquez.common.models.JobVersionId;
 import marquez.common.models.OutputDatasetVersion;
 import marquez.common.models.RunState;
 
@@ -26,9 +28,7 @@ public class RunData implements NodeData {
   @Nullable Instant endedAt;
   @NonNull RunState state;
   @NonNull UUID jobUuid;
-  @Nullable UUID jobVersionUuid;
-  @NonNull String namespaceName;
-  @NonNull String jobName;
+  @Nullable JobVersionId jobVersionId;
   @NonNull List<UUID> inputUuids;
   @NonNull List<UUID> outputUuids;
   int depth;
@@ -38,6 +38,7 @@ public class RunData implements NodeData {
   @Nullable List<OutputDatasetVersion> outputDatasetVersions;
   @Nullable List<UUID> childRunIds;
   @Nullable List<UUID> parentRunIds;
+  @Nullable ImmutableMap<String, Object> facets;
 
   public Optional<Instant> getStartedAt() {
     return Optional.ofNullable(startedAt);
@@ -47,7 +48,6 @@ public class RunData implements NodeData {
     return Optional.ofNullable(endedAt);
   }
 
-  @JsonIgnore
   public UUID getUuid() {
     return uuid;
   }
