@@ -522,12 +522,22 @@ public interface RunDao extends BaseDao {
 
   @SqlQuery(
       """
-          SELECT dv.run_uuid AS run_uuid
+          SELECT distinct dv.run_uuid AS run_uuid
           FROM dataset_versions AS dv WHERE dv.uuid = :datasetVersion AND dv.run_uuid IS NOT NULL
-          UNION
+          UNION ALL
           SELECT ri.run_uuid AS run_uuid from runs_input_mapping ri where ri.dataset_version_uuid = :datasetVersion
       """)
   Set<UUID> findRunFromDatasetVersionUuids(UUID datasetVersion);
+
+  @SqlQuery(
+      """
+        select distinct parent_run_uuid as run_uuid from runs where uuid in (
+		  SELECT dv.run_uuid AS run_uuid
+          FROM dataset_versions AS dv WHERE dv.uuid = :datasetVersion AND dv.run_uuid IS NOT NULL
+          UNION ALL
+          SELECT ri.run_uuid AS run_uuid from runs_input_mapping ri where ri.dataset_version_uuid = :datasetVersion)
+    """)
+  Set<UUID> findParentRunFromDatasetVersionUuids(UUID datasetVersion);
 
   @Builder
   record RunUpsert(

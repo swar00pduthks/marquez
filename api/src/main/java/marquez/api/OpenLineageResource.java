@@ -117,9 +117,10 @@ public class OpenLineageResource extends BaseResource {
   @Path("/lineage")
   public Response getLineage(
       @QueryParam("nodeId") @NotNull NodeId nodeId,
-      @QueryParam("depth") @DefaultValue(DEFAULT_DEPTH) int depth) {
+      @QueryParam("depth") @DefaultValue(DEFAULT_DEPTH) int depth,
+      @QueryParam("aggregateToParentRun") @DefaultValue("false") boolean aggregateToParentRun) {
     throwIfNotExists(nodeId);
-    return Response.ok(lineageService.lineage(nodeId, depth)).build();
+    return Response.ok(lineageService.lineage(nodeId, depth, aggregateToParentRun)).build();
   }
 
   @Timed

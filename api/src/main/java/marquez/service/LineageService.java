@@ -75,21 +75,24 @@ public class LineageService extends DelegatingLineageDao {
   }
 
   // TODO make input parameters easily extendable if adding more options like 'withJobFacets'
-  public Lineage lineage(NodeId nodeId, int depth) {
+  public Lineage lineage(NodeId nodeId, int depth, boolean aggregateToParentRun) {
     log.debug("Attempting to get lineage for node '{}' with depth '{}'", nodeId.getValue(), depth);
 
     if (nodeId.isRunType() || nodeId.isDatasetVersionType()) {
       Set<UUID> runIds =
           nodeId.isRunType()
               ? Set.of(nodeId.asRunId().getValue())
-              : runDao.findRunFromDatasetVersionUuids(nodeId.asDatasetVersionId().getVersion());
+              : aggregateToParentRun
+                  ? runDao.findParentRunFromDatasetVersionUuids(
+                      nodeId.asDatasetVersionId().getVersion())
+                  : runDao.findRunFromDatasetVersionUuids(nodeId.asDatasetVersionId().getVersion());
       log.debug("Attempting to get lineage for run '{}'", runIds);
 
       boolean hasChildren = this.hasChildRuns(runIds);
       log.debug("Run '{}' has children: {}", runIds, hasChildren);
       Set<RunData> runData;
 
-      if (hasChildren) {
+      if (hasChildren && aggregateToParentRun) {
         runData = getParentRunLineage(runIds, depth);
       } else {
         runData = getRunLineage(runIds, depth);
