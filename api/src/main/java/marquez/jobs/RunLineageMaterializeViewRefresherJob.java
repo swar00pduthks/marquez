@@ -52,8 +52,8 @@ public class RunLineageMaterializeViewRefresherJob extends AbstractScheduledServ
       log.info("Refreshing run lineage materialized views...");
       jdbi.useHandle(
           handle -> {
-            handle.execute("REFRESH MATERIALIZED VIEW dataset_version_runs_view");
-            log.info("Materialized view `dataset_version_runs_view` refreshed.");
+            handle.execute("REFRESH MATERIALIZED VIEW run_lineage_view");
+            log.info("Materialized view `run_lineage_view` refreshed.");
 
             handle.execute("REFRESH MATERIALIZED VIEW parent_run_lineage_view");
             log.info("Materialized view `parent_run_lineage_view` refreshed.");
