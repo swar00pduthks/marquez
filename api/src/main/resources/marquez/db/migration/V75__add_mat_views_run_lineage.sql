@@ -29,7 +29,7 @@ FROM runs r
 LEFT JOIN runs_input_mapping rim ON rim.run_uuid = r.uuid
 LEFT JOIN dataset_versions dvin ON dvin.uuid = rim.dataset_version_uuid
 LEFT JOIN dataset_versions dvout ON dvout.run_uuid = r.uuid
-LEFT JOIN run_facets_view rf ON rf.run_uuid = r.uuid;
+LEFT JOIN run_facets rf ON rf.run_uuid = r.uuid;
 
 CREATE MATERIALIZED VIEW IF NOT EXISTS run_parent_lineage_view AS
 SELECT DISTINCT
@@ -63,7 +63,7 @@ SELECT DISTINCT
   LEFT JOIN dataset_versions dvin ON dvin.uuid = rim.dataset_version_uuid
   LEFT JOIN dataset_versions dvout ON dvout.run_uuid = r.uuid
   LEFT JOIN runs rp ON rp.uuid=r.parent_run_uuid
-  LEFT JOIN run_facets_view rf ON rf.run_uuid=r.uuid
+  LEFT JOIN run_facets rf ON rf.run_uuid=r.uuid
   where r.parent_run_uuid is not null;
 
   CREATE INDEX IF NOT EXISTS idx_rpl_view_input_version_uuid ON run_parent_lineage_view USING btree (input_version_uuid);
