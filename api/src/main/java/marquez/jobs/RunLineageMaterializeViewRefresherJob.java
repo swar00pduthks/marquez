@@ -25,14 +25,12 @@ public class RunLineageMaterializeViewRefresherJob extends AbstractScheduledServ
   public RunLineageMaterializeViewRefresherJob(@NonNull final Jdbi jdbi) {
     this.jdbi = jdbi;
 
-    // Define fixed schedule and delay until the next 10-minute mark
-    int MINUTES_IN_HOUR = 60;
-    LocalTime now = LocalTime.now();
-    int minutesRemaining =
-        MINUTES_IN_HOUR - (now.getMinute() % 10); // Get remaining minutes until next 10-minute mark
-    Duration duration = Duration.ofMinutes(minutesRemaining);
-    this.fixedRateScheduler =
-        Scheduler.newFixedRateSchedule(duration, Duration.ofMinutes(FREQUENCY));
+    // Define fixed schedule to run every 10 minutes
+    this.fixedRateScheduler = Scheduler.newFixedRateSchedule(
+        Duration.ZERO,  // Start immediately
+        Duration.ofMinutes(FREQUENCY)  // Then run every 10 minutes
+    );
+    log.info("Initialized RunLineageMaterializeViewRefresherJob with frequency: {} minutes", FREQUENCY);
   }
 
   @Override
@@ -42,25 +40,29 @@ public class RunLineageMaterializeViewRefresherJob extends AbstractScheduledServ
 
   @Override
   public void start() throws Exception {
+    log.info("Starting RunLineageMaterializeViewRefresherJob...");
     startAsync().awaitRunning();
-    log.info("Refreshing run lineage materialized views every '{}' mins.", FREQUENCY);
+    log.info("RunLineageMaterializeViewRefresherJob started successfully. Will refresh views every '{}' mins.", FREQUENCY);
   }
 
   @Override
   protected void runOneIteration() {
     try {
-      log.info("Refreshing run lineage materialized views...");
+      log.info("RunLineageMaterializeViewRefresherJob: Starting iteration at {}", LocalTime.now());
       jdbi.useHandle(
           handle -> {
+            log.info("RunLineageMaterializeViewRefresherJob: Refreshing run_lineage_view...");
             handle.execute("REFRESH MATERIALIZED VIEW run_lineage_view");
-            log.info("Materialized view `run_lineage_view` refreshed.");
+            log.info("RunLineageMaterializeViewRefresherJob: Materialized view `run_lineage_view` refreshed.");
 
-            handle.execute("REFRESH MATERIALIZED VIEW parent_run_lineage_view");
-            log.info("Materialized view `parent_run_lineage_view` refreshed.");
+            log.info("RunLineageMaterializeViewRefresherJob: Refreshing parent_run_lineage_view...");
+            handle.execute("REFRESH MATERIALIZED VIEW run_parent_lineage_view");
+            log.info("RunLineageMaterializeViewRefresherJob: Materialized view `parent_run_lineage_view` refreshed.");
           });
+      log.info("RunLineageMaterializeViewRefresherJob: Completed iteration successfully");
 
     } catch (Exception error) {
-      log.error("Failed to refresh run lineage materialized views. Retrying on next run...", error);
+      log.error("RunLineageMaterializeViewRefresherJob: Failed to refresh run lineage materialized views. Error: {}", error.getMessage(), error);
     }
   }
 
