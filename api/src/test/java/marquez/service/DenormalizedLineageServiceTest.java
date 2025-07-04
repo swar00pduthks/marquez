@@ -361,7 +361,8 @@ public class DenormalizedLineageServiceTest {
                   .one();
           assertThat(runLineageCount).isGreaterThan(0);
 
-          // Check run_parent_lineage_denormalized (should have parent run data with child aggregation)
+          // Check run_parent_lineage_denormalized (should have parent run data with child
+          // aggregation)
           Long parentLineageCount =
               handle
                   .createQuery(
@@ -602,27 +603,58 @@ public class DenormalizedLineageServiceTest {
     // Then: Verify run_date column is populated correctly
     jdbi.useHandle(
         handle -> {
-          // Get the run_date from the denormalized table
-          java.sql.Date runDate =
+          // First, check if the record exists in the denormalized table
+          Long count =
               handle
-                  .createQuery("SELECT run_date FROM run_lineage_denormalized WHERE run_uuid = ?")
+                  .createQuery("SELECT COUNT(*) FROM run_lineage_denormalized WHERE run_uuid = ?")
                   .bind(0, runUuid)
-                  .mapTo(java.sql.Date.class)
+                  .mapTo(Long.class)
                   .one();
 
-          // Get the started_at from the original runs table
-          java.sql.Timestamp startedAt =
+          log.info("Found {} records in run_lineage_denormalized for run {}", count, runUuid);
+
+          if (count == 0) {
+            // Check what's in the runs table
+            Long runsCount =
+                handle
+                    .createQuery("SELECT COUNT(*) FROM runs WHERE uuid = ?")
+                    .bind(0, runUuid)
+                    .mapTo(Long.class)
+                    .one();
+            log.info("Found {} records in runs table for run {}", runsCount, runUuid);
+
+            // Check if started_at is null in runs table
+            java.sql.Timestamp startedAt =
+                handle
+                    .createQuery("SELECT started_at FROM runs WHERE uuid = ?")
+                    .bind(0, runUuid)
+                    .mapTo(java.sql.Timestamp.class)
+                    .one();
+            log.info("Started_at in runs table: {}", startedAt);
+          }
+
+          // Get the run_date from the denormalized table as string
+          String runDateStr =
               handle
-                  .createQuery("SELECT started_at FROM runs WHERE uuid = ?")
+                  .createQuery(
+                      "SELECT run_date::text FROM run_lineage_denormalized WHERE run_uuid = ?")
+                  .bind(0, runUuid)
+                  .mapTo(String.class)
+                  .one();
+
+          // Get the ended_at from the original runs table (fallback when started_at is null)
+          java.sql.Timestamp endedAt =
+              handle
+                  .createQuery("SELECT ended_at FROM runs WHERE uuid = ?")
                   .bind(0, runUuid)
                   .mapTo(java.sql.Timestamp.class)
                   .one();
 
-          // Verify run_date is the date part of started_at
-          assertThat(runDate).isNotNull();
-          assertThat(runDate.toString()).isEqualTo(startedAt.toLocalDateTime().toLocalDate().toString());
+          // Verify run_date is the date part of ended_at (since started_at is null)
+          assertThat(runDateStr).isNotNull();
+          assertThat(runDateStr).isEqualTo(endedAt.toLocalDateTime().toLocalDate().toString());
 
-          log.info("Run date: {}, Started at: {}", runDate, startedAt);
+          log.info("Run date: {}, Ended at: {}", runDateStr, endedAt);
         });
   }
 }

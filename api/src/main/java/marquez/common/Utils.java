@@ -250,9 +250,24 @@ public final class Utils {
   public static Version newJobVersionFor(
       @NonNull final NamespaceName namespaceName,
       @NonNull final JobName jobName,
-      @NonNull final ImmutableSet<DatasetId> jobInputIds,
-      @NonNull final ImmutableSet<DatasetId> jobOutputIds,
+      @Nullable final ImmutableSet<DatasetId> jobInputIds,
+      @Nullable final ImmutableSet<DatasetId> jobOutputIds,
       @Nullable final String jobLocation) {
+
+    // If jobInputIds and jobOutputIds are not available, use only namespaceName, jobName,
+    // jobLocation
+    if (jobInputIds == null
+        || jobInputIds.isEmpty()
+        || jobOutputIds == null
+        || jobOutputIds.isEmpty()) {
+      final byte[] bytes =
+          VERSION_JOINER
+              .join(namespaceName.getValue(), jobName.getValue(), jobLocation)
+              .getBytes(UTF_8);
+      return Version.of(UUID.nameUUIDFromBytes(bytes));
+    }
+
+    // Original logic when both jobInputIds and jobOutputIds are available
     final byte[] bytes =
         VERSION_JOINER
             .join(

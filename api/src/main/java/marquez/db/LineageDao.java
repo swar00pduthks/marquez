@@ -251,7 +251,7 @@ WITH RECURSIVE
     SELECT
       *,
       0 AS depth
-    FROM run_lineage_view
+    FROM run_lineage_denormalized
     WHERE run_uuid IN (<runIds>)
 
     UNION ALL
@@ -259,7 +259,7 @@ WITH RECURSIVE
     SELECT
       io.*,
       l.depth + 1
-    FROM run_lineage_view io
+    FROM run_lineage_denormalized io
     JOIN lineage l
       ON (io.input_version_uuid = l.output_version_uuid OR io.output_version_uuid = l.input_version_uuid)
      AND io.run_uuid != l.run_uuid
@@ -337,7 +337,7 @@ GROUP BY
         SELECT
           *,
           0 AS depth
-        FROM run_parent_lineage_view
+        FROM run_parent_lineage_denormalized
         WHERE run_uuid IN (<runIds>)
 
         UNION ALL
@@ -345,7 +345,7 @@ GROUP BY
         SELECT
           io.*,
           l.depth + 1
-        FROM run_parent_lineage_view io
+        FROM run_parent_lineage_denormalized io
         JOIN lineage l
           ON (io.input_version_uuid = l.output_version_uuid OR io.output_version_uuid = l.input_version_uuid)
          AND io.run_uuid != l.run_uuid

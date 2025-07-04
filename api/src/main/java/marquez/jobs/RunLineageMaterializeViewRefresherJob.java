@@ -56,13 +56,13 @@ public class RunLineageMaterializeViewRefresherJob extends AbstractScheduledServ
       jdbi.useHandle(
           handle -> {
             log.info("RunLineageMaterializeViewRefresherJob: Refreshing run_lineage_view...");
-            handle.execute("REFRESH MATERIALIZED VIEW run_lineage_view");
+            handle.execute("REFRESH MATERIALIZED VIEW CONCURRENTLY run_lineage_view");
             log.info(
                 "RunLineageMaterializeViewRefresherJob: Materialized view `run_lineage_view` refreshed.");
 
             log.info(
                 "RunLineageMaterializeViewRefresherJob: Refreshing parent_run_lineage_view...");
-            handle.execute("REFRESH MATERIALIZED VIEW run_parent_lineage_view");
+            handle.execute("REFRESH MATERIALIZED VIEW CONCURRENTLY run_parent_lineage_view");
             log.info(
                 "RunLineageMaterializeViewRefresherJob: Materialized view `parent_run_lineage_view` refreshed.");
           });

@@ -81,6 +81,11 @@ public class StatsTest {
   @AfterEach
   public void tearDown() {
     try (final Handle handle = DB.open()) {
+      // Clean up denormalized lineage tables first (if they exist)
+      handle.execute("DELETE FROM run_parent_lineage_denormalized");
+      handle.execute("DELETE FROM run_lineage_denormalized");
+
+      // Clean up other tables
       handle.execute("DELETE FROM lineage_events");
       handle.execute("DELETE FROM job_versions");
       handle.execute("DELETE FROM jobs");

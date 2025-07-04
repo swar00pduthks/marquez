@@ -9,8 +9,6 @@ import java.util.UUID;
 import lombok.NonNull;
 import lombok.extern.slf4j.Slf4j;
 import org.jdbi.v3.core.Jdbi;
-import org.jdbi.v3.core.Handle;
-import java.util.List;
 
 /** Service to handle event-driven population of denormalized lineage tables. */
 @Slf4j
@@ -25,11 +23,10 @@ public class DenormalizedLineageService {
   /**
    * Populates denormalized lineage tables for a specific run when it completes. This replaces the
    * materialized view refresh approach with event-driven updates.
-   * 
-   * Logic:
-   * - Always populate run_lineage_denormalized for the run (like run_lineage_view)
-   * - Only populate run_parent_lineage_denormalized when the run is a parent run AND event is COMPLETE
-   *   (indicating no more children will be added to this parent)
+   *
+   * <p>Logic: - Always populate run_lineage_denormalized for the run (like run_lineage_view) - Only
+   * populate run_parent_lineage_denormalized when the run is a parent run AND event is COMPLETE
+   * (indicating no more children will be added to this parent)
    */
   public void populateLineageForRun(@NonNull final UUID runUuid) {
     try {
@@ -43,10 +40,14 @@ public class DenormalizedLineageService {
             // Step 2: Always populate run_lineage_denormalized for the run
             populateRunLineageDenormalized(handle, runUuid);
 
-            // Step 3: Check if this run is a parent run (has children)
-            // Only populate run_parent_lineage_denormalized for parent runs
+            // Step 3: Populate run_parent_lineage_denormalized
+            // - If this run is a parent (has children), populate for this run
+            // - If this run is a child (has parent), populate for the parent run
             if (isParentRun(handle, runUuid)) {
               populateRunParentLineageDenormalized(handle, runUuid);
+            } else if (hasParentRun(handle, runUuid)) {
+              UUID parentRunUuid = getParentRunUuid(handle, runUuid);
+              populateRunParentLineageDenormalized(handle, parentRunUuid);
             }
           });
 
@@ -118,7 +119,7 @@ public class DenormalizedLineageService {
             r.uuid as uuid,
             r.parent_run_uuid as parent_run_uuid,
             rf.facet as facets,
-            DATE(r.started_at) as run_date
+            DATE(COALESCE(r.started_at, r.ended_at)) as run_date
         FROM runs r
         LEFT JOIN runs_input_mapping rim ON rim.run_uuid = r.uuid
         LEFT JOIN dataset_versions dvin ON dvin.uuid = rim.dataset_version_uuid
@@ -171,7 +172,7 @@ public class DenormalizedLineageService {
             r.uuid as uuid,
             r.parent_run_uuid as parent_run_uuid,
             rf.facet as facets,
-            DATE(r.started_at) as run_date
+            DATE(COALESCE(r.started_at, r.ended_at)) as run_date
         FROM runs r
         LEFT JOIN runs_input_mapping rim ON rim.run_uuid = r.uuid
         LEFT JOIN dataset_versions dvin ON dvin.uuid = rim.dataset_version_uuid
@@ -187,19 +188,46 @@ public class DenormalizedLineageService {
         "Inserted {} rows into run_parent_lineage_denormalized for run: {}", insertedRows, runUuid);
   }
 
-  /**
-   * Check if a run is a parent run (has child runs).
-   */
+  /** Check if a run is a parent run (has child runs). */
   private boolean isParentRun(org.jdbi.v3.core.Handle handle, UUID runUuid) {
-    Integer childCount = handle
-        .createQuery("SELECT COUNT(*) FROM runs WHERE parent_run_uuid = :runUuid")
-        .bind("runUuid", runUuid)
-        .mapTo(Integer.class)
-        .one();
-    
+    Integer childCount =
+        handle
+            .createQuery("SELECT COUNT(*) FROM runs WHERE parent_run_uuid = :runUuid")
+            .bind("runUuid", runUuid)
+            .mapTo(Integer.class)
+            .one();
+
     boolean isParent = childCount > 0;
     log.debug("Run {} has {} child runs, isParent: {}", runUuid, childCount, isParent);
     return isParent;
+  }
+
+  /** Check if a run has a parent run. */
+  private boolean hasParentRun(org.jdbi.v3.core.Handle handle, UUID runUuid) {
+    UUID parentRunUuid =
+        handle
+            .createQuery("SELECT parent_run_uuid FROM runs WHERE uuid = :runUuid")
+            .bind("runUuid", runUuid)
+            .mapTo(UUID.class)
+            .findOne()
+            .orElse(null);
+
+    boolean hasParent = parentRunUuid != null;
+    log.debug("Run {} has parent run: {}, hasParent: {}", runUuid, parentRunUuid, hasParent);
+    return hasParent;
+  }
+
+  /** Get the parent run UUID for a given run. */
+  private UUID getParentRunUuid(org.jdbi.v3.core.Handle handle, UUID runUuid) {
+    UUID parentRunUuid =
+        handle
+            .createQuery("SELECT parent_run_uuid FROM runs WHERE uuid = :runUuid")
+            .bind("runUuid", runUuid)
+            .mapTo(UUID.class)
+            .one();
+
+    log.debug("Run {} has parent run: {}", runUuid, parentRunUuid);
+    return parentRunUuid;
   }
 
   /**
@@ -253,7 +281,7 @@ public class DenormalizedLineageService {
                 r.uuid as uuid,
                 r.parent_run_uuid as parent_run_uuid,
                 rf.facet as facets,
-                DATE(r.started_at) as run_date
+                DATE(COALESCE(r.started_at, r.ended_at)) as run_date
             FROM runs r
             LEFT JOIN runs_input_mapping rim ON rim.run_uuid = r.uuid
             LEFT JOIN dataset_versions dvin ON dvin.uuid = rim.dataset_version_uuid
@@ -300,7 +328,7 @@ public class DenormalizedLineageService {
                 r.uuid as uuid,
                 r.parent_run_uuid as parent_run_uuid,
                 rf.facet as facets,
-                DATE(r.started_at) as run_date
+                DATE(COALESCE(r.started_at, r.ended_at)) as run_date
             FROM runs r
             LEFT JOIN runs_input_mapping rim ON rim.run_uuid = r.uuid
             LEFT JOIN dataset_versions dvin ON dvin.uuid = rim.dataset_version_uuid
