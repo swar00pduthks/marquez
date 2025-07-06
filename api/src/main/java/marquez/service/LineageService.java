@@ -87,9 +87,15 @@ public class LineageService extends DelegatingLineageDao {
                       nodeId.asDatasetVersionId().getVersion())
                   : runDao.findRunFromDatasetVersionUuids(nodeId.asDatasetVersionId().getVersion());
       log.debug("Attempting to get lineage for run '{}'", runIds);
-
-      boolean hasChildren = this.hasChildRuns(runIds);
-      log.debug("Run '{}' has children: {}", runIds, hasChildren);
+      boolean hasChildren = false;
+      if (!runIds.isEmpty()) {
+        hasChildren = this.hasChildRuns(runIds);
+        log.debug("Run '{}' has children: {}", runIds, hasChildren);
+      }
+      else {
+        log.warn("Failed to get lineage for run '{}', returning empty graph...", nodeId.getValue());
+        return new Lineage(ImmutableSortedSet.of());
+      }
       Set<RunData> runData;
 
       if (hasChildren && aggregateToParentRun) {
