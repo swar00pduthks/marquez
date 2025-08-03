@@ -91,8 +91,7 @@ public class LineageService extends DelegatingLineageDao {
       if (!runIds.isEmpty()) {
         hasChildren = this.hasChildRuns(runIds);
         log.debug("Run '{}' has children: {}", runIds, hasChildren);
-      }
-      else {
+      } else {
         log.warn("Failed to get lineage for run '{}', returning empty graph...", nodeId.getValue());
         return new Lineage(ImmutableSortedSet.of());
       }

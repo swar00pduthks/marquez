@@ -250,8 +250,10 @@ WITH RECURSIVE
   lineage AS (
     SELECT
       *,
+      rf.facet as facets,
       0 AS depth
-    FROM run_lineage_denormalized
+    FROM run_lineage_denormalized r
+    LEFT JOIN run_facets rf ON rf.run_uuid = r.uuid
     WHERE run_uuid IN (<runIds>)
 
     UNION ALL
@@ -259,7 +261,9 @@ WITH RECURSIVE
     SELECT
       io.*,
       l.depth + 1
+      rf.facet as facets,
     FROM run_lineage_denormalized io
+    LEFT JOIN run_facets rf ON rf.run_uuid = io.uuid
     JOIN lineage l
       ON (io.input_version_uuid = l.output_version_uuid OR io.output_version_uuid = l.input_version_uuid)
      AND io.run_uuid != l.run_uuid
@@ -336,16 +340,20 @@ GROUP BY
       lineage AS (
         SELECT
           *,
+          rf.facet as facets,
           0 AS depth
-        FROM run_parent_lineage_denormalized
+        FROM run_parent_lineage_denormalized r
+        LEFT JOIN run_facets rf ON rf.run_uuid = r.uuid
         WHERE run_uuid IN (<runIds>)
 
         UNION ALL
 
         SELECT
           io.*,
-          l.depth + 1
+          l.depth + 1,
+          rf.facet as facets,
         FROM run_parent_lineage_denormalized io
+        LEFT JOIN run_facets rf ON rf.run_uuid = io.uuid
         JOIN lineage l
           ON (io.input_version_uuid = l.output_version_uuid OR io.output_version_uuid = l.input_version_uuid)
          AND io.run_uuid != l.run_uuid

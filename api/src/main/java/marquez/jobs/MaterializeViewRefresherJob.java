@@ -17,13 +17,17 @@ import org.jdbi.v3.core.Jdbi;
 @Slf4j
 public class MaterializeViewRefresherJob extends AbstractScheduledService implements Managed {
 
-  private final int FREQUENCY = 60;
+  private final int frequencyMinutes;
   private final Scheduler fixedRateScheduler;
   private final Jdbi jdbi;
 
   public MaterializeViewRefresherJob(@NonNull final Jdbi jdbi) {
-    // Connection to database retention policy will be applied.
+    this(jdbi, 60); // Default to 60 minutes
+  }
+
+  public MaterializeViewRefresherJob(@NonNull final Jdbi jdbi, final int frequencyMinutes) {
     this.jdbi = jdbi;
+    this.frequencyMinutes = frequencyMinutes;
 
     // Define fixed schedule and delay until the hour strikes.
     int MINUTES_IN_HOUR = 60;
@@ -32,7 +36,7 @@ public class MaterializeViewRefresherJob extends AbstractScheduledService implem
         MINUTES_IN_HOUR - now.getMinute(); // Get the remaining minutes in the hour
     Duration duration = Duration.ofMinutes(minutesRemaining);
     this.fixedRateScheduler =
-        Scheduler.newFixedRateSchedule(duration, Duration.ofMinutes(FREQUENCY));
+        Scheduler.newFixedRateSchedule(duration, Duration.ofMinutes(frequencyMinutes));
   }
 
   @Override
@@ -43,7 +47,7 @@ public class MaterializeViewRefresherJob extends AbstractScheduledService implem
   @Override
   public void start() throws Exception {
     startAsync().awaitRunning();
-    log.info("Refreshing materialized views every '{}' mins.", FREQUENCY);
+    log.info("Refreshing materialized views every '{}' mins.", frequencyMinutes);
   }
 
   @Override

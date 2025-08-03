@@ -18,21 +18,28 @@ import org.jdbi.v3.core.Jdbi;
 public class RunLineageMaterializeViewRefresherJob extends AbstractScheduledService
     implements Managed {
 
-  private final int FREQUENCY = 10;
+  private final int frequencyMinutes;
   private final Scheduler fixedRateScheduler;
   private final Jdbi jdbi;
 
   public RunLineageMaterializeViewRefresherJob(@NonNull final Jdbi jdbi) {
-    this.jdbi = jdbi;
+    this(jdbi, 60); // Default to 60 minutes
+  }
 
-    // Define fixed schedule to run every 10 minutes
+  public RunLineageMaterializeViewRefresherJob(
+      @NonNull final Jdbi jdbi, final int frequencyMinutes) {
+    this.jdbi = jdbi;
+    this.frequencyMinutes = frequencyMinutes;
+
+    // Define fixed schedule to run every configured minutes
     this.fixedRateScheduler =
         Scheduler.newFixedRateSchedule(
             Duration.ZERO, // Start immediately
-            Duration.ofMinutes(FREQUENCY) // Then run every 10 minutes
+            Duration.ofMinutes(frequencyMinutes) // Then run every configured minutes
             );
     log.info(
-        "Initialized RunLineageMaterializeViewRefresherJob with frequency: {} minutes", FREQUENCY);
+        "Initialized RunLineageMaterializeViewRefresherJob with frequency: {} minutes",
+        frequencyMinutes);
   }
 
   @Override
@@ -46,7 +53,7 @@ public class RunLineageMaterializeViewRefresherJob extends AbstractScheduledServ
     startAsync().awaitRunning();
     log.info(
         "RunLineageMaterializeViewRefresherJob started successfully. Will refresh views every '{}' mins.",
-        FREQUENCY);
+        frequencyMinutes);
   }
 
   @Override
@@ -56,13 +63,13 @@ public class RunLineageMaterializeViewRefresherJob extends AbstractScheduledServ
       jdbi.useHandle(
           handle -> {
             log.info("RunLineageMaterializeViewRefresherJob: Refreshing run_lineage_view...");
-            handle.execute("REFRESH MATERIALIZED VIEW CONCURRENTLY run_lineage_view");
+            handle.execute("REFRESH MATERIALIZED VIEW run_lineage_view");
             log.info(
                 "RunLineageMaterializeViewRefresherJob: Materialized view `run_lineage_view` refreshed.");
 
             log.info(
                 "RunLineageMaterializeViewRefresherJob: Refreshing parent_run_lineage_view...");
-            handle.execute("REFRESH MATERIALIZED VIEW CONCURRENTLY run_parent_lineage_view");
+            handle.execute("REFRESH MATERIALIZED VIEW run_parent_lineage_view");
             log.info(
                 "RunLineageMaterializeViewRefresherJob: Materialized view `parent_run_lineage_view` refreshed.");
           });

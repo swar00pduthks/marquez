@@ -158,8 +158,13 @@ public final class MarquezApp extends Application<MarquezConfig> {
       env.lifecycle().manage(new DbRetentionJob(jdbi, config.getDbRetention()));
     }
 
-    env.lifecycle().manage(new MaterializeViewRefresherJob(jdbi));
-    env.lifecycle().manage(new RunLineageMaterializeViewRefresherJob(jdbi));
+    // Initialize materialized view refresh jobs with configuration
+    int refreshFrequency =
+        config.getMaterializedViewRefresh() != null
+            ? config.getMaterializedViewRefresh().getFrequencyMinutes()
+            : 60; // Default to 60 minutes
+    env.lifecycle().manage(new MaterializeViewRefresherJob(jdbi, refreshFrequency));
+    env.lifecycle().manage(new RunLineageMaterializeViewRefresherJob(jdbi, refreshFrequency));
 
     ExclusionsConfig exclusions = config.getExclude();
     Exclusions.use(exclusions);

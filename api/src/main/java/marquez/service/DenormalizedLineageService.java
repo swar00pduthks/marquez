@@ -91,7 +91,7 @@ public class DenormalizedLineageService {
             input_dataset_uuid, output_version_uuid, output_dataset_uuid,
             input_dataset_namespace, input_dataset_name, input_dataset_version,
             input_dataset_version_uuid, output_dataset_namespace, output_dataset_name,
-            output_dataset_version, output_dataset_version_uuid, uuid, parent_run_uuid, facets, run_date
+            output_dataset_version, output_dataset_version_uuid, uuid, parent_run_uuid, run_date
         )
         SELECT
             r.uuid AS run_uuid,
@@ -118,13 +118,11 @@ public class DenormalizedLineageService {
             dvout.uuid AS output_dataset_version_uuid,
             r.uuid as uuid,
             r.parent_run_uuid as parent_run_uuid,
-            rf.facet as facets,
             DATE(COALESCE(r.started_at, r.ended_at)) as run_date
         FROM runs r
         LEFT JOIN runs_input_mapping rim ON rim.run_uuid = r.uuid
         LEFT JOIN dataset_versions dvin ON dvin.uuid = rim.dataset_version_uuid
         LEFT JOIN dataset_versions dvout ON dvout.run_uuid = r.uuid
-        LEFT JOIN run_facets rf ON rf.run_uuid = r.uuid
         WHERE r.uuid = :runUuid
         """;
 
@@ -144,7 +142,7 @@ public class DenormalizedLineageService {
             input_dataset_uuid, output_version_uuid, output_dataset_uuid,
             input_dataset_namespace, input_dataset_name, input_dataset_version,
             input_dataset_version_uuid, output_dataset_namespace, output_dataset_name,
-            output_dataset_version, output_dataset_version_uuid, uuid, parent_run_uuid, facets, run_date
+            output_dataset_version, output_dataset_version_uuid, uuid, parent_run_uuid, run_date
         )
         SELECT DISTINCT
             COALESCE(r.parent_run_uuid,r.uuid) AS run_uuid,
@@ -171,14 +169,12 @@ public class DenormalizedLineageService {
             dvout.uuid AS output_dataset_version_uuid,
             r.uuid as uuid,
             r.parent_run_uuid as parent_run_uuid,
-            rf.facet as facets,
             DATE(COALESCE(r.started_at, r.ended_at)) as run_date
         FROM runs r
         LEFT JOIN runs_input_mapping rim ON rim.run_uuid = r.uuid
         LEFT JOIN dataset_versions dvin ON dvin.uuid = rim.dataset_version_uuid
         LEFT JOIN dataset_versions dvout ON dvout.run_uuid = r.uuid
         LEFT JOIN runs rp ON rp.uuid=r.parent_run_uuid
-        LEFT JOIN run_facets rf ON rf.run_uuid=r.uuid
         WHERE r.parent_run_uuid = :runUuid
         """;
 
@@ -280,13 +276,11 @@ public class DenormalizedLineageService {
                 dvout.uuid AS output_dataset_version_uuid,
                 r.uuid as uuid,
                 r.parent_run_uuid as parent_run_uuid,
-                rf.facet as facets,
                 DATE(COALESCE(r.started_at, r.ended_at)) as run_date
             FROM runs r
             LEFT JOIN runs_input_mapping rim ON rim.run_uuid = r.uuid
             LEFT JOIN dataset_versions dvin ON dvin.uuid = rim.dataset_version_uuid
             LEFT JOIN dataset_versions dvout ON dvout.run_uuid = r.uuid
-            LEFT JOIN run_facets rf ON rf.run_uuid = r.uuid
             """;
 
             int runLineageRows = handle.createUpdate(bulkInsertRunLineage).execute();
@@ -327,14 +321,12 @@ public class DenormalizedLineageService {
                 dvout.uuid AS output_dataset_version_uuid,
                 r.uuid as uuid,
                 r.parent_run_uuid as parent_run_uuid,
-                rf.facet as facets,
                 DATE(COALESCE(r.started_at, r.ended_at)) as run_date
             FROM runs r
             LEFT JOIN runs_input_mapping rim ON rim.run_uuid = r.uuid
             LEFT JOIN dataset_versions dvin ON dvin.uuid = rim.dataset_version_uuid
             LEFT JOIN dataset_versions dvout ON dvout.run_uuid = r.uuid
             LEFT JOIN runs rp ON rp.uuid=r.parent_run_uuid
-            LEFT JOIN run_facets rf ON rf.run_uuid=r.uuid
             WHERE r.parent_run_uuid is not null
             """;
 
