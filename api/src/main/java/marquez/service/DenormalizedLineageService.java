@@ -249,7 +249,7 @@ public class DenormalizedLineageService {
                 input_dataset_uuid, output_version_uuid, output_dataset_uuid,
                 input_dataset_namespace, input_dataset_name, input_dataset_version,
                 input_dataset_version_uuid, output_dataset_namespace, output_dataset_name,
-                output_dataset_version, output_dataset_version_uuid, uuid, parent_run_uuid, facets, run_date
+                output_dataset_version, output_dataset_version_uuid, uuid, parent_run_uuid, run_date
             )
             SELECT
                 r.uuid AS run_uuid,
@@ -294,7 +294,7 @@ public class DenormalizedLineageService {
                 input_dataset_uuid, output_version_uuid, output_dataset_uuid,
                 input_dataset_namespace, input_dataset_name, input_dataset_version,
                 input_dataset_version_uuid, output_dataset_namespace, output_dataset_name,
-                output_dataset_version, output_dataset_version_uuid, uuid, parent_run_uuid, facets, run_date
+                output_dataset_version, output_dataset_version_uuid, uuid, parent_run_uuid, run_date
             )
             SELECT DISTINCT
                 COALESCE(r.parent_run_uuid,r.uuid) AS run_uuid,
