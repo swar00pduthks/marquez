@@ -18,8 +18,8 @@ import org.jdbi.v3.core.Jdbi;
 @Slf4j
 public class V78__BackfillDenormalizedTables implements JavaMigration {
 
-  public static int DEFAULT_CHUNK_SIZE = 1000;
-  private static int BASIC_MIGRATION_LIMIT = 100000;
+  public static int DEFAULT_CHUNK_SIZE = 5000;
+  private static int BASIC_MIGRATION_LIMIT = Integer.MAX_VALUE;
 
   private static final String COUNT_RUNS_SQL = "SELECT COUNT(*) FROM runs";
   private static final String ESTIMATE_COUNT_RUNS_SQL =
@@ -64,21 +64,11 @@ public class V78__BackfillDenormalizedTables implements JavaMigration {
       return;
     }
 
-    if (!manual && estimatedRunsCount >= BASIC_MIGRATION_LIMIT) {
-      log.warn(
-          """
-              ==================================================
-              ==================================================
-              ==================================================
-              MARQUEZ INSTANCE TOO BIG TO RUN AUTO UPGRADE.
-              YOU NEED TO RUN v78_migrate COMMAND MANUALLY.
-              ESTIMATED RUNS: {}
-              ==================================================
-              ==================================================
-              ==================================================
-              """,
-          estimatedRunsCount);
-      return;
+    // Note: Removed the 100K limit - migration now runs for any dataset size
+    // The migration is chunked and can handle large datasets efficiently
+    if (estimatedRunsCount > 0) {
+      log.info(
+          "Starting migration for {} runs with chunk size {}", estimatedRunsCount, getChunkSize());
     }
 
     // Clear existing data first
@@ -95,6 +85,12 @@ public class V78__BackfillDenormalizedTables implements JavaMigration {
     log.info("Configured chunkSize is {}", getChunkSize());
     int totalProcessed = 0;
     boolean doMigration = true;
+
+    // Calculate estimated chunks for progress tracking
+    int estimatedChunks = (int) Math.ceil((double) estimatedRunsCount / getChunkSize());
+    if (estimatedChunks > 1) {
+      log.info("Estimated {} chunks to process for {} runs", estimatedChunks, estimatedRunsCount);
+    }
 
     for (int offset = 0; doMigration; offset += getChunkSize()) {
       final int currentOffset = offset;
@@ -127,11 +123,27 @@ public class V78__BackfillDenormalizedTables implements JavaMigration {
 
       totalProcessed += processedInChunk;
 
-      log.info(
-          "Processed {} runs in this chunk. Total processed: {}", processedInChunk, totalProcessed);
+      // Enhanced progress logging for large datasets
+      if (estimatedRunsCount > 10000) {
+        double progressPercent = (double) totalProcessed / estimatedRunsCount * 100;
+        log.info(
+            "Processed {} runs in this chunk. Total processed: {} ({}%)",
+            processedInChunk, totalProcessed, String.format("%.1f", progressPercent));
+      } else {
+        log.info(
+            "Processed {} runs in this chunk. Total processed: {}",
+            processedInChunk,
+            totalProcessed);
+      }
     }
 
     log.info("Migration completed. Total runs processed: {}", totalProcessed);
+    if (estimatedRunsCount > 10000) {
+      log.info(
+          "Migration summary: {} runs processed with chunk size {}",
+          totalProcessed,
+          getChunkSize());
+    }
   }
 
   @Override

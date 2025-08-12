@@ -342,7 +342,7 @@ public class V78__BackfillDenormalizedTablesTest {
 
   @Test
   public void testChunkedProcessing() throws Exception {
-    // Create exactly chunk size + 1 runs
+    // Create exactly chunk size + 1 runs (using test chunk size of 10)
     for (int i = 0; i < 11; i++) {
       LineageTestUtils.createLineageRow(
           openLineageDao,
