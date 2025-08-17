@@ -1,6 +1,6 @@
 
 
-## Note : # Swaroop's Metadata Service (Based on Marquez)
+## Note : # Custom Metadata Service (Based on Marquez)
 
 This is a custom fork of [Marquez](https://github.com/MarquezProject/marquez), a metadata service for the modern data stack. This version is tailored for internal use, with enhancements and changes to suit specific data workflows.
 
