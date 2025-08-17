@@ -63,6 +63,10 @@ public final class Node implements Comparable<Node> {
     return new Builder(NodeType.RUN);
   }
 
+  public static Builder datasetVersion() {
+    return new Builder(NodeType.DATASET_VERSION);
+  }
+
   public boolean hasInEdges() {
     return !inEdges.isEmpty();
   }

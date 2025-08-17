@@ -14,7 +14,8 @@ const environmentVariable = (variableName) => {
 }
 
 const apiOptions = {
-  target: `http://${(environmentVariable("MARQUEZ_HOST"))}:${environmentVariable("MARQUEZ_PORT")}/`
+  target: `http://${(environmentVariable("MARQUEZ_HOST"))}:${environmentVariable("MARQUEZ_PORT")}/`,
+  changeOrigin: true,
 }
 const app = express()
 const path = __dirname + '/dist'

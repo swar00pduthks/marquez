@@ -138,7 +138,8 @@ public class LineageServiceTest {
         dataset);
     String jobName = writeJob.getJob().getName();
     Lineage lineage =
-        lineageService.lineage(NodeId.of(new NamespaceName(NAMESPACE), new JobName(jobName)), 2);
+        lineageService.lineage(
+            NodeId.of(new NamespaceName(NAMESPACE), new JobName(jobName)), 2, false);
 
     // 1 writeJob           + 1 commonDataset
     // 20 readJob           + 20 outputData
@@ -268,7 +269,8 @@ public class LineageServiceTest {
 
     String jobName = writeJob.getJob().getName();
     Lineage lineage =
-        lineageService.lineage(NodeId.of(new NamespaceName(NAMESPACE), new JobName(jobName)), 2);
+        lineageService.lineage(
+            NodeId.of(new NamespaceName(NAMESPACE), new JobName(jobName)), 2, false);
 
     // 1 writeJob           + 0 commonDataset is hidden
     // 20 readJob           + 20 outputData
@@ -315,7 +317,8 @@ public class LineageServiceTest {
     jobDao.delete(NAMESPACE, "downstreamJob0<-outputData<-readJob0<-commonDataset");
 
     lineage =
-        lineageService.lineage(NodeId.of(new NamespaceName(NAMESPACE), new JobName(jobName)), 2);
+        lineageService.lineage(
+            NodeId.of(new NamespaceName(NAMESPACE), new JobName(jobName)), 2, false);
 
     // 1 writeJob           + 0 commonDataset is hidden
     // 20 readJob           + 20 outputData
@@ -345,7 +348,9 @@ public class LineageServiceTest {
             openLineageDao, "writeJob", "COMPLETE", jobFacet, Arrays.asList(), Arrays.asList());
     Lineage lineage =
         lineageService.lineage(
-            NodeId.of(new NamespaceName(NAMESPACE), new JobName(writeJob.getJob().getName())), 5);
+            NodeId.of(new NamespaceName(NAMESPACE), new JobName(writeJob.getJob().getName())),
+            5,
+            false);
     assertThat(lineage.getGraph())
         .hasSize(1)
         .first()
@@ -396,7 +401,8 @@ public class LineageServiceTest {
         lineageService.lineage(
             NodeId.of(
                 new NamespaceName(NAMESPACE), new JobName(intermediateJob.getJob().getName())),
-            5);
+            5,
+            false);
     assertThat(lineage.getGraph()).extracting(Node::getId).hasSize(6);
     ObjectAssert<Node> datasetNode =
         assertThat(lineage.getGraph())
@@ -478,13 +484,15 @@ public class LineageServiceTest {
         lineageService.lineage(
             NodeId.of(
                 new DatasetId(new NamespaceName(NAMESPACE), new DatasetName("input-dataset"))),
-            5);
+            5,
+            false);
 
     Lineage lineageFromOutput =
         lineageService.lineage(
             NodeId.of(
                 new DatasetId(new NamespaceName(NAMESPACE), new DatasetName("output-dataset"))),
-            5);
+            5,
+            false);
 
     assertThat(lineageFromInput.getGraph()).hasSize(3); // 2 datasets + 1 job
     assertThat(lineageFromInput.getGraph()).isEqualTo(lineageFromOutput.getGraph());
@@ -529,13 +537,15 @@ public class LineageServiceTest {
         lineageService.lineage(
             NodeId.of(
                 new DatasetId(new NamespaceName(NAMESPACE), new DatasetName("input-dataset"))),
-            5);
+            5,
+            false);
 
     Lineage lineageFromOutput =
         lineageService.lineage(
             NodeId.of(
                 new DatasetId(new NamespaceName(NAMESPACE), new DatasetName("output-dataset"))),
-            5);
+            5,
+            false);
 
     assertThat(lineageFromInput.getGraph()).hasSize(5); // 2 datasets + 3 jobs
     assertThat(lineageFromInput.getGraph()).isEqualTo(lineageFromOutput.getGraph());
@@ -570,7 +580,8 @@ public class LineageServiceTest {
         lineageService.lineage(
             NodeId.of(
                 new DatasetId(new NamespaceName(NAMESPACE), new DatasetName("output-dataset"))),
-            5);
+            5,
+            false);
 
     assertThat(lineage.getGraph()).hasSize(3); // 1 job + 2 datasets
   }
@@ -588,7 +599,7 @@ public class LineageServiceTest {
 
     NodeId datasetNodeId =
         NodeId.of(new NamespaceName(dataset.getNamespace()), new DatasetName(dataset.getName()));
-    Lineage lineage = lineageService.lineage(datasetNodeId, 2);
+    Lineage lineage = lineageService.lineage(datasetNodeId, 2, false);
     assertThat(lineage.getGraph())
         .hasSize(2)
         .extracting(Node::getId)
@@ -600,7 +611,7 @@ public class LineageServiceTest {
         LineageTestUtils.createLineageRow(
             openLineageDao, "writeJob", "COMPLETE", jobFacet, Arrays.asList(), Arrays.asList());
 
-    lineage = lineageService.lineage(datasetNodeId, 2);
+    lineage = lineageService.lineage(datasetNodeId, 2, false);
     assertThat(lineage.getGraph())
         .hasSize(1)
         .extracting(Node::getId)
@@ -665,7 +676,8 @@ public class LineageServiceTest {
         lineageService.lineage(
             NodeId.of(
                 new DatasetId(new NamespaceName(NAMESPACE), new DatasetName("symlinkDataset"))),
-            5);
+            5,
+            false);
 
     assertThat(lineage.getGraph()).hasSize(2);
   }

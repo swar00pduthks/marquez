@@ -36,6 +36,11 @@ db:
   # Maximum retention days (default: 7)
   # retentionDays: ${DB_RETENTION_DAYS:-7}
 
+# Adjusts materialized view refresh policy
+# materializedViewRefresh:
+  # Refresh materialized views at a frequency of every 'X' minutes (default: 60)
+  # frequencyMinutes: ${MATERIALIZED_VIEW_REFRESH_FREQUENCY_MINUTES:-60}
+
 # Enables flyway configuration overrides (see: https://flywaydb.org/documentation/configfiles)
 # flyway:
 #   connectRetries: 3

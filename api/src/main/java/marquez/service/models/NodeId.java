@@ -175,7 +175,8 @@ public final class NodeId implements Comparable<NodeId> {
 
   @JsonIgnore
   public boolean isDatasetVersionType() {
-    return value.startsWith(ID_PREFX_DATASET) && hasVersion();
+    System.out.println("checking if: " + value + " is dataset version type");
+    return value.startsWith(ID_PREFX_DATASET + ID_DELIM) && hasVersion();
   }
 
   @JsonIgnore
@@ -222,7 +223,7 @@ public final class NodeId implements Comparable<NodeId> {
       return parts;
     } else {
       // try to avoid matching colons in URIs- e.g., scheme://authority and host:port patterns
-      Pattern p = Pattern.compile("(?:" + ID_DELIM + "(?!//|\\d+))");
+      Pattern p = Pattern.compile("(?:" + ID_DELIM + "(?!//|\\d{2,5}(?![\\w-])))");
       Matcher matcher = p.matcher(value);
       String[] returnParts = new String[expectedParts];
 

@@ -154,6 +154,11 @@ public final class Columns {
   public static final String ABORT = "abort";
   public static final String COUNT = "count";
 
+  public static final String CHILD_RUN_IDS = "child_run_ids";
+  public static final String PARENT_RUN_IDS = "parent_run_ids";
+  public static final String INPUT_DATASET_VERSIONS = "input_dataset_versions";
+  public static final String OUTPUT_DATASET_VERSIONS = "output_dataset_versions";
+
   public static UUID uuidOrNull(final ResultSet results, final String column) throws SQLException {
     if (results.getObject(column) == null) {
       return null;
