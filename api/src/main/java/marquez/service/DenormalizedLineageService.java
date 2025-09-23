@@ -12,7 +12,7 @@ import org.jdbi.v3.core.Jdbi;
 
 /** Service to handle event-driven population of denormalized lineage tables. */
 @Slf4j
-public class DenormalizedLineageService {
+public class  DenormalizedLineageService {
 
   private final Jdbi jdbi;
 
