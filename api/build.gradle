@@ -144,7 +144,7 @@ test {
 publishing {
     publications {
         mavenJava(MavenPublication) {
-            groupId = 'io.github.marquezproject'
+            groupId = 'io.github.swar00pduthks'
             artifactId = 'marquez-api'
 
             from components.java
@@ -155,7 +155,7 @@ publishing {
             pom {
                 name = 'marquez-api'
                 description = 'Collect, aggregate, and visualize a data ecosystem\'s metadata'
-                url = 'https://github.com/MarquezProject/marquez'
+                url = 'https://github.com/swar00pduthks/marquez'
                 licenses {
                     license {
                         name = 'The Apache License, Version 2.0'
@@ -164,14 +164,14 @@ publishing {
                 }
                 developers {
                     developer {
-                        id = 'marquezproject'
-                        name = 'Marquez Project'
+                        id = 'swar00pduthks'
+                        name = 'Swaroop Duth'
                     }
                 }
                 scm {
-                    connection = 'scm:git:git://github.com/MarquezProject/marquez.git'
-                    developerConnection = 'scm:git:ssh://github.com:MarquezProject/marquez.git'
-                    url = 'https://github.com/MarquezProject/marquez'
+                    connection = 'scm:git:git://github.com/swar00pduthks/marquez.git'
+                    developerConnection = 'scm:git:ssh://github.com:swar00pduthks/marquez.git'
+                    url = 'https://github.com/swar00pduthks/marquez'
                 }
             }
         }
