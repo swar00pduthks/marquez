@@ -14,9 +14,13 @@
 set -e
 
 # Build version of Marquez
-readonly MARQUEZ_VERSION=$(grep "^version=" gradle.properties | cut -d'=' -f2)
+# Use tr to remove carriage return if present (Windows compatibility)
+readonly MARQUEZ_VERSION=$(grep "^version=" gradle.properties | cut -d'=' -f2 | tr -d '\r')
+echo "Detected Marquez version: '${MARQUEZ_VERSION}'"
+
 # Fully qualified path to marquez.jar
 readonly MARQUEZ_JAR="api/build/libs/marquez-api-${MARQUEZ_VERSION}.jar"
+echo "Expecting JAR at: ${MARQUEZ_JAR}"
 
 readonly MARQUEZ_HOST="localhost"
 readonly MARQUEZ_ADMIN_PORT=8081
@@ -82,18 +86,53 @@ docker-compose -f docker-compose.db.yml up --detach
 
 # (2) Build HTTP API server
 log "build http API server..."
-./gradlew --no-daemon :api:build -x test > /dev/null 2>&1
+./gradlew --no-daemon :api:build -x test
+
+# Check if JAR exists
+if [ ! -f "${MARQUEZ_JAR}" ]; then
+    echo "Error: JAR file not found at ${MARQUEZ_JAR}"
+    echo "Listing build directory:"
+    ls -R api/build/libs/ || echo "Build directory not found"
+    exit 1
+fi
 
 # (3) Start HTTP API server
 log "start http API server..."
-mkdir marquez && \
-  java -jar "${MARQUEZ_JAR}" server marquez.yml > marquez/http.log 2>&1 &
+mkdir -p marquez
+java -jar "${MARQUEZ_JAR}" server marquez.yml > marquez/http.log 2>&1 &
+SERVER_PID=$!
+echo "Server process started with PID ${SERVER_PID}"
 
 # (4) Wait for HTTP API server
 log "waiting for http API server (${MARQUEZ_URL})..."
-until curl --output /dev/null --silent --head --fail "${MARQUEZ_URL}/ping"; do
+MAX_RETRIES=30 # 30 * 5s = 150s timeout
+count=0
+while true; do
+    if curl --output /dev/null --silent --head --fail "${MARQUEZ_URL}/ping"; then
+        break
+    fi
+
+    # Check if process is still running
+    if ! kill -0 $SERVER_PID 2>/dev/null; then
+        echo "Server process died unexpectedly!"
+        echo "--- marquez/http.log ---"
+        cat marquez/http.log
+        echo "------------------------"
+        exit 1
+    fi
+
+    if [ $count -ge $MAX_RETRIES ]; then
+        echo "Timeout waiting for server to start."
+        echo "--- marquez/http.log ---"
+        cat marquez/http.log
+        echo "------------------------"
+        exit 1
+    fi
+
+    count=$((count+1))
     sleep 5
 done
+
 # When available, print status
 log "http API server is ready!"
 
