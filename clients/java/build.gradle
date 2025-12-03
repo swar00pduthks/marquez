@@ -79,7 +79,7 @@ publishing {
                 developers {
                     developer {
                         id = 'swar00pduthks'
-                        name = 'Swaroop Duthkuri'
+                        name = 'Swaroop Duth'
                     }
                 }
                 scm {
