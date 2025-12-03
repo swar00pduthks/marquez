@@ -238,9 +238,6 @@ workflows:
           requires:
             - build-api
       - publish-snapshot:
-          filters:
-            branches:
-              only: main
           context: release
           requires:
             - build-image-api
