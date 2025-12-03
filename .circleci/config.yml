@@ -118,7 +118,7 @@ jobs:
   unit-test-client-python:
     working_directory: ~/marquez/clients/python
     docker:
-      - image: circleci/python:3.6
+      - image: cimg/python:3.8
     steps:
       - *checkout_project_root
       - run: pip install -e .[dev]
@@ -129,7 +129,7 @@ jobs:
   build-client-python:
     working_directory: ~/marquez/clients/python
     docker:
-      - image: circleci/python:3.6
+      - image: cimg/python:3.8
     steps:
       - *checkout_project_root
       - run: python setup.py sdist bdist_wheel
@@ -142,7 +142,7 @@ jobs:
   lint-spec-api:
     working_directory: ~/marquez
     docker:
-      - image: cimg/node:12.22.7
+      - image: cimg/node:18.20
     steps:
       - checkout
       - run: npm install --prefix=${HOME}/.local --global redoc-cli
@@ -200,7 +200,7 @@ jobs:
   release-python:
     working_directory: ~/marquez
     docker:
-      - image: circleci/python:3.6
+      - image: cimg/python:3.8
     steps:
       - checkout
       - attach_workspace:
