@@ -10,19 +10,19 @@ DECLARE
 BEGIN
     end_date := start_date + INTERVAL '1 month';
     partition_name := table_name || '_y' || to_char(start_date, 'YYYY') || 'm' || to_char(start_date, 'MM');
-    
+
     -- Check if partition already exists
     SELECT EXISTS (
-        SELECT 1 FROM pg_tables 
-        WHERE tablename = partition_name 
+        SELECT 1 FROM pg_tables
+        WHERE tablename = partition_name
         AND schemaname = current_schema()
     ) INTO partition_exists;
-    
+
     -- Only create partition if it doesn't exist
     IF NOT partition_exists THEN
         EXECUTE format('CREATE TABLE %I PARTITION OF %I FOR VALUES FROM (%L) TO (%L)',
                        partition_name, table_name, start_date, end_date);
-        
+
         -- Create indexes on the new partition
         EXECUTE format('CREATE INDEX %I ON %I (run_date)',
                        'idx_' || partition_name || '_run_date', partition_name);

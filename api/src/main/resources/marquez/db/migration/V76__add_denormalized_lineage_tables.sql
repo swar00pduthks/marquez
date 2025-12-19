@@ -72,4 +72,4 @@ CREATE INDEX idx_run_lineage_denorm_parent_run_uuid ON run_lineage_denormalized 
 CREATE INDEX idx_run_parent_lineage_denorm_run_uuid ON run_parent_lineage_denormalized (run_uuid);
 CREATE INDEX idx_run_parent_lineage_denorm_input_version_uuid ON run_parent_lineage_denormalized (input_version_uuid);
 CREATE INDEX idx_run_parent_lineage_denorm_output_version_uuid ON run_parent_lineage_denormalized (output_version_uuid);
-CREATE INDEX idx_run_parent_lineage_denorm_parent_run_uuid ON run_parent_lineage_denormalized (parent_run_uuid); 
+CREATE INDEX idx_run_parent_lineage_denorm_parent_run_uuid ON run_parent_lineage_denormalized (parent_run_uuid);

@@ -64,23 +64,23 @@ You can monitor the denormalized tables using:
 
 ```sql
 -- Check table sizes
-SELECT 
+SELECT
     schemaname,
     tablename,
     pg_size_pretty(pg_total_relation_size(schemaname||'.'||tablename)) as size
-FROM pg_tables 
-WHERE tablename LIKE 'run_lineage_denormalized%' 
+FROM pg_tables
+WHERE tablename LIKE 'run_lineage_denormalized%'
    OR tablename LIKE 'run_parent_lineage_denormalized%'
 ORDER BY pg_total_relation_size(schemaname||'.'||tablename) DESC;
 
 -- Check partition statistics
-SELECT 
+SELECT
     schemaname,
     tablename,
     n_tup_ins as inserts,
     n_tup_upd as updates,
     n_tup_del as deletes
-FROM pg_stat_user_tables 
-WHERE tablename LIKE 'run_lineage_denormalized%' 
+FROM pg_stat_user_tables
+WHERE tablename LIKE 'run_lineage_denormalized%'
    OR tablename LIKE 'run_parent_lineage_denormalized%';
 ```

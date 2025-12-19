@@ -1,6 +1,187 @@
 # Changelog
 
-## [Unreleased](https://github.com/MarquezProject/marquez/compare/0.50.0...HEAD)
+## [Unreleased](https://github.com/swar00pduthks/marquez/compare/0.52.30...HEAD)
+
+### Added
+
+* API: **Partitioned denormalized lineage tables** for significant performance improvements on large datasets [`1ea6840`](https://github.com/swar00pduthks/marquez/commit/1ea684056497fd7f46d9f3d74772451230f0382c) [@swar00pduthks](https://github.com/swar00pduthks)
+  * Introduced `run_lineage_denormalized` and `run_parent_lineage_denormalized` tables partitioned by `run_date` with monthly partitions
+  * Pre-computed lineage data replaces complex joins with simple table lookups, dramatically improving query performance for the Marquez UI
+  * Expected performance improvements: 3-10x for medium datasets (10K-100K runs), 10-50x for large datasets (100K+ runs), 20-100x for very large datasets (1M+ runs)
+* API: **New** `PartitionManagementService` for managing database partitions [`1ea6840`](https://github.com/swar00pduthks/marquez/commit/1ea684056497fd7f46d9f3d74772451230f0382c) [@swar00pduthks](https://github.com/swar00pduthks)
+  * Automatic creation of upcoming partitions (10 days ahead by default)
+  * Automatic cleanup of old partitions based on retention policy (12 months default)
+  * Partition statistics and monitoring capabilities
+  * Partition analysis for better query planning
+* API: Database migration **V79** - Drop facets column from denormalized tables (facets handled via joins) [`1ea6840`](https://github.com/swar00pduthks/marquez/commit/1ea684056497fd7f46d9f3d74772451230f0382c) [@swar00pduthks](https://github.com/swar00pduthks)
+* API: Database migration **V80** - Java migration to repopulate denormalized tables after facets removal [`1ea6840`](https://github.com/swar00pduthks/marquez/commit/1ea684056497fd7f46d9f3d74772451230f0382c) [@swar00pduthks](https://github.com/swar00pduthks)
+  * Processes existing runs in chunks (default: 5000 runs per chunk)
+  * Includes progress tracking for large datasets
+  * Handles failures gracefully with detailed logging
+  * Can be run manually: `java -jar marquez-api.jar db-migrate --version v80 --chunkSize 10000 ./marquez.yml`
+* API: Database migration **V81** - Drop existing denormalized tables to prepare for partitioned version [`1ea6840`](https://github.com/swar00pduthks/marquez/commit/1ea684056497fd7f46d9f3d74772451230f0382c) [@swar00pduthks](https://github.com/swar00pduthks)
+* API: Database migration **V82** - Create new partitioned denormalized tables with all necessary columns [`1ea6840`](https://github.com/swar00pduthks/marquez/commit/1ea684056497fd7f46d9f3d74772451230f0382c) [@swar00pduthks](https://github.com/swar00pduthks)
+  * Initial monthly partitions created for 2024 and 2025
+  * Comprehensive indexes for common UI query patterns
+* API: Database migration **V83** - Create partition management functions [`1ea6840`](https://github.com/swar00pduthks/marquez/commit/1ea684056497fd7f46d9f3d74772451230f0382c) [@swar00pduthks](https://github.com/swar00pduthks)
+  * `create_monthly_partition()`: Dynamically creates monthly partitions
+  * `drop_old_partitions()`: Removes partitions older than retention period
+* API: Database migration **V84** - Remove DAO-specific columns (cleanup for lineage-only usage) [`1ea6840`](https://github.com/swar00pduthks/marquez/commit/1ea684056497fd7f46d9f3d74772451230f0382c) [@swar00pduthks](https://github.com/swar00pduthks)
+* API: Database migration **V85** - Fix partition management function to handle existing partitions gracefully [`1ea6840`](https://github.com/swar00pduthks/marquez/commit/1ea684056497fd7f46d9f3d74772451230f0382c) [@swar00pduthks](https://github.com/swar00pduthks)
+* API: Event-driven population of denormalized tables when OpenLineage events are received [`1ea6840`](https://github.com/swar00pduthks/marquez/commit/1ea684056497fd7f46d9f3d74772451230f0382c) [@swar00pduthks](https://github.com/swar00pduthks)
+  * No manual intervention required for new installations
+  * Tables populate automatically as new lineage events are processed
+  * Supports both parent and child run lineage tracking
+* API: Updated `LineageDao` to use partitioned denormalized tables [`1ea6840`](https://github.com/swar00pduthks/marquez/commit/1ea684056497fd7f46d9f3d74772451230f0382c) [@swar00pduthks](https://github.com/swar00pduthks)
+* API: Updated `SearchResource` to leverage new denormalized tables [`1ea6840`](https://github.com/swar00pduthks/marquez/commit/1ea684056497fd7f46d9f3d74772451230f0382c) [@swar00pduthks](https://github.com/swar00pduthks)
+* CI: API load testing with k6 and automated metadata generation [`1cf74ef`](https://github.com/swar00pduthks/marquez/commit/1cf74ef2) [@swar00pduthks](https://github.com/swar00pduthks)
+* CI: Enhanced GPG signing key handling in publish script with improved security and error reporting [`9441c18`](https://github.com/swar00pduthks/marquez/commit/9441c181) [`25993dd`](https://github.com/swar00pduthks/marquez/commit/25993dd3) [@swar00pduthks](https://github.com/swar00pduthks)
+
+### Changed
+
+* API: Refactored `DenormalizedLineageService` to support partitioned table architecture with automatic partition creation and event-driven population [`1ea6840`](https://github.com/swar00pduthks/marquez/commit/1ea684056497fd7f46d9f3d74772451230f0382c) [@swar00pduthks](https://github.com/swar00pduthks)
+* Build: Updated project structure and test dependencies in build.gradle files [`f809634`](https://github.com/swar00pduthks/marquez/commit/f809634e) [@swar00pduthks](https://github.com/swar00pduthks)
+
+### Fixed
+
+* API: Fixed V57.1 migration corruption (restored missing CREATE TABLE statement for facet_migration_lock) [`034d301`](https://github.com/swar00pduthks/marquez/commit/034d3016) [@swar00pduthks](https://github.com/swar00pduthks)
+* API: Fixed test compatibility with partitioned tables by adding required `run_date` field to INSERT statements [`106b200`](https://github.com/swar00pduthks/marquez/commit/106b2007) [@swar00pduthks](https://github.com/swar00pduthks)
+* API: Fixed denormalized lineage queries for partition compatibility [`fd84f5c`](https://github.com/swar00pduthks/marquez/commit/fd84f5cb) [@swar00pduthks](https://github.com/swar00pduthks)
+* API: Fixed partition management function to handle existing partitions gracefully (prevents duplicate partition creation errors) [`1ea6840`](https://github.com/swar00pduthks/marquez/commit/1ea684056497fd7f46d9f3d74772451230f0382c) [@swar00pduthks](https://github.com/swar00pduthks)
+* Build: Fixed build configuration issues [`bc03580`](https://github.com/swar00pduthks/marquez/commit/bc03580d) [@swar00pduthks](https://github.com/swar00pduthks)
+
+## [0.52.30](https://github.com/swar00pduthks/marquez/compare/0.52.26...0.52.30) - 2025-11-30
+
+### Added
+
+* API: **New** `DenormalizedLineageService` for optimized lineage query performance [`56d6735`](https://github.com/swar00pduthks/marquez/commit/56d6735f) [@swar00pduthks](https://github.com/swar00pduthks)
+* API: Denormalized lineage backfill with materialized view refresh improvements [`db864ab`](https://github.com/swar00pduthks/marquez/commit/db864aba) [@swar00pduthks](https://github.com/swar00pduthks)
+* API: Denormalized tables for improved lineage query performance [`ff6cad9`](https://github.com/swar00pduthks/marquez/commit/ff6cad9e) [@swar00pduthks](https://github.com/swar00pduthks)
+
+### Changed
+
+* API: Updated denormalized backfill to populate as part of database migration [`ff4c443`](https://github.com/swar00pduthks/marquez/commit/ff4c4435) [@swar00pduthks](https://github.com/swar00pduthks)
+* API: Increased max migration limit [`1fc9add`](https://github.com/swar00pduthks/marquez/commit/1fc9add7) [@swar00pduthks](https://github.com/swar00pduthks)
+
+### Fixed
+
+* Build: Fixed Spotless formatting issues [`5baf29f`](https://github.com/swar00pduthks/marquez/commit/5baf29f5) [@swar00pduthks](https://github.com/swar00pduthks)
+* Security: Fixed dependency vulnerabilities [`0004616`](https://github.com/swar00pduthks/marquez/commit/00046160) [@swar00pduthks](https://github.com/swar00pduthks)
+* API: Fixed run UUID null pointer issue [`99cc709`](https://github.com/swar00pduthks/marquez/commit/99cc7093) [@swar00pduthks](https://github.com/swar00pduthks)
+
+## [0.52.26](https://github.com/swar00pduthks/marquez/compare/0.52.22...0.52.26) - 2025-11-15
+
+### Added
+
+* API: Materialized view for run lineage performance optimization [`b247621`](https://github.com/swar00pduthks/marquez/commit/b2476217) [@swar00pduthks](https://github.com/swar00pduthks)
+* API: Added `aggregateToParentRun` option for lineage queries [`bc903bd`](https://github.com/swar00pduthks/marquez/commit/bc903bd5) [@swar00pduthks](https://github.com/swar00pduthks)
+
+### Fixed
+
+* API: Fixed materialized view refresh issue [`0ec0702`](https://github.com/swar00pduthks/marquez/commit/0ec07022) [@swar00pduthks](https://github.com/swar00pduthks)
+* API: Fixed run_lineage_view materialized view query [`58a0a19`](https://github.com/swar00pduthks/marquez/commit/58a0a198) [@swar00pduthks](https://github.com/swar00pduthks)
+* API: Fixed run lineage materialized view refresher job [`169ac51`](https://github.com/swar00pduthks/marquez/commit/169ac511) [@swar00pduthks](https://github.com/swar00pduthks)
+* Build: Fixed build issues [`69350984`](https://github.com/swar00pduthks/marquez/commit/69350984) [@swar00pduthks](https://github.com/swar00pduthks)
+* API: Fixed performance bottleneck in lineage queries [`bc903bd`](https://github.com/swar00pduthks/marquez/commit/bc903bd5) [@swar00pduthks](https://github.com/swar00pduthks)
+
+## [0.52.22](https://github.com/swar00pduthks/marquez/compare/0.52.20...0.52.22) - 2025-10-30
+
+### Added
+
+* API: Added facets support to Run and DatasetVersion objects [`6bc8ed9`](https://github.com/swar00pduthks/marquez/commit/6bc8ed98) [@swar00pduthks](https://github.com/swar00pduthks)
+* API: Added DatasetVersion support in LineageService [`6bc8ed9`](https://github.com/swar00pduthks/marquez/commit/6bc8ed98) [@swar00pduthks](https://github.com/swar00pduthks)
+
+### Changed
+
+* API: Converted Job version object in Run Lineage representation [`6bc8ed9`](https://github.com/swar00pduthks/marquez/commit/6bc8ed98) [@swar00pduthks](https://github.com/swar00pduthks)
+* Web: Run Lineage now displays edges as dataset versions instead of dataset IDs [`6bc8ed9`](https://github.com/swar00pduthks/marquez/commit/6bc8ed98) [@swar00pduthks](https://github.com/swar00pduthks)
+
+### Fixed
+
+* API: Fixed NodeId to support dataset names with digits or numbers [`6bc8ed9`](https://github.com/swar00pduthks/marquez/commit/6bc8ed98) [@swar00pduthks](https://github.com/swar00pduthks)
+* API: Fixed null dataset version handling [`cb7c6242`](https://github.com/swar00pduthks/marquez/commit/cb7c6242) [`220ea80`](https://github.com/swar00pduthks/marquez/commit/220ea806) [@swar00pduthks](https://github.com/swar00pduthks)
+
+## [0.52.20](https://github.com/swar00pduthks/marquez/compare/0.51.1...0.52.20) - 2025-10-15
+
+### Added
+
+* API: Run lineage support enabled with comprehensive tracking [`ea17eba`](https://github.com/swar00pduthks/marquez/commit/ea17ebab) [@swar00pduthks](https://github.com/swar00pduthks)
+* API: Added dataset version tracking for input and output datasets in runs [`fac4546`](https://github.com/swar00pduthks/marquez/commit/fac45465) [@swar00pduthks](https://github.com/swar00pduthks)
+* Docs: Added Marquez data model diagram with detailed documentation [`ea4bae9`](https://github.com/swar00pduthks/marquez/commit/ea4bae9e) [@swar00pduthks](https://github.com/swar00pduthks)
+
+### Changed
+
+* API: **Major upgrade**: Dropwizard 4.0.13 and Jakarta EE migration [`b909a4b`](https://github.com/swar00pduthks/marquez/commit/b909a4b4) [@swar00pduthks](https://github.com/swar00pduthks)
+* API: Updated column lineage implementation with Lombok annotations [`022fdaa`](https://github.com/swar00pduthks/marquez/commit/022fdaa1) [@swar00pduthks](https://github.com/swar00pduthks)
+* Dependencies: Updated Guava dependencies for security and compatibility [`dcc622d`](https://github.com/swar00pduthks/marquez/commit/dcc622d6) [@swar00pduthks](https://github.com/swar00pduthks)
+* Build: Updated dependencies and Dockerfile for improved build process and security [`b15ac30`](https://github.com/swar00pduthks/marquez/commit/b15ac30c) [@swar00pduthks](https://github.com/swar00pduthks)
+
+### Fixed
+
+* API: Fixed missing datasetVersion for input and output datasets in run lineage [`c0342b6`](https://github.com/swar00pduthks/marquez/commit/c0342b6b) [@swar00pduthks](https://github.com/swar00pduthks)
+* Web: Fixed Dockerfile for web component [`732ed48`](https://github.com/swar00pduthks/marquez/commit/732ed48e) [@swar00pduthks](https://github.com/swar00pduthks)
+* Build: Fixed Docker build issues [`de86f22`](https://github.com/swar00pduthks/marquez/commit/de86f22a) [`1f08fac`](https://github.com/swar00pduthks/marquez/commit/1f08fac8) [@swar00pduthks](https://github.com/swar00pduthks)
+* API: Fixed copyright issues [`e638980`](https://github.com/swar00pduthks/marquez/commit/e6389800) [@swar00pduthks](https://github.com/swar00pduthks)
+* Build: Fixed various build, API, and test configurations [`cfb3143`](https://github.com/swar00pduthks/marquez/commit/cfb31434) [@swar00pduthks](https://github.com/swar00pduthks)
+
+## [0.51.1](https://github.com/MarquezProject/marquez/compare/0.51.0...0.51.1) - 2024-11-15
+
+### Changed
+
+* Dependencies: Updated opensearch-java to v2.22.0 [`#3004`](https://github.com/MarquezProject/marquez/pull/3004)
+* Dependencies: Updated opensearch-rest-client to v2.19.1 [`#3005`](https://github.com/MarquezProject/marquez/pull/3005)
+
+### Added
+
+* Web: Arcade demo on homepage [`#3009`](https://github.com/MarquezProject/marquez/pull/3009)
+* Docker: Added docker override for `linux/amd64` platform
+
+## [0.51.0](https://github.com/MarquezProject/marquez/compare/0.50.0...0.51.0) - 2024-11-01
+
+### Added
+
+* API: Database retention policy support added to Helm chart [`#3037`](https://github.com/MarquezProject/marquez/pull/3037)
+* Web: Chinese language support [`#2992`](https://github.com/MarquezProject/marquez/pull/2992)
+* API: Job facets support [`#2979`](https://github.com/MarquezProject/marquez/pull/2979)
+* CLI: Added `pytz` dependency [`#2978`](https://github.com/MarquezProject/marquez/pull/2978)
+* API: Set `WEB_PORT` environment variable support [`#2963`](https://github.com/MarquezProject/marquez/pull/2963)
+* API: Added `--db-port` argument to `docker/up.sh` [`#2961`](https://github.com/MarquezProject/marquez/pull/2961)
+* API: Set `POSTGRES_HOST=db` for `marquez-api` container [`#2959`](https://github.com/MarquezProject/marquez/pull/2959)
+* Web: Improved Events Page [`#2955`](https://github.com/MarquezProject/marquez/pull/2955)
+
+### Changed
+
+* API: `Dataset.currentVersionUuid` → `DatasetVersion.uuid` [`#2954`](https://github.com/MarquezProject/marquez/pull/2954)
+* Docs: Updated API documentation version [`#3029`](https://github.com/MarquezProject/marquez/pull/3029)
+* Docs: Added images to fix README.md [`#3028`](https://github.com/MarquezProject/marquez/pull/3028)
+* Docs: Promoted v2 content in docs for deploying with GitHub Pages [`#3013`](https://github.com/MarquezProject/marquez/pull/3013)
+* Web: Added Airflow tutorial [`#2985`](https://github.com/MarquezProject/marquez/pull/2985)
+* Web: Added CsvPath to list of Marquez adopters [`#2986`](https://github.com/MarquezProject/marquez/pull/2986)
+* Web: Replace bitly links in docs [`#2973`](https://github.com/MarquezProject/marquez/pull/2973)
+* CLI: Use `-p` for `--db-port` [`#2977`](https://github.com/MarquezProject/marquez/pull/2977)
+* CLI: Removed search from gitpod command [`#2960`](https://github.com/MarquezProject/marquez/pull/2960)
+
+### Fixed
+
+* API: Fixed null pointer on Dataset facets [`#2967`](https://github.com/MarquezProject/marquez/pull/2967)
+* API: Made dataset facets runuuid/eventtype nullable [`#2974`](https://github.com/MarquezProject/marquez/pull/2974)
+* API: Fixed connection error while connecting to postgres from local [`#2957`](https://github.com/MarquezProject/marquez/pull/2957)
+* API: Added missing `schemaURL` in seed events [`#2990`](https://github.com/MarquezProject/marquez/pull/2990)
+* Web: Fixed lineage run attachment issue [`#2953`](https://github.com/MarquezProject/marquez/pull/2953)
+* Web: Fixed tutorial preview card [`#2989`](https://github.com/MarquezProject/marquez/pull/2989)
+* Web: Fixed jobs URL [`#2996`](https://github.com/MarquezProject/marquez/pull/2996)
+* Web: Better handling of missing environment variables in setupProxy.js [`#2956`](https://github.com/MarquezProject/marquez/pull/2956)
+* Web: encodeURIComponent namespace and name in GET (column)lineage requests [`#2984`](https://github.com/MarquezProject/marquez/pull/2984)
+* Docs: Fixed baseUrl in docusaurus config [`#3027`](https://github.com/MarquezProject/marquez/pull/3027)
+* Docs: Fixed CNAME configuration [`#3020`](https://github.com/MarquezProject/marquez/pull/3020) [`#3022`](https://github.com/MarquezProject/marquez/pull/3022)
+* Docs: Fixed workflow [`#3017`](https://github.com/MarquezProject/marquez/pull/3017)
+* CI: Updated event time template in `metadata.json` [`#2946`](https://github.com/MarquezProject/marquez/pull/2946)
+* Dependencies: Updated opensearch-java to v2.16.0 [`#2910`](https://github.com/MarquezProject/marquez/pull/2910)
+* Dependencies: Updated commons-lang3 to v3.17.0 [`#2908`](https://github.com/MarquezProject/marquez/pull/2908)
+* Dependencies: Updated opensearch-rest-client to v2.17.1 [`#2911`](https://github.com/MarquezProject/marquez/pull/2911)
+* Dependencies: Updated postgresql to v42.7.4 [`#2912`](https://github.com/MarquezProject/marquez/pull/2912)
+* Dependencies: Updated assertj-core to v3.26.3 [`#2909`](https://github.com/MarquezProject/marquez/pull/2909)
+* Dependencies: Updated openlineage-java to v1.23.0 [`#2907`](https://github.com/MarquezProject/marquez/pull/2907)
 
 ## [0.50.0](https://github.com/MarquezProject/marquez/compare/0.49.0...0.50.0) - 2024-10-23
 
@@ -45,158 +226,158 @@
 
 ### Added
 
-* API: Job-to-Job lineage [`#2752`](https://github.com/MarquezProject/marquez/pull/2752) [@yanlibert](https://github.com/yanlibert)  
+* API: Job-to-Job lineage [`#2752`](https://github.com/MarquezProject/marquez/pull/2752) [@yanlibert](https://github.com/yanlibert)
     *Intended in part to spur a larger discussion of full parent/child hierarchy handling in Marquez. Changes only the backend API, adding the Job UUID along with the parent name to the Job metadata returned.*
 
 ### Fixed
 
-* Web: security updates [`#2864`](https://github.com/MarquezProject/marquez/pull/2864) [@phixMe](https://github.com/phixMe)  
+* Web: security updates [`#2864`](https://github.com/MarquezProject/marquez/pull/2864) [@phixMe](https://github.com/phixMe)
     *Resolves `critical` security issues found using NPM's `audit` command.*
-* Web: encode Job name in API requests [`#2866`](https://github.com/MarquezProject/marquez/pull/2866) [@dolfinus](https://github.com/dolfinus)  
+* Web: encode Job name in API requests [`#2866`](https://github.com/MarquezProject/marquez/pull/2866) [@dolfinus](https://github.com/dolfinus)
     *Urlencodes Job, Dataset, tag and field names while sending an API request.*
 
 ## [0.48.0](https://github.com/MarquezProject/marquez/compare/0.47.0...0.48.0) - 2024-07-30
 
 ### Added
 
-* API: add endpoint method and path to metrics name [`#2850`](https://github.com/MarquezProject/marquez/pull/2850) [@JDarDagran](https://github.com/JDarDagran)  
+* API: add endpoint method and path to metrics name [`#2850`](https://github.com/MarquezProject/marquez/pull/2850) [@JDarDagran](https://github.com/JDarDagran)
     *In the metrics endpoint, there was information gathered containing the SQL Object name and method name. This introduces labels (DAO name, DAO method, endpoint method, endpoint path) and adds more information about endpoints.*
-* API: add paging to dataset versions panel [`#2855`](https://github.com/MarquezProject/marquez/pull/2855) [@davidsharp7](https://github.com/davidsharp7)  
+* API: add paging to dataset versions panel [`#2855`](https://github.com/MarquezProject/marquez/pull/2855) [@davidsharp7](https://github.com/davidsharp7)
     *Adds Datasets paging.*
-* API: add paging on Jobs panel [`#2852`](https://github.com/MarquezProject/marquez/pull/2852) [@davidsharp7](https://github.com/davidsharp7)  
+* API: add paging on Jobs panel [`#2852`](https://github.com/MarquezProject/marquez/pull/2852) [@davidsharp7](https://github.com/davidsharp7)
     *Adds Job-level paging of Runs.*
-* API: add Dataset schema versions [`#2763`](https://github.com/MarquezProject/marquez/pull/2763) [@davidjgoss](https://github.com/davidjgoss)  
+* API: add Dataset schema versions [`#2763`](https://github.com/MarquezProject/marquez/pull/2763) [@davidjgoss](https://github.com/davidjgoss)
     *Adds Dataset schema versions to the model and enables writing to it.*
-* Docker: make db port configurable via `POSTGRES_PORT` [`#2751`](https://github.com/MarquezProject/marquez/pull/2751) [@merobi-hub](https://github.com/merobi-hub)  
+* Docker: make db port configurable via `POSTGRES_PORT` [`#2751`](https://github.com/MarquezProject/marquez/pull/2751) [@merobi-hub](https://github.com/merobi-hub)
     *Adds support for easy db port reassignment.*
-* Java: allow customization of Apache HTTP in Java client [`#2822`](https://github.com/MarquezProject/marquez/pull/2822) [@davidjgoss](https://github.com/davidjgoss)  
+* Java: allow customization of Apache HTTP in Java client [`#2822`](https://github.com/MarquezProject/marquez/pull/2822) [@davidjgoss](https://github.com/davidjgoss)
     *Allows customization of Apache HTTP in Java client.*
-* Web: add Job tagging to UI [`#2837`](https://github.com/MarquezProject/marquez/pull/2837) [@davidsharp7](https://github.com/davidsharp7)  
+* Web: add Job tagging to UI [`#2837`](https://github.com/MarquezProject/marquez/pull/2837) [@davidsharp7](https://github.com/davidsharp7)
     *Adds Job tagging to the UI.*
-* Web: source code facets [`#2833`](https://github.com/MarquezProject/marquez/pull/2833) [@phixMe](https://github.com/phixMe)  
+* Web: source code facets [`#2833`](https://github.com/MarquezProject/marquez/pull/2833) [@phixMe](https://github.com/phixMe)
     *Adds typedef and rendering of the `sourceCode` facet for a Job if available.*
 
-### Fixed 
-* API: Dataset query to get only the latest facet for each version [`#2859`](https://github.com/MarquezProject/marquez/pull/2859) [@sophiely](https://github.com/sophiely)  
+### Fixed
+* API: Dataset query to get only the latest facet for each version [`#2859`](https://github.com/MarquezProject/marquez/pull/2859) [@sophiely](https://github.com/sophiely)
     *The facet partition is ranked by Dataset version and facet name so as we can take only the most recent facet for each Dataset UUID and type.*
-* API: optimize column lineage query performance [`#2821`](https://github.com/MarquezProject/marquez/pull/2821) [@vinhnemo](https://github.com/vinhnemo)  
+* API: optimize column lineage query performance [`#2821`](https://github.com/MarquezProject/marquez/pull/2821) [@vinhnemo](https://github.com/vinhnemo)
     *Adds a filter condition to the CTE `dataset_fields_view` in [ColumnLineageDao.java](https://github.com/MarquezProject/marquez/blob/d6ac3e6435748cada4e08516250feee48ed9c0fa/api/src/main/java/marquez/db/ColumnLineageDao.java#L187).*
-* Web: deduplicate the versions displayed [`#2854`](https://github.com/MarquezProject/marquez/pull/2854) [@namyyys](https://github.com/namyyys)  
+* Web: deduplicate the versions displayed [`#2854`](https://github.com/MarquezProject/marquez/pull/2854) [@namyyys](https://github.com/namyyys)
     *Excludes the symlinks from the result of the query displaying the version history in order to exclude duplicate versions.*
-* Web: clean up issues highlighted by some Spark Integration Data [`#2856`](https://github.com/MarquezProject/marquez/pull/2856) [@phixMe](https://github.com/phixMe)  
+* Web: clean up issues highlighted by some Spark Integration Data [`#2856`](https://github.com/MarquezProject/marquez/pull/2856) [@phixMe](https://github.com/phixMe)
     *Fixes numerous issues in our interfaces related to some OpenLineage Spark events.*
-* Web: remove limit from assertion evaluation [`#2844`](https://github.com/MarquezProject/marquez/pull/2844) [@phixMe](https://github.com/phixMe)  
+* Web: remove limit from assertion evaluation [`#2844`](https://github.com/MarquezProject/marquez/pull/2844) [@phixMe](https://github.com/phixMe)
     *Fixes bug where our status indicator was the wrong color.*
-* Web: bring Dataset tags into line with Job Tags [`#2841`](https://github.com/MarquezProject/marquez/pull/2841) [@davidsharp7](https://github.com/davidsharp7)  
+* Web: bring Dataset tags into line with Job Tags [`#2841`](https://github.com/MarquezProject/marquez/pull/2841) [@davidsharp7](https://github.com/davidsharp7)
     *Brings Dataset tags into line with Job tags.*
-* Web: fix scroll issues for drawer and home pages [`#2820`](https://github.com/MarquezProject/marquez/pull/2820) [@phixMe](https://github.com/phixMe)  
+* Web: fix scroll issues for drawer and home pages [`#2820`](https://github.com/MarquezProject/marquez/pull/2820) [@phixMe](https://github.com/phixMe)
     *Scrolling improvements for drawer and home pages.*
-* Web: fix search endpoint parameters [`#2818`](https://github.com/MarquezProject/marquez/pull/2818) [@Nisarg-Chokshi](https://github.com/Nisarg-Chokshi)  
+* Web: fix search endpoint parameters [`#2818`](https://github.com/MarquezProject/marquez/pull/2818) [@Nisarg-Chokshi](https://github.com/Nisarg-Chokshi)
     *The search API parameters were not getting updated correctly on changing the filter and sort options.*
 
 ### Removed
-* Web: DRY paging [`#2832`](https://github.com/MarquezProject/marquez/pull/2832) [@phixMe](https://github.com/phixMe)  
+* Web: DRY paging [`#2832`](https://github.com/MarquezProject/marquez/pull/2832) [@phixMe](https://github.com/phixMe)
     *Removes repeated code for paging on lineage events, jobs and datasets.*
 
 ## [0.47.0](https://github.com/MarquezProject/marquez/compare/0.46.0...0.47.0) - 2024-05-17
 
 ### Added
 
-* * * 
+* * *
 #### Data Quality and Job Status Display in Marquez Web
-* Web: Data Quality [`#2810`](https://github.com/MarquezProject/marquez/pull/2810) [`#2785`](https://github.com/MarquezProject/marquez/pull/2785) [`#2812`](https://github.com/MarquezProject/marquez/pull/2812) [@phixMe](https://github.com/phixMe)  
+* Web: Data Quality [`#2810`](https://github.com/MarquezProject/marquez/pull/2810) [`#2785`](https://github.com/MarquezProject/marquez/pull/2785) [`#2812`](https://github.com/MarquezProject/marquez/pull/2812) [@phixMe](https://github.com/phixMe)
     *Adds Data Quality and Job Status display features.*
 * * * *
-* API: add job tagging to API [`#2774`](https://github.com/MarquezProject/marquez/pull/2774) [@davidsharp7](https://github.com/davidsharp7)  
+* API: add job tagging to API [`#2774`](https://github.com/MarquezProject/marquez/pull/2774) [@davidsharp7](https://github.com/davidsharp7)
     *Adds support for job tagging to the API.*
-* Chart: add `serviceAccount`and `extraContainers` to helm chart values [`#2766`](https://github.com/MarquezProject/marquez/pull/2766) [@kostas-theo](https://github.com/kostas-theo)  
+* Chart: add `serviceAccount`and `extraContainers` to helm chart values [`#2766`](https://github.com/MarquezProject/marquez/pull/2766) [@kostas-theo](https://github.com/kostas-theo)
     *To make the Kubernetes service account configurable, adds these values to the helm chart values with defaults set to maintain current functionality.*
-* Client/Java: add `jobVersion` field to Run in Java client [`#2808`](https://github.com/MarquezProject/marquez/pull/2808) [@davidjgoss](https://github.com/davidjgoss)  
+* Client/Java: add `jobVersion` field to Run in Java client [`#2808`](https://github.com/MarquezProject/marquez/pull/2808) [@davidjgoss](https://github.com/davidjgoss)
     *Adds `jobVersion` field to Run in Java client.*
-* Docker: improve down.sh script [`#2778`](https://github.com/MarquezProject/marquez/pull/2778) [@dolfinus](https://github.com/dolfinus)  
+* Docker: improve down.sh script [`#2778`](https://github.com/MarquezProject/marquez/pull/2778) [@dolfinus](https://github.com/dolfinus)
     *Adds new `-v` option and fixes down.sh script to rely on `docker-compose down -v` and make volume deletion optional.*
-* Web: tooltips and display updates [`#2809`](https://github.com/MarquezProject/marquez/pull/2809) [@phixMe](https://github.com/phixMe)  
+* Web: tooltips and display updates [`#2809`](https://github.com/MarquezProject/marquez/pull/2809) [@phixMe](https://github.com/phixMe)
     *Updates tooltips to be more modernized and custom.*
-* Web: update JSON theme [`#2807`](https://github.com/MarquezProject/marquez/pull/2807) [@phixMe](https://github.com/phixMe)  
+* Web: update JSON theme [`#2807`](https://github.com/MarquezProject/marquez/pull/2807) [@phixMe](https://github.com/phixMe)
     *Makes the JSON theme more in-line with the Marquez brand.*
-* Web: column lineage linking and sticky tab titles [`#2805`](https://github.com/MarquezProject/marquez/pull/2805) [@phixMe](https://github.com/phixMe)  
+* Web: column lineage linking and sticky tab titles [`#2805`](https://github.com/MarquezProject/marquez/pull/2805) [@phixMe](https://github.com/phixMe)
     *Adds sticky Titles and moves column lineage links to the table definition.*
-* Web: refine panel feature set [`#2798`](https://github.com/MarquezProject/marquez/pull/2798) [@phixMe](https://github.com/phixMe)  
+* Web: refine panel feature set [`#2798`](https://github.com/MarquezProject/marquez/pull/2798) [@phixMe](https://github.com/phixMe)
     *Adds many refinements in response to user feedback.*
-* Web: update dataset/dataset field-tagging experience [`#2761`](https://github.com/MarquezProject/marquez/pull/2761) [@davidsharp7](https://github.com/davidsharp7)  
+* Web: update dataset/dataset field-tagging experience [`#2761`](https://github.com/MarquezProject/marquez/pull/2761) [@davidsharp7](https://github.com/davidsharp7)
     *Adds support for adding multiple tags at once, introduces a switch to allow field-level tags to be exposed, and fixes refresh for an improved a field-tagging experience.*
-* Web: web refresh + loading states [`#2779`](https://github.com/MarquezProject/marquez/pull/2779) [@phixMe](https://github.com/phixMe)  
+* Web: web refresh + loading states [`#2779`](https://github.com/MarquezProject/marquez/pull/2779) [@phixMe](https://github.com/phixMe)
     *Adds a refresh button for jobs, datasets, and lineage events pages. This also will work in empty states.*
 
 ### Removed
 
-* Web: remove old files and dependencies [`#2801`](https://github.com/MarquezProject/marquez/pull/2801) [@phixMe](https://github.com/phixMe)  
+* Web: remove old files and dependencies [`#2801`](https://github.com/MarquezProject/marquez/pull/2801) [@phixMe](https://github.com/phixMe)
     *Drops deps and removes unused React components no longer required by the new lineage graph.*
 
 ### Fixed
 
-* API: adapt column lineage query for symlink dataset [`#2775`](https://github.com/MarquezProject/marquez/pull/2775) [@sophiely](https://github.com/sophiely)  
+* API: adapt column lineage query for symlink dataset [`#2775`](https://github.com/MarquezProject/marquez/pull/2775) [@sophiely](https://github.com/sophiely)
     *Changes the column lineage query in order to take only the 'main' dataset, not the dataset created via symlink.*
-* Web: resolve issue data quality assertion facet are not displayed [`#2528`](https://github.com/MarquezProject/marquez/pull/2528) [@sophiely](https://github.com/sophiely)  
+* Web: resolve issue data quality assertion facet are not displayed [`#2528`](https://github.com/MarquezProject/marquez/pull/2528) [@sophiely](https://github.com/sophiely)
     *Fixes rendering of the `DataQualityAssertion` facet by adding support for `dataset`, `unknown` and `input`.*
-* Web: fix `showTags` refresh [`#2799`](https://github.com/MarquezProject/marquez/pull/2799) [@davidsharp7](https://github.com/davidsharp7)  
+* Web: fix `showTags` refresh [`#2799`](https://github.com/MarquezProject/marquez/pull/2799) [@davidsharp7](https://github.com/davidsharp7)
     *Adds `showTags` to the dependencies of `fetchDatasetVersions` and disables the show tags toggle until the latest version has been pulled.*
-* Web: various dataset tags improvements [`#2813`](https://github.com/MarquezProject/marquez/pull/2813) [@davidsharp7](https://github.com/davidsharp7)  
+* Web: various dataset tags improvements [`#2813`](https://github.com/MarquezProject/marquez/pull/2813) [@davidsharp7](https://github.com/davidsharp7)
     *Various tag improvements including a carat for the dropdown.*
-* Web: use Webpack-bundled icon instead of GitHub-hosted content [`#2803`](https://github.com/MarquezProject/marquez/pull/2803) [@dodo0822](https://github.com/dodo0822)  
+* Web: use Webpack-bundled icon instead of GitHub-hosted content [`#2803`](https://github.com/MarquezProject/marquez/pull/2803) [@dodo0822](https://github.com/dodo0822)
     *For compliance with a strict CSP, replaces the icon with an SVG bundled by Webpack instead of linking to `raw.githubusercontent.com`.*
 
 ## [0.46.0](https://github.com/MarquezProject/marquez/compare/0.45.0...0.46.0) - 2024-03-15
 
 ### Changed
 
-* Web: various revisions [`#2770`](https://github.com/MarquezProject/marquez/pull/2768) [@phixMe](https://github.com/phixMe)  
+* Web: various revisions [`#2770`](https://github.com/MarquezProject/marquez/pull/2768) [@phixMe](https://github.com/phixMe)
     *Includes clean up of issues in the UI and removal of non-useful elements.*
 
 ### Fixed
 
-* Streaming API: fix behaviour for `COMPLETE`/`FAIL` events within streaming jobs [`#2768`](https://github.com/MarquezProject/marquez/pull/2768) [@pawel-big-lebowski]( https://github.com/pawel-big-lebowski) 
+* Streaming API: fix behaviour for `COMPLETE`/`FAIL` events within streaming jobs [`#2768`](https://github.com/MarquezProject/marquez/pull/2768) [@pawel-big-lebowski]( https://github.com/pawel-big-lebowski)
     *New `job_version` is not created for a streaming job terminal event with no dataset information and existing version is kept.*
 
 ## [0.45.0](https://github.com/MarquezProject/marquez/compare/0.44.0...0.45.0) - 2024-03-07
 
 ### Added
 
-* * * 
+* * *
 #### Redesigned Web UI Featuring Column Lineage
-* Web: updates to Table and Column Lineage [`#2725`](https://github.com/MarquezProject/marquez/pull/2725) [@phixMe](https://github.com/phixMe)  
+* Web: updates to Table and Column Lineage [`#2725`](https://github.com/MarquezProject/marquez/pull/2725) [@phixMe](https://github.com/phixMe)
     *A new page for column lineage and an updated view for lineage with a common set of shared principles.*
-* Web: quality of life updates for new lineage graph display [`#2750`](https://github.com/MarquezProject/marquez/pull/2750) [@phixMe](https://github.com/phixMe)  
+* Web: quality of life updates for new lineage graph display [`#2750`](https://github.com/MarquezProject/marquez/pull/2750) [@phixMe](https://github.com/phixMe)
     *Visual updates from early feedback on lineage graph navigation, including a zoom button to center on the selected node.*
-* Web: improve visual display of lineage [`#2753`](https://github.com/MarquezProject/marquez/pull/2753) [@phixMe](https://github.com/phixMe)  
-    *Visual improvements to nodes including the addition of more detail and the ability to collapse dataset nodes manually.*  
-* * * * 
-* Web: add dataset field level tags to UI [`#2729`](https://github.com/MarquezProject/marquez/pull/2729) [@davidsharp7](https://github.com/davidsharp7)  
+* Web: improve visual display of lineage [`#2753`](https://github.com/MarquezProject/marquez/pull/2753) [@phixMe](https://github.com/phixMe)
+    *Visual improvements to nodes including the addition of more detail and the ability to collapse dataset nodes manually.*
+* * * *
+* Web: add dataset field level tags to UI [`#2729`](https://github.com/MarquezProject/marquez/pull/2729) [@davidsharp7](https://github.com/davidsharp7)
     *Updates to the `DatasetTags` component to allow for field-level tagging/deletion and addition of this to the `DatasetInfo` component.*
-* Web: update dataset tags to allow editing/addition of tags [`#2759`](https://github.com/MarquezProject/marquez/pull/2759) [@davidsharp7](https://github.com/davidsharp7)   
+* Web: update dataset tags to allow editing/addition of tags [`#2759`](https://github.com/MarquezProject/marquez/pull/2759) [@davidsharp7](https://github.com/davidsharp7)
     *Updates to `DatasetTags` to include a split button menu and a new dialog/reducer for adding new tags.*
-* Web: minor dataset tags revisions [`#2754`](https://github.com/MarquezProject/marquez/pull/2754) [@phixMe](https://github.com/phixMe)  
+* Web: minor dataset tags revisions [`#2754`](https://github.com/MarquezProject/marquez/pull/2754) [@phixMe](https://github.com/phixMe)
     *Minor cleanup of the dataset tags feature including a pointer on the expandable row and a transition on row expansion, plus some new CSS elements.*
 
 ### Fixed
 
-* Web: minor UI enhancements [`#2727`](https://github.com/MarquezProject/marquez/pull/2727) [@phixMe](https://github.com/phixMe)  
+* Web: minor UI enhancements [`#2727`](https://github.com/MarquezProject/marquez/pull/2727) [@phixMe](https://github.com/phixMe)
     *Hygienic cleanup of project as a follow-up to [`#2725`](https://github.com/MarquezProject/marquez/pull/2725), including a fix for [`#2747`](https://github.com/MarquezProject/marquez/issues/2747).*
-* Web: fix symlink display [`#2736`](https://github.com/MarquezProject/marquez/pull/2736) [@sophiely](https://github.com/sophiely)  
+* Web: fix symlink display [`#2736`](https://github.com/MarquezProject/marquez/pull/2736) [@sophiely](https://github.com/sophiely)
     *Changed behavior to display the symlink dataset in the previously empty namespace and link the symlink dataset lineage to the main dataset.*
 
 ## [0.44.0](https://github.com/MarquezProject/marquez/compare/0.43.1...0.44.0) - 2024-01-22
 
 ### Added
 
-* Web: add dataset tags tabs for adding/deleting of tags [`#2714`](https://github.com/MarquezProject/marquez/pull/2714) [@davidsharp7](https://github.com/davidsharp7)  
+* Web: add dataset tags tabs for adding/deleting of tags [`#2714`](https://github.com/MarquezProject/marquez/pull/2714) [@davidsharp7](https://github.com/davidsharp7)
     *Adds a dataset tags component so that datasets can have tags added/deleted.*
-* API: Add endpoint to delete field-level tags [`#2705`](https://github.com/MarquezProject/marquez/pull/2705) [@davidsharp7](https://github.com/davidsharp7)  
+* API: Add endpoint to delete field-level tags [`#2705`](https://github.com/MarquezProject/marquez/pull/2705) [@davidsharp7](https://github.com/davidsharp7)
     *Adds delete endpoint to remove dataset field tags.*
 
 ### Fixed
 
-* Web: fix dataset tag reducers bug [`#2716`](https://github.com/MarquezProject/marquez/pull/2716) [@davidsharp7](https://github.com/davidsharp7)  
+* Web: fix dataset tag reducers bug [`#2716`](https://github.com/MarquezProject/marquez/pull/2716) [@davidsharp7](https://github.com/davidsharp7)
     *Removes result from dataset tags reducer to fix a sidebar bug.*
 
 ## [0.43.1](https://github.com/MarquezProject/marquez/compare/0.43.0...0.43.1) - 2023-12-20

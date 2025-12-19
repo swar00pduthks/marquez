@@ -30,7 +30,7 @@ chunks processed. Based on that:
 A default chunk size is `10000` which is a number of `lineage_events` processed in a single query. A chunk size
 may be adjusted as command parameter:
 ```shell
-java -jar api/build/libs/marquez-api-0.30.0-SNAPSHOT.jar db-migrate --version v57 --chunkSize 50000 ./marquez.ymlthe  the 
+java -jar api/build/libs/marquez-api-0.30.0-SNAPSHOT.jar db-migrate --version v57 --chunkSize 50000 ./marquez.ymlthe  the
 ```
 
 ## How long can the migration procedure take?

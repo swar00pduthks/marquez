@@ -194,4 +194,3 @@ CREATE TABLE run_parent_lineage_denormalized_y2025m11 PARTITION OF run_parent_li
     FOR VALUES FROM ('2025-11-01') TO ('2025-12-01');
 CREATE TABLE run_parent_lineage_denormalized_y2025m12 PARTITION OF run_parent_lineage_denormalized
     FOR VALUES FROM ('2025-12-01') TO ('2026-01-01');
-
