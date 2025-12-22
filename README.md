@@ -39,6 +39,29 @@ Want to be added? Send a pull request our way!
 
 [![Open in Gitpod](https://gitpod.io/button/open-in-gitpod.svg)](https://gitpod.io/#https://github.com/swar00pduthks/marquez)
 
+## 🚀 Deployment and Testing
+
+This repository includes comprehensive deployment and testing tools:
+
+- **[Quick Start Guide](deployment/QUICKSTART.md)** - Get started in 5 minutes
+- **[Deployment Guide](DEPLOYMENT.md)** - Complete deployment documentation
+- **[Load Testing](deployment/LOAD_TESTING.md)** - Performance testing with k6
+- **[Migration Testing](deployment/MIGRATION_TESTING.md)** - Database migration validation
+- **[Testing Tools](deployment/README.md)** - All testing scripts and documentation
+
+### Quick Deploy & Validate
+
+```bash
+# Deploy Marquez
+./docker/up.sh --build --seed
+
+# Validate deployment and run tests
+cd deployment
+./run-all-tests.sh --load-scenario baseline
+```
+
+For detailed instructions, see the [deployment directory](deployment/).
+
 ## Quickstart
 
 Marquez provides a simple way to collect and view _dataset_, _job_, and _run_ metadata using [OpenLineage](https://openlineage.io). The easiest way to get up and running is with Docker. From the base of the Marquez repository, run:
