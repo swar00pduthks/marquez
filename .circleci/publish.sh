@@ -7,6 +7,15 @@
 
 set -e
 
+export ORG_GRADLE_PROJECT_ossrhUsername="${ORG_GRADLE_PROJECT_ossrhUsername:-$OSSRH_USERNAME}"
+export ORG_GRADLE_PROJECT_ossrhPassword="${ORG_GRADLE_PROJECT_ossrhPassword:-$OSSRH_PASSWORD}"
+
+if [ -z "$ORG_GRADLE_PROJECT_ossrhUsername" ] || [ -z "$ORG_GRADLE_PROJECT_ossrhPassword" ]; then
+  echo "ERROR: Sonatype credentials not set."
+  echo "Set ORG_GRADLE_PROJECT_ossrhUsername and ORG_GRADLE_PROJECT_ossrhPassword (Central user token)."
+  exit 1
+fi
+
 # Get, then decode, the GPG private key used to sign *-SNAPSHOT.jar
 # Remove any whitespace/newlines from the base64 string before decoding
 CLEAN_BASE64=$(echo "$GPG_SIGNING_KEY" | tr -d '\n\r[:space:]')
