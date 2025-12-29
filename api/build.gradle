@@ -189,8 +189,8 @@ publishing {
             def snapshotsRepoUrl = 'https://central.sonatype.com/repository/maven-snapshots/'
             url = version.endsWith('SNAPSHOT') ? snapshotsRepoUrl : releasesRepoUrl
             credentials {
-                username = System.getenv('OSSRH_USERNAME')
-                password = System.getenv('OSSRH_PASSWORD')
+                 username = System.getenv('ORG_GRADLE_PROJECT_ossrhUsername') ?: System.getenv('OSSRH_USERNAME')
+                 password = System.getenv('ORG_GRADLE_PROJECT_ossrhPassword') ?: System.getenv('OSSRH_PASSWORD')
             }
         }
     }
