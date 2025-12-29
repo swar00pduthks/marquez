@@ -27,6 +27,10 @@ jobs:
       - name: Build website
         run: yarn build
         working-directory: ./docs
+        
+      - name: Ensure .nojekyll in build output
+        run: touch build/.nojekyll
+        working-directory: ./docs  
 
       - name: Upload Build Artifact
         uses: actions/upload-pages-artifact@v3
