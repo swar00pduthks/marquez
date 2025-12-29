@@ -44,6 +44,6 @@ fi
 echo "GPG signing key decoded and verified successfully"
 
 # Publish *.jar
-./gradlew publish
+./gradlew publish --no-daemon --info
 
 echo "DONE!"
