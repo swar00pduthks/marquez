@@ -41,6 +41,10 @@ db:
   # Refresh materialized views at a frequency of every 'X' minutes (default: 60)
   # frequencyMinutes: ${MATERIALIZED_VIEW_REFRESH_FREQUENCY_MINUTES:-60}
 
+# Denormalized lineage is handled via database migrations
+# For large datasets (>100K runs), use manual migration:
+# java -jar marquez-api.jar db-migrate --version v80 --chunkSize 10000 ./marquez.yml
+
 # Enables flyway configuration overrides (see: https://flywaydb.org/documentation/configfiles)
 # flyway:
 #   connectRetries: 3

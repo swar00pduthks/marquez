@@ -5,6 +5,7 @@
 
 package marquez.service;
 
+import java.time.LocalDate;
 import java.util.UUID;
 import lombok.NonNull;
 import lombok.extern.slf4j.Slf4j;
@@ -15,9 +16,18 @@ import org.jdbi.v3.core.Jdbi;
 public class DenormalizedLineageService {
 
   private final Jdbi jdbi;
+  private final PartitionManagementService partitionManagementService;
 
   public DenormalizedLineageService(@NonNull final Jdbi jdbi) {
     this.jdbi = jdbi;
+    this.partitionManagementService = new PartitionManagementService(jdbi, 10, 12);
+  }
+
+  public DenormalizedLineageService(
+      @NonNull final Jdbi jdbi,
+      @NonNull final PartitionManagementService partitionManagementService) {
+    this.jdbi = jdbi;
+    this.partitionManagementService = partitionManagementService;
   }
 
   /**
@@ -34,13 +44,16 @@ public class DenormalizedLineageService {
 
       jdbi.useTransaction(
           handle -> {
-            // Step 1: Delete existing records for this run
+            // Step 1: Ensure partitions exist for the run date
+            ensurePartitionsExist(handle, runUuid);
+
+            // Step 2: Delete existing records for this run
             deleteExistingRecords(handle, runUuid);
 
-            // Step 2: Always populate run_lineage_denormalized for the run
+            // Step 3: Always populate run_lineage_denormalized for the run
             populateRunLineageDenormalized(handle, runUuid);
 
-            // Step 3: Populate run_parent_lineage_denormalized
+            // Step 4: Populate run_parent_lineage_denormalized
             // - If this run is a parent (has children), populate for this run
             // - If this run is a child (has parent), populate for the parent run
             if (isParentRun(handle, runUuid)) {
@@ -224,6 +237,72 @@ public class DenormalizedLineageService {
 
     log.debug("Run {} has parent run: {}", runUuid, parentRunUuid);
     return parentRunUuid;
+  }
+
+  /**
+   * Ensure partitions exist for the given run date. This method calls the partition management
+   * service to create partitions if they don't exist.
+   */
+  private void ensurePartitionsExist(org.jdbi.v3.core.Handle handle, UUID runUuid) {
+    log.debug("Ensuring partitions exist for run: {}", runUuid);
+
+    // Get the run date for this run
+    String runDateStr =
+        handle
+            .createQuery(
+                "SELECT DATE(COALESCE(started_at, ended_at, created_at)) FROM runs WHERE uuid = :runUuid")
+            .bind("runUuid", runUuid)
+            .mapTo(String.class)
+            .one();
+
+    // Convert to LocalDate and ensure partitions exist
+    LocalDate runDate = LocalDate.parse(runDateStr);
+    partitionManagementService.ensurePartitionExists(runDate);
+  }
+
+  /** Get partition statistics for monitoring. */
+  public void getPartitionStats() {
+    try {
+      jdbi.useHandle(
+          handle -> {
+            var runLineageStats =
+                handle
+                    .createQuery(
+                        "SELECT * FROM get_partition_stats('run_lineage_denormalized_partitioned')")
+                    .mapToMap()
+                    .list();
+
+            var parentLineageStats =
+                handle
+                    .createQuery(
+                        "SELECT * FROM get_partition_stats('run_parent_lineage_denormalized')")
+                    .mapToMap()
+                    .list();
+
+            log.info("Run lineage partition stats: {}", runLineageStats);
+            log.info("Parent lineage partition stats: {}", parentLineageStats);
+          });
+    } catch (Exception e) {
+      log.error("Failed to get partition statistics", e);
+    }
+  }
+
+  /** Analyze all partitions to update statistics. */
+  public void analyzeAllPartitions() {
+    try {
+      jdbi.useHandle(
+          handle -> {
+            handle
+                .createUpdate("SELECT analyze_all_partitions('run_lineage_denormalized')")
+                .execute();
+            handle
+                .createUpdate("SELECT analyze_all_partitions('run_parent_lineage_denormalized')")
+                .execute();
+            log.info("Analyzed all partitions");
+          });
+    } catch (Exception e) {
+      log.error("Failed to analyze partitions", e);
+    }
   }
 
   /**

@@ -14,4 +14,4 @@ CREATE INDEX idx_run_lineage_denorm_run_date ON run_lineage_denormalized (run_da
 CREATE INDEX idx_run_parent_lineage_denorm_run_date ON run_parent_lineage_denormalized (run_date);
 
 -- Note: PostgreSQL will automatically handle partitioning based on the run_date column
--- No manual partition creation needed - PostgreSQL will create partitions as needed 
+-- No manual partition creation needed - PostgreSQL will create partitions as needed

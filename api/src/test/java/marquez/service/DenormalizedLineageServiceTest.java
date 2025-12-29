@@ -218,7 +218,7 @@ public class DenormalizedLineageServiceTest {
     jdbi.useHandle(
         handle -> {
           handle.execute(
-              "INSERT INTO run_lineage_denormalized (run_uuid, job_name, namespace_name) VALUES (?, ?, ?)",
+              "INSERT INTO run_lineage_denormalized (run_uuid, job_name, namespace_name, run_date) VALUES (?, ?, ?, CURRENT_DATE)",
               runUuid,
               "old_job_name",
               "old_namespace");

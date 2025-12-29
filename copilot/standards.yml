@@ -1,0 +1,27 @@
+project: "Marquez – Custom Metadata Service"
+
+sources:
+  contribution:
+    - path: "CONTRIBUTING.md"
+    - path: "GOVERNANCE.md"
+    - path: "why-the-dco.md"
+  quality_and_security:
+    - path: "CODE_QUALITY_AND_SECURITY.md"
+    - path: ".pre-commit-config.yaml"
+    - path: "pmd-marquez.xml"
+  release:
+    - path: "RELEASING.md"
+    - path: "CHANGELOG.md"
+    - path: "new-version.sh"
+  ci_cd:
+    - path: ".circleci/config.yml"
+    - path: "codecov.yml"
+  pr:
+    - path: ".github/pull_request_template.md"
+
+rules:
+  require_tests_for_changes: true
+  require_dco_signoff: true
+  require_changelog_on_version_bump: true
+  require_docs_for_user_visible_changes: true
+  require_ci_green_before_merge: true

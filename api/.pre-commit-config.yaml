@@ -1,0 +1,8 @@
+repos:
+  - repo: local
+    hooks:
+      - id: repo-standards
+        name: Check repo standards
+        entry: dev/check_repo_standards.sh
+        language: system
+        pass_filenames: false

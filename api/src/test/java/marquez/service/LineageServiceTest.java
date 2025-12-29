@@ -28,6 +28,7 @@ import marquez.common.models.InputDatasetVersion;
 import marquez.common.models.JobId;
 import marquez.common.models.JobName;
 import marquez.common.models.NamespaceName;
+import marquez.common.models.RunId;
 import marquez.common.models.RunState;
 import marquez.db.DatasetDao;
 import marquez.db.JobDao;
@@ -71,6 +72,7 @@ public class LineageServiceTest {
   private static OpenLineageDao openLineageDao;
   private static DatasetDao datasetDao;
   private static JobDao jobDao;
+  private static DenormalizedLineageService denormalizedLineageService;
 
   private final Dataset dataset =
       new Dataset(
@@ -92,6 +94,7 @@ public class LineageServiceTest {
     openLineageDao = jdbi.onDemand(OpenLineageDao.class);
     datasetDao = jdbi.onDemand(DatasetDao.class);
     jobDao = jdbi.onDemand(JobDao.class);
+    denormalizedLineageService = new DenormalizedLineageService(jdbi);
   }
 
   @AfterEach
@@ -680,5 +683,283 @@ public class LineageServiceTest {
             false);
 
     assertThat(lineage.getGraph()).hasSize(2);
+  }
+
+  @Test
+  public void testRunLineageBasic() {
+    // Create a run with input and output datasets
+    Dataset inputDataset = new Dataset(NAMESPACE, "inputDataset", newDatasetFacet());
+    Dataset outputDataset = new Dataset(NAMESPACE, "outputDataset", newDatasetFacet());
+
+    UpdateLineageRow run =
+        LineageTestUtils.createLineageRow(
+            openLineageDao,
+            "testJob",
+            "COMPLETE",
+            jobFacet,
+            Arrays.asList(inputDataset),
+            Arrays.asList(outputDataset));
+
+    UUID runUuid = run.getRun().getUuid();
+
+    // Populate denormalized tables for the run
+    denormalizedLineageService.populateLineageForRun(runUuid);
+
+    // Test run lineage (calls getRunLineage() method)
+    Lineage lineage = lineageService.lineage(NodeId.of(new RunId(runUuid)), 2, false);
+
+    // Verify lineage contains the run and its datasets
+    assertThat(lineage.getGraph()).isNotEmpty();
+
+    // Check that we have nodes for the run, input dataset, and output dataset
+    List<NodeId> nodeIds =
+        lineage.getGraph().stream().map(Node::getId).collect(Collectors.toList());
+
+    // Verify we have the run node
+    assertThat(nodeIds).contains(NodeId.of(new RunId(runUuid)));
+
+    // Verify we have dataset nodes (they will include version UUIDs)
+    assertThat(nodeIds)
+        .anyMatch(nodeId -> nodeId.getValue().startsWith("dataset:namespace:inputDataset#"));
+    assertThat(nodeIds)
+        .anyMatch(nodeId -> nodeId.getValue().startsWith("dataset:namespace:outputDataset#"));
+  }
+
+  @Test
+  public void testRunLineageWithFacets() {
+    // Create a run with facets to test the SQL queries with facets
+    Dataset inputDataset = new Dataset(NAMESPACE, "inputDataset", newDatasetFacet());
+    Dataset outputDataset = new Dataset(NAMESPACE, "outputDataset", newDatasetFacet());
+
+    UpdateLineageRow run =
+        LineageTestUtils.createLineageRow(
+            openLineageDao,
+            "testJobWithFacets",
+            "COMPLETE",
+            jobFacet,
+            Arrays.asList(inputDataset),
+            Arrays.asList(outputDataset));
+
+    UUID runUuid = run.getRun().getUuid();
+
+    // Add run facets to test the facets handling in SQL queries
+    jdbi.useHandle(
+        handle -> {
+          handle.execute(
+              "INSERT INTO run_facets (created_at, run_uuid, lineage_event_time, lineage_event_type, name, facet) "
+                  + "VALUES (?, ?, ?, ?, ?, ?::jsonb)",
+              java.time.Instant.now(),
+              runUuid,
+              java.time.Instant.now(),
+              "COMPLETE",
+              "test_facet",
+              "{\"test\": \"value\"}");
+        });
+
+    // Populate denormalized tables for the run
+    denormalizedLineageService.populateLineageForRun(runUuid);
+
+    // Test run lineage with facets (calls getRunLineage() method)
+    Lineage lineage = lineageService.lineage(NodeId.of(new RunId(runUuid)), 2, false);
+
+    // Verify lineage works with facets
+    assertThat(lineage.getGraph()).isNotEmpty();
+
+    // Verify we can find the run node
+    Optional<Node> runNode =
+        lineage.getGraph().stream()
+            .filter(node -> node.getId().equals(NodeId.of(new RunId(runUuid))))
+            .findFirst();
+
+    assertThat(runNode).isPresent();
+  }
+
+  @Test
+  public void testParentRunLineage() {
+    // Create parent run
+    UpdateLineageRow parentRun =
+        LineageTestUtils.createLineageRow(
+            openLineageDao, "parentJob", "COMPLETE", jobFacet, Arrays.asList(), Arrays.asList());
+
+    // Create child run with parent relationship
+    UpdateLineageRow childRun =
+        LineageTestUtils.createLineageRow(
+            openLineageDao, "childJob", "COMPLETE", jobFacet, Arrays.asList(), Arrays.asList());
+
+    UUID parentRunUuid = parentRun.getRun().getUuid();
+    UUID childRunUuid = childRun.getRun().getUuid();
+
+    // Set parent-child relationship
+    jdbi.useHandle(
+        handle -> {
+          handle.execute(
+              "INSERT INTO run_facets (created_at, run_uuid, lineage_event_time, lineage_event_type, name, facet) "
+                  + "VALUES (?, ?, ?, ?, ?, ?::jsonb)",
+              java.time.Instant.now(),
+              childRunUuid,
+              java.time.Instant.now(),
+              "COMPLETE",
+              "parent",
+              String.format(
+                  "{\"run\": {\"runId\": \"%s\"}, \"job\": {\"namespace\": \"%s\", \"name\": \"parentJob\"}}",
+                  parentRunUuid, NAMESPACE));
+        });
+
+    // Populate denormalized tables for both runs
+    denormalizedLineageService.populateLineageForRun(parentRunUuid);
+    denormalizedLineageService.populateLineageForRun(childRunUuid);
+
+    // Test parent run lineage (calls getParentRunLineage() method)
+    Lineage parentLineage = lineageService.lineage(NodeId.of(new RunId(parentRunUuid)), 2, true);
+
+    // Verify parent lineage works
+    assertThat(parentLineage.getGraph()).isNotEmpty();
+
+    // Verify we can find the parent run node
+    Optional<Node> parentNode =
+        parentLineage.getGraph().stream()
+            .filter(node -> node.getId().equals(NodeId.of(new RunId(parentRunUuid))))
+            .findFirst();
+
+    assertThat(parentNode).isPresent();
+  }
+
+  @Test
+  public void testRunLineageDeepHierarchy() {
+    // Create a deep lineage hierarchy to test complex SQL queries
+    Dataset level1Dataset = new Dataset(NAMESPACE, "level1Dataset", newDatasetFacet());
+    Dataset level2Dataset = new Dataset(NAMESPACE, "level2Dataset", newDatasetFacet());
+    Dataset level3Dataset = new Dataset(NAMESPACE, "level3Dataset", newDatasetFacet());
+
+    // Level 1 run
+    UpdateLineageRow level1Run =
+        LineageTestUtils.createLineageRow(
+            openLineageDao,
+            "level1Job",
+            "COMPLETE",
+            jobFacet,
+            Arrays.asList(),
+            Arrays.asList(level1Dataset));
+
+    // Level 2 run
+    UpdateLineageRow level2Run =
+        LineageTestUtils.createLineageRow(
+            openLineageDao,
+            "level2Job",
+            "COMPLETE",
+            jobFacet,
+            Arrays.asList(level1Dataset),
+            Arrays.asList(level2Dataset));
+
+    // Level 3 run
+    UpdateLineageRow level3Run =
+        LineageTestUtils.createLineageRow(
+            openLineageDao,
+            "level3Job",
+            "COMPLETE",
+            jobFacet,
+            Arrays.asList(level2Dataset),
+            Arrays.asList(level3Dataset));
+
+    UUID level1RunUuid = level1Run.getRun().getUuid();
+    UUID level2RunUuid = level2Run.getRun().getUuid();
+    UUID level3RunUuid = level3Run.getRun().getUuid();
+
+    // Populate denormalized tables for all runs
+    denormalizedLineageService.populateLineageForRun(level1RunUuid);
+    denormalizedLineageService.populateLineageForRun(level2RunUuid);
+    denormalizedLineageService.populateLineageForRun(level3RunUuid);
+
+    // Test deep lineage (calls getRunLineage() method with depth > 1)
+    Lineage lineage = lineageService.lineage(NodeId.of(new RunId(level1RunUuid)), 3, false);
+
+    // Verify deep lineage works
+    assertThat(lineage.getGraph()).isNotEmpty();
+
+    // Verify we have nodes for all levels
+    List<NodeId> nodeIds =
+        lineage.getGraph().stream().map(Node::getId).collect(Collectors.toList());
+
+    // Verify we have the run node
+    assertThat(nodeIds).contains(NodeId.of(new RunId(level1RunUuid)));
+
+    // Verify we have dataset nodes (they will include version UUIDs)
+    assertThat(nodeIds)
+        .anyMatch(nodeId -> nodeId.getValue().startsWith("dataset:namespace:level1Dataset#"));
+    assertThat(nodeIds)
+        .anyMatch(nodeId -> nodeId.getValue().startsWith("dataset:namespace:level2Dataset#"));
+    assertThat(nodeIds)
+        .anyMatch(nodeId -> nodeId.getValue().startsWith("dataset:namespace:level3Dataset#"));
+  }
+
+  @Test
+  public void testRunLineageEmptyResult() {
+    // Test run lineage for non-existent run
+    UUID nonExistentRunUuid = UUID.randomUUID();
+
+    // Test run lineage (calls getRunLineage() method)
+    Lineage lineage = lineageService.lineage(NodeId.of(new RunId(nonExistentRunUuid)), 2, false);
+
+    // Verify empty result
+    assertThat(lineage.getGraph()).isEmpty();
+  }
+
+  @Test
+  public void testRunLineageWithMultipleFacets() {
+    // Create a run with multiple facets to test complex SQL queries
+    Dataset inputDataset = new Dataset(NAMESPACE, "inputDataset", newDatasetFacet());
+    Dataset outputDataset = new Dataset(NAMESPACE, "outputDataset", newDatasetFacet());
+
+    UpdateLineageRow run =
+        LineageTestUtils.createLineageRow(
+            openLineageDao,
+            "testJobWithMultipleFacets",
+            "COMPLETE",
+            jobFacet,
+            Arrays.asList(inputDataset),
+            Arrays.asList(outputDataset));
+
+    UUID runUuid = run.getRun().getUuid();
+
+    // Add multiple run facets
+    jdbi.useHandle(
+        handle -> {
+          handle.execute(
+              "INSERT INTO run_facets (created_at, run_uuid, lineage_event_time, lineage_event_type, name, facet) "
+                  + "VALUES (?, ?, ?, ?, ?, ?::jsonb)",
+              java.time.Instant.now(),
+              runUuid,
+              java.time.Instant.now(),
+              "COMPLETE",
+              "facet1",
+              "{\"test1\": \"value1\"}");
+
+          handle.execute(
+              "INSERT INTO run_facets (created_at, run_uuid, lineage_event_time, lineage_event_type, name, facet) "
+                  + "VALUES (?, ?, ?, ?, ?, ?::jsonb)",
+              java.time.Instant.now(),
+              runUuid,
+              java.time.Instant.now(),
+              "COMPLETE",
+              "facet2",
+              "{\"test2\": \"value2\"}");
+        });
+
+    // Populate denormalized tables for the run
+    denormalizedLineageService.populateLineageForRun(runUuid);
+
+    // Test run lineage with multiple facets (calls getRunLineage() method)
+    Lineage lineage = lineageService.lineage(NodeId.of(new RunId(runUuid)), 2, false);
+
+    // Verify lineage works with multiple facets
+    assertThat(lineage.getGraph()).isNotEmpty();
+
+    // Verify we can find the run node
+    Optional<Node> runNode =
+        lineage.getGraph().stream()
+            .filter(node -> node.getId().equals(NodeId.of(new RunId(runUuid))))
+            .findFirst();
+
+    assertThat(runNode).isPresent();
   }
 }
