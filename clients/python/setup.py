@@ -24,7 +24,7 @@ extras_require = {
 extras_require["dev"] = set(sum(extras_require.values(), []))
 
 setup(
-    name="swar00pduthks-marquez-python",
+    name="swar00pduthks_marquez_python",
     version="0.51.2",
     description="Marquez Python Client",
     long_description=readme,
