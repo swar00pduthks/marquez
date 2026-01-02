@@ -3,13 +3,57 @@ repos:
       rev: v4.1.0
       hooks:
         -   id: trailing-whitespace
+            exclude: ^(docs/|web/|examples/)|.*\.(md|yaml|yml|sh|ps1|svg)$
         -   id: end-of-file-fixer
+            exclude: ^(docs/|web/|examples/)|.*\.(md|yaml|yml|sh|ps1|svg)$
         -   id: check-yaml
             exclude: ^chart/
         -   id: check-added-large-files
+        -   id: check-merge-conflict
+        -   id: mixed-line-ending
+            exclude: ^(docs/|web/|examples/)
 
   -   repo: https://github.com/jguttman94/pre-commit-gradle
       rev: v0.3.0
       hooks:
         -  id: gradle-spotless
+           name: Spotless Code Formatting
            args: ['-w', --wrapper]
+
+  -   repo: local
+      hooks:
+        -   id: gradle-pmd
+            name: PMD Static Analysis
+            entry: cmd /c gradlew.bat pmdMain pmdTest
+            language: system
+            pass_filenames: false
+            files: \.java$
+
+        -   id: gradle-build
+            name: Gradle Build
+            entry: cmd /c gradlew.bat build -x test
+            language: system
+            pass_filenames: false
+            files: \.(java|gradle|properties)$
+
+        -   id: gradle-test
+            name: Run Tests
+            entry: cmd /c gradlew.bat test
+            language: system
+            pass_filenames: false
+            files: \.java$
+            stages: [pre-push]
+
+        -   id: check-repo-standards
+            name: Check Repository Standards
+            entry: bash dev/check_repo_standards.sh
+            language: system
+            pass_filenames: false
+            files: (CHANGELOG\.md|gradle\.properties|CONTRIBUTING\.md|CODE_OF_CONDUCT\.md)
+
+        -   id: check-dco-signoff
+            name: Check DCO Sign-off
+            entry: powershell -Command "git log -1 --pretty=%B | Select-String 'Signed-off-by:' -Quiet"
+            language: system
+            pass_filenames: false
+            stages: [commit-msg]
