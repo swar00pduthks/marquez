@@ -1,0 +1,41 @@
+server:
+  applicationConnectors:
+    - type: http
+      port: ${MARQUEZ_PORT:-5001}
+  adminConnectors:
+    - type: http
+      port: ${MARQUEZ_ADMIN_PORT:-5002}
+
+database:
+  driverClass: org.postgresql.Driver
+  url: jdbc:postgresql://${POSTGRES_HOST:-localhost}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-marquez_test}
+  user: ${POSTGRES_USER:-marquez}
+  password: ${POSTGRES_PASSWORD:-test_password}
+  properties:
+    # Maximum number of connections in the pool
+    maximumPoolSize: 20
+    # Minimum number of idle connections
+    minimumIdle: 5
+    # Connection timeout
+    connectionTimeout: 30000
+    # Idle timeout
+    idleTimeout: 600000
+    # Max lifetime
+    maxLifetime: 1800000
+
+logging:
+  level: INFO
+  appenders:
+    - type: console
+      target: stdout
+      threshold: INFO
+      logFormat: "%d{ISO8601} [%thread] %-5level %logger{36} - %msg%n"
+
+graphql:
+  enabled: true
+
+tags:
+  - name: PII
+    description: Personally identifiable information
+  - name: SENSITIVE
+    description: Contains sensitive data

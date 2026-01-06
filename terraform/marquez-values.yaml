@@ -1,0 +1,143 @@
+# Marquez Helm Chart Values for Azure PostgreSQL
+
+db:
+  host: "${db_host}"
+  port: ${db_port}
+  name: "${db_name}"
+  user: "${db_user}"
+  password: "${db_password}"
+
+marquez:
+  image:
+    registry: marquezproject
+    repository: marquez
+    tag: "${image_tag}"
+    pullPolicy: IfNotPresent
+
+  replicaCount: 2
+
+  resources:
+    requests:
+      memory: "1Gi"
+      cpu: "500m"
+    limits:
+      memory: "2Gi"
+      cpu: "1000m"
+
+  # Environment variables
+  config:
+    MARQUEZ_CONFIG: |
+      server:
+        applicationConnectors:
+        - type: http
+          port: 5000
+          requestLog:
+            appenders:
+            - type: console
+        adminConnectors:
+        - type: http
+          port: 5001
+      
+      db:
+        driverClass: org.postgresql.Driver
+        url: jdbc:postgresql://${db_host}:${db_port}/${db_name}
+        user: ${db_user}
+        password: ${db_password}
+        properties:
+          ssl: true
+          sslmode: require
+        maxWaitForConnection: 10s
+        validationQuery: SELECT 1
+        minSize: 8
+        maxSize: 32
+        checkConnectionWhileIdle: true
+        evictionInterval: 10s
+        minIdleTime: 1 minute
+
+      logging:
+        level: INFO
+        appenders:
+          - type: console
+            threshold: INFO
+            timeZone: UTC
+            target: stdout
+
+web:
+  enabled: true
+  replicaCount: 1
+  
+  image:
+    registry: marquezproject
+    repository: marquez-web
+    tag: "${image_tag}"
+    pullPolicy: IfNotPresent
+
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "100m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+
+  service:
+    type: ClusterIP
+    port: 3000
+
+# Service configuration
+service:
+  type: ClusterIP
+  port: 5000
+  adminPort: 5001
+
+# Health checks
+livenessProbe:
+  httpGet:
+    path: /api/v1/health
+    port: 5000
+  initialDelaySeconds: 60
+  periodSeconds: 30
+  timeoutSeconds: 10
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /api/v1/health
+    port: 5000
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+# Auto-scaling
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+# Pod disruption budget
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# Security context
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+
+# Node affinity (optional - prefer different nodes for HA)
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values:
+                  - marquez
+          topologyKey: kubernetes.io/hostname

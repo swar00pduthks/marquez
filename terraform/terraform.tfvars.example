@@ -1,0 +1,9 @@
+# Get your IP address first
+# my_ip_address = "YOUR_IP_HERE"  # Or run: curl https://api.ipify.org
+
+# Use defaults for most values, or customize:
+# resource_group_name = "rg-marquez-test-custom"
+# location = "westus2"
+# db_sku_name = "Standard_D4s_v3"  # 4 vCore, 16GB RAM for 4M runs
+# storage_size_gb = 256
+# db_admin_password = "YourSecurePassword123!"

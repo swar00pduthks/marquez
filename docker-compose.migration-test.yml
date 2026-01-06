@@ -1,0 +1,54 @@
+version: '3.8'
+
+services:
+  # Test database with sample data
+  marquez-db-test:
+    image: postgres:15
+    container_name: marquez-db-test
+    environment:
+      POSTGRES_USER: marquez
+      POSTGRES_PASSWORD: marquez
+      POSTGRES_DB: marquez_test
+    ports:
+      - "5433:5432"
+    volumes:
+      - marquez-db-test-data:/var/lib/postgresql/data
+      - ./docker/init-db.sh:/docker-entrypoint-initdb.d/init-db.sh
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U marquez -d marquez_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Marquez API for testing migration
+  marquez-api-test:
+    image: marquezproject/marquez:0.52.26
+    container_name: marquez-api-test
+    environment:
+      MARQUEZ_PORT: 5001
+      MARQUEZ_ADMIN_PORT: 5002
+      POSTGRES_HOST: marquez-db-test
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: marquez_test
+      POSTGRES_USER: marquez
+      POSTGRES_PASSWORD: marquez
+    ports:
+      - "5001:5001"
+      - "5002:5002"
+    volumes:
+      - ./api/build/libs:/usr/src/app/libs
+      - ./marquez.test.yml:/usr/src/app/marquez.yml
+    depends_on:
+      marquez-db-test:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        echo "Starting Marquez 0.52.26 for baseline setup..."
+        java -jar /usr/src/app/marquez.jar db migrate /usr/src/app/marquez.yml
+        echo "Marquez 0.52.26 migrations completed. Database ready for testing."
+        tail -f /dev/null
+
+volumes:
+  marquez-db-test-data:
+    driver: local

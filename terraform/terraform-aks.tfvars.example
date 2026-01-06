@@ -1,0 +1,30 @@
+# Example Terraform variables for AKS + PostgreSQL deployment
+# Copy this to terraform.tfvars and fill in your values
+
+subscription_id = "YOUR_SUBSCRIPTION_ID"
+location        = "eastus"
+
+# Set to true to deploy AKS, false for PostgreSQL only
+deploy_aks = true
+
+# AKS Configuration
+aks_node_count = 2
+aks_vm_size    = "Standard_D2s_v3"  # 2vCPU, 8GB RAM
+k8s_namespace  = "marquez"
+expose_via_loadbalancer = true
+
+# Create Azure Container Registry (for building local code)
+create_acr = true
+
+# PostgreSQL Configuration
+db_admin_username = "marquezadmin"
+db_admin_password = "YOUR_STRONG_PASSWORD_HERE"  # Change this!
+database_name     = "marquez_test"
+db_sku_name       = "Standard_D4s_v3"  # 4vCPU, 16GB RAM for 4M runs
+storage_size_gb   = 256
+
+# Get your IP: curl https://api.ipify.org
+my_ip_address = "YOUR_IP_ADDRESS_HERE"
+
+# Marquez version
+marquez_version = "0.52.33"

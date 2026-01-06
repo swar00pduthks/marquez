@@ -1,0 +1,72 @@
+# Custom Helm values for Marquez deployment with Azure PostgreSQL and ACR images
+# Copy this file to marquez-local-build.yaml and fill in your values
+
+# Root-level service configuration (applies to all services)
+service:
+  type: LoadBalancer
+  port: 80
+
+# Marquez API configuration
+marquez:
+  # Use custom ACR images
+  image:
+    registry: YOUR_ACR_NAME.azurecr.io  # e.g., marquezacrizeh.azurecr.io
+    repository: marquez-api
+    tag: "0.52.33-local"
+    pullPolicy: Always
+
+  # Increase replicas for HA
+  replicaCount: 2
+
+  # External Azure PostgreSQL configuration
+  db:
+    host: YOUR_POSTGRES_HOST.postgres.database.azure.com
+    port: 5432
+    name: YOUR_DB_NAME
+    user: YOUR_DB_USER
+    password: YOUR_DB_PASSWORD
+
+  # HikariCP Connection Pool Configuration
+  dbConnectionPool:
+    maximumPoolSize: 20
+    minimumIdle: 5
+    connectionTimeout: 30000
+    idleTimeout: 300000
+    maxLifetime: 600000
+    leakDetectionThreshold: 60000
+    validationTimeout: 5000
+
+  # Resource limits
+  resources:
+    requests:
+      memory: "1Gi"
+      cpu: "500m"
+    limits:
+      memory: "2Gi"
+      cpu: "1000m"
+
+# Web UI configuration
+web:
+  image:
+    registry: YOUR_ACR_NAME.azurecr.io
+    repository: marquez-web
+    tag: "0.52.33-local"
+    pullPolicy: Always
+
+  replicaCount: 1
+
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "100m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+
+# Disable built-in PostgreSQL (using external Azure PostgreSQL)
+postgresql:
+  enabled: false
+
+# Configure image pull secrets for ACR
+imagePullSecrets:
+  - name: acr-secret
