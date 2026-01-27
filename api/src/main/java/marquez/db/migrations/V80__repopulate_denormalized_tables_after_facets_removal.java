@@ -73,7 +73,7 @@ public class V80__repopulate_denormalized_tables_after_facets_removal implements
               MARQUEZ INSTANCE TOO BIG TO RUN AUTO UPGRADE.
               YOU NEED TO RUN MIGRATION MANUALLY.
               FOR MORE DETAILS, PLEASE REFER TO:
-              https://github.com/MarquezProject/marquez/blob/main/api/src/main/resources/marquez/db/migration/V80__readme.md
+              https://github.com/swar00pduthks/marquez/blob/main/api/src/main/resources/marquez/db/migration/V81-V85__readme.md
               ==================================================
               ==================================================
               ==================================================
