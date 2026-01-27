@@ -19,6 +19,7 @@ import org.jdbi.v3.core.Jdbi;
 public class V80__repopulate_denormalized_tables_after_facets_removal implements JavaMigration {
 
   public static int DEFAULT_CHUNK_SIZE = 5000;
+  public static int MAX_RUNS_FOR_AUTO_MIGRATION = 100000; // 100K runs limit for automatic migration
 
   private static final String COUNT_RUNS_SQL = "SELECT COUNT(*) FROM runs";
   private static final String ESTIMATE_COUNT_RUNS_SQL =
@@ -27,6 +28,7 @@ public class V80__repopulate_denormalized_tables_after_facets_removal implements
       "SELECT uuid FROM runs ORDER BY created_at DESC LIMIT :chunkSize OFFSET :offset";
 
   @Setter private Integer chunkSize = null;
+  @Setter private boolean manual = false;
   @Setter private Jdbi jdbi;
 
   public int getChunkSize() {
@@ -62,11 +64,38 @@ public class V80__repopulate_denormalized_tables_after_facets_removal implements
       return;
     }
 
+    if (!manual && estimatedRunsCount >= MAX_RUNS_FOR_AUTO_MIGRATION) {
+      log.warn(
+          """
+              ==================================================
+              ==================================================
+              ==================================================
+              MARQUEZ INSTANCE TOO BIG TO RUN AUTO UPGRADE.
+              YOU NEED TO RUN MIGRATION MANUALLY.
+              FOR MORE DETAILS, PLEASE REFER TO:
+              https://github.com/MarquezProject/marquez/blob/main/api/src/main/resources/marquez/db/migration/V80__readme.md
+              ==================================================
+              ==================================================
+              ==================================================
+              """);
+      // We end migration successfully although no data has been repopulated to denormalized tables
+      return;
+    }
+
     if (estimatedRunsCount > 0) {
       log.info(
           "Starting repopulation for {} runs with chunk size {}",
           estimatedRunsCount,
           getChunkSize());
+
+      if (estimatedRunsCount > 50000) {
+        log.warn(
+            "Large dataset detected ({} runs). This migration may take significant time to complete.",
+            estimatedRunsCount);
+        log.warn(
+            "Estimated duration: {} minutes",
+            (estimatedRunsCount / 1000)); // Rough estimate: ~1K runs/minute
+      }
     }
 
     DenormalizedLineageService denormalizedLineageService = new DenormalizedLineageService(jdbi);

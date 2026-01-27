@@ -19,7 +19,7 @@ import org.jdbi.v3.core.Jdbi;
 public class V78__BackfillDenormalizedTables implements JavaMigration {
 
   public static int DEFAULT_CHUNK_SIZE = 5000;
-  private static int BASIC_MIGRATION_LIMIT = Integer.MAX_VALUE;
+  public static int MAX_RUNS_FOR_AUTO_MIGRATION = 100000; // 100K runs limit for automatic migration
 
   private static final String COUNT_RUNS_SQL = "SELECT COUNT(*) FROM runs";
   private static final String ESTIMATE_COUNT_RUNS_SQL =
@@ -64,11 +64,36 @@ public class V78__BackfillDenormalizedTables implements JavaMigration {
       return;
     }
 
-    // Note: Removed the 100K limit - migration now runs for any dataset size
-    // The migration is chunked and can handle large datasets efficiently
+    if (!manual && estimatedRunsCount >= MAX_RUNS_FOR_AUTO_MIGRATION) {
+      log.warn(
+          """
+              ==================================================
+              ==================================================
+              ==================================================
+              MARQUEZ INSTANCE TOO BIG TO RUN AUTO UPGRADE.
+              YOU NEED TO RUN MIGRATION MANUALLY.
+              FOR MORE DETAILS, PLEASE REFER TO:
+              https://github.com/MarquezProject/marquez/blob/main/api/src/main/resources/marquez/db/migration/V78__readme.md
+              ==================================================
+              ==================================================
+              ==================================================
+              """);
+      // We end migration successfully although no data has been migrated to denormalized tables
+      return;
+    }
+
     if (estimatedRunsCount > 0) {
       log.info(
           "Starting migration for {} runs with chunk size {}", estimatedRunsCount, getChunkSize());
+
+      if (estimatedRunsCount > 50000) {
+        log.warn(
+            "Large dataset detected ({} runs). This migration may take significant time to complete.",
+            estimatedRunsCount);
+        log.warn(
+            "Estimated duration: {} minutes",
+            (estimatedRunsCount / 1000)); // Rough estimate: ~1K runs/minute
+      }
     }
 
     // Clear existing data first
