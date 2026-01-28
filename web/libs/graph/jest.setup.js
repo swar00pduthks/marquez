@@ -1,5 +1,5 @@
 /* eslint-disable no-undef */
-import '@testing-library/jest-dom'
+require('@testing-library/jest-dom')
 
 // Establish API mocking before all tests.
 beforeAll(() => {
