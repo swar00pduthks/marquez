@@ -33,7 +33,7 @@ SimpleNode.getLayoutOptions = (node: SimpleNodeProps['node']) => ({
 
 // Placeholder test to satisfy jest requirements
 describe('Graph Components', () => {
-  it('should export SimpleNode component', () => {
+  it('should define SimpleNode component with getLayoutOptions', () => {
     expect(SimpleNode).toBeDefined()
     expect(SimpleNode.getLayoutOptions).toBeDefined()
   })
