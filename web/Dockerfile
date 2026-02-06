@@ -1,12 +1,14 @@
-FROM node:18-alpine
+FROM node:20-alpine3.21
 
 WORKDIR /usr/src/app
 
 ARG REACT_APP_ADVANCED_SEARCH
 
-RUN apk update && apk add --virtual bash coreutils
-
-RUN apk add --no-cache git
+# Update packages to fix OpenSSL vulnerabilities
+RUN apk update && \
+    apk upgrade && \
+    apk add --no-cache bash coreutils git && \
+    rm -rf /var/cache/apk/*
 
 COPY package*.json ./
 
