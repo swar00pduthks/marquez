@@ -38,7 +38,7 @@ repos:
 
         -   id: gradle-test
             name: Run Tests
-            entry: cmd /c gradlew.bat test
+            entry: cmd /c "gradlew.bat --stop && gradlew.bat cleanTest test"
             language: system
             pass_filenames: false
             files: \.java$

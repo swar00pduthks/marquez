@@ -25,12 +25,15 @@ plugins {
 ext {
     jdbi3Version = '3.40.0'
     prometheusVersion = '0.16.0'
-    testcontainersVersion = '1.18.3'
+    testcontainersVersion = '1.21.4'
     sentryVersion = '6.34.0'
 }
 configurations.all {
     resolutionStrategy {
         force 'com.google.guava:guava:32.1.3-jre'
+        force 'com.github.docker-java:docker-java-api:3.4.0'
+        force 'com.github.docker-java:docker-java-transport:3.4.0'
+        force 'com.github.docker-java:docker-java-transport-zerodep:3.4.0'
     }
 }
 dependencies {
@@ -139,6 +142,10 @@ test {
         showStandardStreams = true
         exceptionFormat = 'full'
     }
+    // Set Docker API version for Testcontainers
+    environment "DOCKER_API_VERSION", "1.41"
+    environment "TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE", "/var/run/docker.sock"
+    environment "TESTCONTAINERS_RYUK_DISABLED", "false"
 }
 
 publishing {
