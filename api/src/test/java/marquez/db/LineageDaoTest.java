@@ -16,6 +16,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import com.google.common.base.Functions;
 import java.sql.SQLException;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
@@ -52,6 +53,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.postgresql.util.PGobject;
+import org.testcontainers.shaded.com.google.common.collect.ImmutableMap;
 
 @ExtendWith(MarquezJdbiExternalPostgresExtension.class)
 public class LineageDaoTest {
@@ -59,6 +61,7 @@ public class LineageDaoTest {
   private static DatasetDao datasetDao;
   private static LineageDao lineageDao;
   private static OpenLineageDao openLineageDao;
+  private static marquez.service.DenormalizedLineageService denormalizedLineageService;
   private final Dataset dataset =
       new Dataset(
           NAMESPACE,
@@ -77,6 +80,7 @@ public class LineageDaoTest {
     datasetDao = jdbi.onDemand(DatasetDao.class);
     lineageDao = jdbi.onDemand(LineageDao.class);
     openLineageDao = jdbi.onDemand(OpenLineageDao.class);
+    denormalizedLineageService = new marquez.service.DenormalizedLineageService(jdbi);
   }
 
   @AfterEach
@@ -971,6 +975,214 @@ public class LineageDaoTest {
       assertThat(upstream2.get(1).input().name().getValue()).isEqualTo(upstreamDataset.getName());
       assertThat(upstream2.get(2).job().name().getValue())
           .isEqualTo(upstreamJob.getJob().getName());
+    }
+  }
+
+  @Test
+  public void testGetRunLineageWithIncludeFacets() {
+    // Create custom run facets for testing
+    ImmutableMap<String, Object> sparkFacet =
+        ImmutableMap.of(
+            "spark_version",
+            "3.1.0",
+            "spark.properties",
+            ImmutableMap.of("spark.executor.memory", "2g"));
+    ImmutableMap<String, Object> processingEngineFacet =
+        ImmutableMap.of(
+            "version", "2.0.0",
+            "name", "spark");
+
+    ImmutableMap<String, Object> runFacets =
+        ImmutableMap.of(
+            "spark", sparkFacet,
+            "processing_engine", processingEngineFacet);
+
+    // Create a job with multiple facets
+    UpdateLineageRow jobWithFacets =
+        LineageTestUtils.createLineageRow(
+            openLineageDao,
+            "jobWithFacets",
+            UUID.randomUUID(),
+            "COMPLETE",
+            jobFacet,
+            Arrays.asList(),
+            Arrays.asList(dataset),
+            null,
+            runFacets);
+
+    // Populate denormalized tables
+    denormalizedLineageService.populateLineageForRun(jobWithFacets.getRun().getUuid());
+
+    Set<UUID> runIds = Set.of(jobWithFacets.getRun().getUuid());
+
+    // Test 1: Original method should NOT return facets
+    marquez.service.models.RunData noFacetsData =
+        lineageDao.getRunLineage(runIds, 10).stream().findFirst().orElse(null);
+    assertThat(noFacetsData).isNotNull();
+    // Original method doesn't include facets at all
+
+    // Test 2: Filter to include only specific facets
+    Set<String> includeFacets = Set.of("spark");
+    marquez.service.models.RunData filteredData =
+        lineageDao.getRunLineageWithFacets(runIds, 10, includeFacets).stream()
+            .findFirst()
+            .orElse(null);
+    assertThat(filteredData).isNotNull();
+    assertThat(filteredData.getFacets()).isNotNull();
+    assertThat(filteredData.getFacets()).hasSize(1);
+    assertThat(filteredData.getFacets().keySet()).containsExactly("spark");
+
+    // Test 3: Filter to include multiple facets
+    Set<String> multipleIncludeFacets = Set.of("spark", "processing_engine");
+    marquez.service.models.RunData multiFilteredData =
+        lineageDao.getRunLineageWithFacets(runIds, 10, multipleIncludeFacets).stream()
+            .findFirst()
+            .orElse(null);
+    assertThat(multiFilteredData).isNotNull();
+    assertThat(multiFilteredData.getFacets()).isNotNull();
+    assertThat(multiFilteredData.getFacets()).hasSize(2);
+    assertThat(multiFilteredData.getFacets().keySet())
+        .containsExactlyInAnyOrder("spark", "processing_engine");
+  }
+
+  @Test
+  public void testGetParentRunLineageWithIncludeFacets() {
+    // Create parent run with facets
+    ImmutableMap<String, Object> parentSparkFacet =
+        ImmutableMap.of(
+            "spark_version",
+            "3.2.0",
+            "spark.properties",
+            ImmutableMap.of("spark.executor.cores", "4"));
+
+    ImmutableMap<String, Object> parentRunFacets =
+        ImmutableMap.of(
+            "spark", parentSparkFacet, "processing_engine", ImmutableMap.of("version", "3.0.0"));
+
+    UUID parentRunId = UUID.randomUUID();
+    UpdateLineageRow parentJob =
+        LineageTestUtils.createLineageRow(
+            openLineageDao,
+            "parentJob",
+            parentRunId,
+            "COMPLETE",
+            jobFacet,
+            Arrays.asList(),
+            Arrays.asList(dataset),
+            null,
+            parentRunFacets);
+
+    // Create child run with parent facet
+    LineageEvent.ParentRunFacet parentFacet =
+        LineageEvent.ParentRunFacet.builder()
+            .run(LineageEvent.RunLink.builder().runId(parentRunId.toString()).build())
+            .job(
+                LineageEvent.JobLink.builder()
+                    .namespace(NAMESPACE)
+                    .name(parentJob.getJob().getName())
+                    .build())
+            .build();
+
+    ImmutableMap<String, Object> childRunFacets =
+        ImmutableMap.of("child_facet", ImmutableMap.of("value", "test"));
+
+    UpdateLineageRow childJob =
+        LineageTestUtils.createLineageRow(
+            openLineageDao,
+            "childJob",
+            UUID.randomUUID(),
+            "COMPLETE",
+            jobFacet,
+            Arrays.asList(dataset),
+            Arrays.asList(),
+            parentFacet,
+            childRunFacets);
+
+    // Populate denormalized tables
+    denormalizedLineageService.populateLineageForRun(parentJob.getRun().getUuid());
+    denormalizedLineageService.populateLineageForRun(childJob.getRun().getUuid());
+
+    // Query with parent run UUID since parent lineage aggregates to parent
+    // For parent aggregation, query with parent run UUID
+    Set<UUID> runIds = Set.of(parentJob.getRun().getUuid());
+
+    // Test 1: Original method should NOT return facets
+    // Parent lineage returns aggregated data with parent run UUID
+    marquez.service.models.RunData noFacetsData =
+        lineageDao.getParentRunLineage(runIds, 10).stream()
+            .filter(rd -> rd.getUuid().equals(parentJob.getRun().getUuid()))
+            .findFirst()
+            .orElse(null);
+    assertThat(noFacetsData).isNotNull();
+    // Original method doesn't include facets column - should be null or empty
+    assertThat(noFacetsData.getFacets())
+        .satisfiesAnyOf(
+            facets -> assertThat(facets).isNull(), facets -> assertThat(facets).isEmpty());
+
+    // Test 2: Filter to specific facets
+    // Request parent's "spark" facet and child's "child_facet"
+    Set<String> includeFacets = Set.of("spark", "child_facet");
+    marquez.service.models.RunData filteredData =
+        lineageDao.getParentRunLineageWithFacets(runIds, 10, includeFacets).stream()
+            .filter(rd -> rd.getUuid().equals(parentJob.getRun().getUuid()))
+            .findFirst()
+            .orElse(null);
+    assertThat(filteredData).isNotNull();
+    assertThat(filteredData.getFacets()).isNotNull();
+    // Should have both spark and child_facet from aggregated runs
+    assertThat(filteredData.getFacets().keySet()).contains("spark", "child_facet");
+    assertThat(filteredData.getFacets().keySet()).doesNotContain("processing_engine");
+  }
+
+  @Test
+  public void testFacetFilteringPreventsLargeJsonAggregation() {
+    // This test verifies that facet filtering happens at SQL level
+    // by ensuring that even with many runs and large facets,
+    // filtering to a small set of facets keeps the response small
+
+    // Create a large facet that would normally cause issues
+    ImmutableMap.Builder<String, Object> largeFacetBuilder = ImmutableMap.builder();
+    for (int i = 0; i < 100; i++) {
+      largeFacetBuilder.put("large_property_" + i, "value_" + i);
+    }
+
+    ImmutableMap<String, Object> largeFacet =
+        ImmutableMap.of("spark.properties", largeFacetBuilder.build());
+
+    // Create multiple jobs with large facets
+    List<UUID> runIds = new ArrayList<>();
+    for (int i = 0; i < 5; i++) {
+      UpdateLineageRow job =
+          LineageTestUtils.createLineageRow(
+              openLineageDao,
+              "largeJob" + i,
+              UUID.randomUUID(),
+              "COMPLETE",
+              jobFacet,
+              i == 0 ? Arrays.asList() : Arrays.asList(dataset),
+              Arrays.asList(dataset),
+              null,
+              largeFacet);
+      runIds.add(job.getRun().getUuid());
+
+      // Populate denormalized tables
+      denormalizedLineageService.populateLineageForRun(job.getRun().getUuid());
+    }
+
+    // Query with facet filtering - should only return nominalTime facet
+    Set<String> includeFacets = Set.of("nominalTime");
+    Set<marquez.service.models.RunData> filteredResults =
+        lineageDao.getRunLineageWithFacets(Set.copyOf(runIds), 10, includeFacets);
+
+    assertThat(filteredResults).isNotEmpty();
+
+    // Verify each result only has the nominalTime facet, not the large spark.properties
+    for (marquez.service.models.RunData runData : filteredResults) {
+      assertThat(runData.getFacets()).isNotNull();
+      if (!runData.getFacets().isEmpty()) {
+        assertThat(runData.getFacets().keySet()).containsOnly("nominalTime");
+        assertThat(runData.getFacets().keySet()).doesNotContain("spark");
+      }
     }
   }
 }

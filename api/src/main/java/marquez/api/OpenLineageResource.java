@@ -31,6 +31,7 @@ import jakarta.ws.rs.core.Response;
 import java.sql.SQLException;
 import java.util.Collections;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.CompletionException;
 import lombok.NonNull;
 import lombok.Value;
@@ -48,7 +49,7 @@ import marquez.service.models.NodeId;
 @Slf4j
 @Path("/api/v1")
 public class OpenLineageResource extends BaseResource {
-  private static final String DEFAULT_DEPTH = "20";
+  private static final String DEFAULT_DEPTH = "10";
 
   private final OpenLineageDao openLineageDao;
 
@@ -118,9 +119,11 @@ public class OpenLineageResource extends BaseResource {
   public Response getLineage(
       @QueryParam("nodeId") @NotNull NodeId nodeId,
       @QueryParam("depth") @DefaultValue(DEFAULT_DEPTH) int depth,
-      @QueryParam("aggregateToParentRun") @DefaultValue("false") boolean aggregateToParentRun) {
+      @QueryParam("aggregateToParentRun") @DefaultValue("false") boolean aggregateToParentRun,
+      @QueryParam("includeFacets") Set<String> includeFacets) {
     throwIfNotExists(nodeId);
-    return Response.ok(lineageService.lineage(nodeId, depth, aggregateToParentRun)).build();
+    return Response.ok(lineageService.lineage(nodeId, depth, aggregateToParentRun, includeFacets))
+        .build();
   }
 
   @Timed

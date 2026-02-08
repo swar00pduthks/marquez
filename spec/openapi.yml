@@ -592,9 +592,12 @@ paths:
       parameters:
         - $ref: '#/components/parameters/nodeId'
         - $ref: '#/components/parameters/depth'
+        - $ref: '#/components/parameters/aggregateToParentRun'
+        - $ref: '#/components/parameters/includeFacets'
       tags:
         - Lineage
       summary: Get a lineage graph
+      description: Returns a lineage graph for the specified node. Optionally aggregate child runs to parent and filter facets to prevent large response sizes.
       responses:
         '200':
           description: OK
@@ -862,6 +865,28 @@ components:
         default: false
       description: Determines if downstream lineage should be returned.
       required: false
+
+    aggregateToParentRun:
+      name: aggregateToParentRun
+      in: query
+      schema:
+        type: boolean
+        default: false
+      description: When true, aggregates all child runs to their parent run UUID, grouping facets and lineage data together. Useful for jobs with dynamic child tasks.
+      required: false
+
+    includeFacets:
+      name: includeFacets
+      in: query
+      schema:
+        type: array
+        items:
+          type: string
+        example: ["spark", "processing_engine"]
+      description: Filters run facets to include only the specified facet names. Reduces response size and prevents PostgreSQL 256MB JSONB limit issues with large lineage queries. Facets are filtered at SQL level for optimal performance.
+      required: false
+      style: form
+      explode: true
 
     q:
       name: q

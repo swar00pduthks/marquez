@@ -51,3 +51,11 @@ GPG_KEYSERVER_FIX.md
 GPG_SETUP_GUIDE.md
 MAVEN_CENTRAL_PUBLISHING_GUIDE.md
 BRANCH_COMPARISON_0.52.33_vs_dropwizard_5_upgrade.md
+
+# Kubernetes files (environment-specific)
+k8s-*.yaml
+k8s-*.yml
+marquez-api-deployment.yaml
+
+# Terraform
+terraform/

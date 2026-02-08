@@ -158,12 +158,16 @@ jobs:
       - run: ./.circleci/get-jdk17.sh
       - run: ./.circleci/get-k6.sh
       - run: ./.circleci/api-load-test.sh
+      - run: chmod +x .circleci/get-lineage-load-test.sh && ./.circleci/get-lineage-load-test.sh
       - store_artifacts:
           path: marquez
       - store_artifacts:
           path: k6
     environment:
       - POSTGRES_PORT=5432
+      - VUS=25
+      - DURATION=5m
+      - LINEAGE_DEPTH=20
 
   migrate-db:
     working_directory: ~/marquez
