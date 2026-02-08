@@ -61,13 +61,13 @@ export default function () {
   // Select a random run UUID
   const runUuid = runUuids[Math.floor(Math.random() * runUuids.length)];
 
-  const baseUrl = __ENV.MARQUEZ_URL || 'http://40.74.17.81:5000';
+  const baseUrl = __ENV.MARQUEZ_URL || 'http://localhost:8080';
   const depth = __ENV.LINEAGE_DEPTH || 20;
 
-  // Determine which test scenario we're in
+  // Determine which test scenario we're in based ONLY on SCENARIO env var
   const testType = __ENV.SCENARIO || 'without_facets';
 
-  if (testType === 'with_facets' || __ITER % 2 === 1) {
+  if (testType === 'with_facets') {
     // Test WITH facets
     const facets = ['spark', 'processing_engine', 'spark_version', 'spark.logical_plan'];
     const facetsParam = facets.map(f => `includeFacets=${f}`).join('&');
@@ -153,7 +153,7 @@ function textSummary(data, options) {
   summary += `${indent}  Duration (max): ${data.metrics.http_req_duration.values.max.toFixed(2)}ms\n\n`;
 
   // Without facets metrics
-  if (data.metrics.response_time_without_facets) {
+  if (data.metrics.response_time_without_facets?.values?.avg !== undefined) {
     summary += `${indent}Without Facets:\n`;
     summary += `${indent}  Response Time (avg): ${data.metrics.response_time_without_facets.values.avg.toFixed(2)}ms\n`;
     summary += `${indent}  Response Time (p95): ${data.metrics.response_time_without_facets.values['p(95)'].toFixed(2)}ms\n`;
@@ -162,7 +162,7 @@ function textSummary(data, options) {
   }
 
   // With facets metrics
-  if (data.metrics.response_time_with_facets) {
+  if (data.metrics.response_time_with_facets?.values?.avg !== undefined) {
     summary += `${indent}With Facets:\n`;
     summary += `${indent}  Response Time (avg): ${data.metrics.response_time_with_facets.values.avg.toFixed(2)}ms\n`;
     summary += `${indent}  Response Time (p95): ${data.metrics.response_time_with_facets.values['p(95)'].toFixed(2)}ms\n`;
@@ -171,7 +171,8 @@ function textSummary(data, options) {
   }
 
   // Performance comparison
-  if (data.metrics.response_time_with_facets && data.metrics.response_time_without_facets) {
+  if (data.metrics.response_time_with_facets?.values?.avg !== undefined &&
+      data.metrics.response_time_without_facets?.values?.avg !== undefined) {
     const withFacets = data.metrics.response_time_with_facets.values.avg;
     const withoutFacets = data.metrics.response_time_without_facets.values.avg;
     const improvement = ((withoutFacets - withFacets) / withoutFacets * 100).toFixed(2);
