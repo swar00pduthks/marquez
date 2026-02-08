@@ -8,6 +8,7 @@ package marquez.api;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anySet;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -46,7 +47,8 @@ class OpenLineageResourceTest {
             OpenLineageResourceTest.class.getResourceAsStream("/lineage/node.json"),
             new TypeReference<>() {});
     LINEAGE = new Lineage(ImmutableSortedSet.of(testNode));
-    when(lineageService.lineage(any(NodeId.class), anyInt(), eq(false))).thenReturn(LINEAGE);
+    when(lineageService.lineage(any(NodeId.class), anyInt(), eq(false), anySet()))
+        .thenReturn(LINEAGE);
 
     ServiceFactory serviceFactory =
         ApiTestUtils.mockServiceFactory(
