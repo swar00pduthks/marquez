@@ -12,6 +12,10 @@ const elkjsRoot = path.dirname(require.resolve('elkjs/package.json'));
 const webpackProd = {
   mode: 'production',
   devtool: 'source-map',
+  optimization: {
+    minimize: false,
+    minimizer: []  // Explicitly prevent TerserPlugin instantiation
+  },
   plugins: [
     new CleanWebpackPlugin(),
     new HtmlWebpackPlugin({
@@ -36,6 +40,7 @@ const webpackProd = {
     new CopyPlugin({
       patterns: [
         { from: path.join(elkjsRoot, 'lib/elk-worker.min.js'), to: 'elk-worker.min.js' },
+        { from: 'src/img', to: 'img' },
       ],
     }),
   ]
