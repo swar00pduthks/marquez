@@ -1017,14 +1017,14 @@ public class LineageDaoTest {
 
     // Test 1: Original method should NOT return facets
     marquez.service.models.RunData noFacetsData =
-        lineageDao.getRunLineage(runIds, 10).stream().findFirst().orElse(null);
+        lineageDao.getRunLineage(runIds, 10, null, null).stream().findFirst().orElse(null);
     assertThat(noFacetsData).isNotNull();
     // Original method doesn't include facets at all
 
     // Test 2: Filter to include only specific facets
     Set<String> includeFacets = Set.of("spark");
     marquez.service.models.RunData filteredData =
-        lineageDao.getRunLineageWithFacets(runIds, 10, includeFacets).stream()
+        lineageDao.getRunLineageWithFacets(runIds, 10, includeFacets, null, null).stream()
             .findFirst()
             .orElse(null);
     assertThat(filteredData).isNotNull();
@@ -1035,7 +1035,7 @@ public class LineageDaoTest {
     // Test 3: Filter to include multiple facets
     Set<String> multipleIncludeFacets = Set.of("spark", "processing_engine");
     marquez.service.models.RunData multiFilteredData =
-        lineageDao.getRunLineageWithFacets(runIds, 10, multipleIncludeFacets).stream()
+        lineageDao.getRunLineageWithFacets(runIds, 10, multipleIncludeFacets, null, null).stream()
             .findFirst()
             .orElse(null);
     assertThat(multiFilteredData).isNotNull();
@@ -1109,7 +1109,7 @@ public class LineageDaoTest {
     // Test 1: Original method should NOT return facets
     // Parent lineage returns aggregated data with parent run UUID
     marquez.service.models.RunData noFacetsData =
-        lineageDao.getParentRunLineage(runIds, 10).stream()
+        lineageDao.getParentRunLineage(runIds, 10, null, null).stream()
             .filter(rd -> rd.getUuid().equals(parentJob.getRun().getUuid()))
             .findFirst()
             .orElse(null);
@@ -1123,7 +1123,7 @@ public class LineageDaoTest {
     // Request parent's "spark" facet and child's "child_facet"
     Set<String> includeFacets = Set.of("spark", "child_facet");
     marquez.service.models.RunData filteredData =
-        lineageDao.getParentRunLineageWithFacets(runIds, 10, includeFacets).stream()
+        lineageDao.getParentRunLineageWithFacets(runIds, 10, includeFacets, null, null).stream()
             .filter(rd -> rd.getUuid().equals(parentJob.getRun().getUuid()))
             .findFirst()
             .orElse(null);
@@ -1172,7 +1172,7 @@ public class LineageDaoTest {
     // Query with facet filtering - should only return nominalTime facet
     Set<String> includeFacets = Set.of("nominalTime");
     Set<marquez.service.models.RunData> filteredResults =
-        lineageDao.getRunLineageWithFacets(Set.copyOf(runIds), 10, includeFacets);
+        lineageDao.getRunLineageWithFacets(Set.copyOf(runIds), 10, includeFacets, null, null);
 
     assertThat(filteredResults).isNotEmpty();
 

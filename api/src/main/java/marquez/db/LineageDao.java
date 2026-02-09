@@ -244,6 +244,37 @@ public interface LineageDao {
       """)
   List<UpstreamRunRow> getUpstreamRuns(@NonNull UUID runId, int depth);
 
+  /**
+   * Get date range for run UUIDs to enable partition pruning on denormalized tables. Returns the
+   * min and max dates from the runs table for the given run UUIDs.
+   */
+  @SqlQuery(
+      """
+      SELECT
+        MIN(created_at::date) as min_date,
+        MAX(created_at::date) as max_date
+      FROM runs
+      WHERE uuid IN (<runIds>)
+      """)
+  @RegisterRowMapper(RunDateRangeMapper.class)
+  RunDateRange getRunDateRange(@BindList("runIds") Set<UUID> runIds);
+
+  /** Helper record to hold date range for partition pruning */
+  record RunDateRange(java.time.LocalDate minDate, java.time.LocalDate maxDate) {}
+
+  /** Mapper for RunDateRange */
+  class RunDateRangeMapper implements org.jdbi.v3.core.mapper.RowMapper<RunDateRange> {
+    @Override
+    public RunDateRange map(java.sql.ResultSet rs, org.jdbi.v3.core.statement.StatementContext ctx)
+        throws java.sql.SQLException {
+      java.sql.Date minDate = rs.getDate("min_date");
+      java.sql.Date maxDate = rs.getDate("max_date");
+      return new RunDateRange(
+          minDate != null ? minDate.toLocalDate() : null,
+          maxDate != null ? maxDate.toLocalDate() : null);
+    }
+  }
+
   @SqlQuery(
       """
 WITH RECURSIVE
@@ -258,6 +289,8 @@ WITH RECURSIVE
       0 AS depth
     FROM run_lineage_denormalized r
     WHERE r.run_uuid IN (<runIds>)
+      AND (:minDate::date IS NULL OR r.run_date >= :minDate::date)
+      AND (:maxDate::date IS NULL OR r.run_date <= :maxDate::date)
 
     UNION ALL
 
@@ -274,6 +307,8 @@ WITH RECURSIVE
       ON (io.input_version_uuid = l.output_version_uuid OR io.output_version_uuid = l.input_version_uuid)
      AND io.run_uuid != l.run_uuid
     WHERE l.depth < :depth
+      AND (:minDate::date IS NULL OR io.run_date >= :minDate::date)
+      AND (:maxDate::date IS NULL OR io.run_date <= :maxDate::date)
   )
 SELECT
   run_uuid AS uuid,
@@ -305,7 +340,11 @@ GROUP BY
   run_uuid, created_at, updated_at, started_at, ended_at,
   state, job_uuid, job_version_uuid, namespace_name, job_name
 """)
-  Set<RunData> getRunLineage(@BindList("runIds") Set<UUID> runIds, @Bind("depth") int depth);
+  Set<RunData> getRunLineage(
+      @BindList("runIds") Set<UUID> runIds,
+      @Bind("depth") int depth,
+      @Bind("minDate") String minDate,
+      @Bind("maxDate") String maxDate);
 
   /** Get run lineage with filtered facets - only returns specified facets */
   @SqlQuery(
@@ -326,6 +365,8 @@ WITH RECURSIVE
     LEFT JOIN run_facets rf ON rf.run_uuid = r.run_uuid
       AND rf.name IN (<includeFacets>)
     WHERE r.run_uuid IN (<runIds>)
+      AND (:minDate::date IS NULL OR r.run_date >= :minDate::date)
+      AND (:maxDate::date IS NULL OR r.run_date <= :maxDate::date)
 
     UNION ALL
 
@@ -381,7 +422,9 @@ GROUP BY
   Set<RunData> getRunLineageWithFacets(
       @BindList("runIds") Set<UUID> runIds,
       @Bind("depth") int depth,
-      @BindList("includeFacets") Set<String> includeFacets);
+      @BindList("includeFacets") Set<String> includeFacets,
+      @Bind("minDate") String minDate,
+      @Bind("maxDate") String maxDate);
 
   @SqlQuery(
       """
@@ -434,6 +477,8 @@ GROUP BY
           0 AS depth
         FROM run_parent_lineage_denormalized r
         WHERE r.run_uuid IN (<runIds>)
+          AND (:minDate::date IS NULL OR r.run_date >= :minDate::date)
+          AND (:maxDate::date IS NULL OR r.run_date <= :maxDate::date)
 
         UNION ALL
 
@@ -450,6 +495,8 @@ GROUP BY
           ON (io.input_version_uuid = l.output_version_uuid OR io.output_version_uuid = l.input_version_uuid)
          AND io.run_uuid != l.run_uuid
         WHERE l.depth < :depth
+          AND (:minDate::date IS NULL OR io.run_date >= :minDate::date)
+          AND (:maxDate::date IS NULL OR io.run_date <= :maxDate::date)
       )
     SELECT
       run_uuid AS uuid, -- Returns parent run UUID for aggregation (groups all child runs)
@@ -483,7 +530,9 @@ GROUP BY
     """)
   Set<RunData> getParentRunLineage(
       @BindList(value = "runIds", onEmpty = BindList.EmptyHandling.NULL_STRING) Set<UUID> runIds,
-      @Bind("depth") int depth);
+      @Bind("depth") int depth,
+      @Bind("minDate") String minDate,
+      @Bind("maxDate") String maxDate);
 
   /**
    * Get parent run lineage with filtered facets - aggregates all child runs to their parent run
@@ -509,6 +558,8 @@ GROUP BY
     LEFT JOIN run_facets rf ON (rf.run_uuid = r.uuid OR rf.run_uuid = r.run_uuid)  -- Join facets from actual run AND parent run
       AND rf.name IN (<includeFacets>)
     WHERE r.run_uuid IN (<runIds>)
+      AND (:minDate::date IS NULL OR r.run_date >= :minDate::date)
+      AND (:maxDate::date IS NULL OR r.run_date <= :maxDate::date)
 
         UNION ALL
 
@@ -529,6 +580,8 @@ GROUP BY
           ON (io.input_version_uuid = l.output_version_uuid OR io.output_version_uuid = l.input_version_uuid)
          AND io.run_uuid != l.run_uuid
         WHERE l.depth < :depth
+          AND (:minDate::date IS NULL OR io.run_date >= :minDate::date)
+          AND (:maxDate::date IS NULL OR io.run_date <= :maxDate::date)
       )
     SELECT
       run_uuid AS uuid, -- Returns parent run UUID for aggregation (groups all child runs with their facets)
@@ -564,7 +617,9 @@ GROUP BY
   Set<RunData> getParentRunLineageWithFacets(
       @BindList(value = "runIds", onEmpty = BindList.EmptyHandling.NULL_STRING) Set<UUID> runIds,
       @Bind("depth") int depth,
-      @BindList("includeFacets") Set<String> includeFacets);
+      @BindList("includeFacets") Set<String> includeFacets,
+      @Bind("minDate") String minDate,
+      @Bind("maxDate") String maxDate);
 
   @SqlQuery(
       """

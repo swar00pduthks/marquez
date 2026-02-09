@@ -92,7 +92,7 @@ public class LineageService extends DelegatingLineageDao {
                       nodeId.asDatasetVersionId().getVersion())
                   : runDao.findRunFromDatasetVersionUuids(nodeId.asDatasetVersionId().getVersion());
       log.debug("Attempting to get lineage for run '{}'", runIds);
-      boolean hasChildren = false;
+      boolean hasChildren;
       if (!runIds.isEmpty()) {
         hasChildren = this.hasChildRuns(runIds);
         log.debug("Run '{}' has children: {}", runIds, hasChildren);
@@ -102,21 +102,27 @@ public class LineageService extends DelegatingLineageDao {
       }
       Set<RunData> runData;
 
+      // Get date range for partition pruning on denormalized tables
+      LineageDao.RunDateRange dateRange = getRunDateRange(runIds);
+      String minDate =
+          dateRange != null && dateRange.minDate() != null ? dateRange.minDate().toString() : null;
+      String maxDate =
+          dateRange != null && dateRange.maxDate() != null ? dateRange.maxDate().toString() : null;
+
       if (hasChildren && aggregateToParentRun) {
         if (includeFacets != null && !includeFacets.isEmpty()) {
-          runData = getParentRunLineageWithFacets(runIds, depth, includeFacets);
+          runData = getParentRunLineageWithFacets(runIds, depth, includeFacets, minDate, maxDate);
         } else {
-          runData = getParentRunLineage(runIds, depth);
+          runData = getParentRunLineage(runIds, depth, minDate, maxDate);
         }
       } else {
         if (includeFacets != null && !includeFacets.isEmpty()) {
-          runData = getRunLineageWithFacets(runIds, depth, includeFacets);
+          runData = getRunLineageWithFacets(runIds, depth, includeFacets, minDate, maxDate);
         } else {
-          runData = getRunLineage(runIds, depth);
+          runData = getRunLineage(runIds, depth, minDate, maxDate);
         }
       }
 
-      System.out.println("runData: " + runData);
       log.debug("Retrieved run data for '{}': {}", runIds, runData);
 
       if (runData.isEmpty()) {
