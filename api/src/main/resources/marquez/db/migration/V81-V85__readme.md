@@ -26,11 +26,22 @@ A standard Flyway migration is run which fills newly created denormalized tables
 
 For heavy users, a standard migration does not copy data to newly created denormalized tables. The advantage of such an approach is that an upgrade takes just a moment and after that, one can start the API to consume new OpenLineage events while doing the migration asynchronously. Please note that before finishing the migration, some API calls may return incomplete results, especially for historical lineage queries.
 
-To schedule a migration, a command has to be run:
+#### V80 SQL Bypass (Recommended)
+
+**If you have >100K runs, use the V80 SQL file to bypass the Java migration:**
+
+The V80 SQL file acts as a no-op placeholder that prevents Flyway from executing the Java migration (which can hang on VACUUM operations for large tables). This allows Flyway to:
+1. Complete V80 instantly
+2. Proceed to V81-V85 immediately  
+3. Start serving new OpenLineage events right away
+
+After Flyway completes, manually populate the denormalized tables when convenient:
 
 ```bash
-java -jar api/build/libs/marquez-api-0.52.33.jar db-migrate --version v80 ./marquez.yml
+java -jar api/build/libs/marquez-api-0.52.38.jar db-migrate --version v80 ./marquez.yml
 ```
+
+#### Manual Migration Details
 
 Command processes data in chunks, each chunk is run in a transaction, and the command stores a state containing information of chunks processed. Based on that:
 
@@ -40,7 +51,7 @@ Command processes data in chunks, each chunk is run in a transaction, and the co
 A default chunk size is 5,000 which is a number of runs processed in a single query. A chunk size may be adjusted as a command parameter:
 
 ```bash
-java -jar api/build/libs/marquez-api-0.52.33.jar db-migrate --version v80 --chunkSize 10000 ./marquez.yml
+java -jar api/build/libs/marquez-api-0.52.38.jar db-migrate --version v80 --chunkSize 10000 ./marquez.yml
 ```
 
 > **Note:** Only V80 needs to be run manually. V78 and V80 both backfill the same tables, but V80 uses the final schema after facets column removal, so running V78 separately is unnecessary.

@@ -5,11 +5,8 @@
 
 package marquez.db.migrations;
 
-import java.util.List;
-import java.util.UUID;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
-import marquez.service.DenormalizedLineageService;
 import org.flywaydb.core.api.MigrationVersion;
 import org.flywaydb.core.api.migration.Context;
 import org.flywaydb.core.api.migration.JavaMigration;
@@ -42,12 +39,38 @@ public class V80__repopulate_denormalized_tables_after_facets_removal implements
 
   @Override
   public void migrate(Context context) throws Exception {
-    log.info("Starting repopulation of denormalized lineage tables after facets column removal");
+    log.info(
+        "Starting V80 migration: Repopulate denormalized lineage tables after facets column removal");
 
     if (context != null) {
       jdbi = Jdbi.create(context.getConnection());
     }
 
+    // Skip automatic repopulation - denormalized tables will be populated manually
+    // This allows V80 to complete quickly without hanging on large tables
+    log.warn(
+        """
+            ==================================================
+            V80 MIGRATION: SKIPPING AUTOMATIC REPOPULATION
+            ==================================================
+            Denormalized tables will NOT be populated during this migration.
+            This allows the migration to complete quickly and prevents hanging on large datasets.
+
+            TO MANUALLY POPULATE DENORMALIZED TABLES:
+            Run this command after all migrations (V80-V87) complete:
+
+            java -jar api/build/libs/marquez-api-0.52.38.jar db-migrate --version v80 ./marquez.yml
+
+            For more details, see:
+            api/src/main/resources/marquez/db/migration/V81-V85__readme.md
+            ==================================================
+            ==================================================
+            """);
+
+    log.info("V80 migration completed successfully (repopulation skipped)");
+    return;
+
+    /* ORIGINAL REPOPULATION LOGIC - COMMENTED OUT FOR MANUAL EXECUTION
     int estimatedRunsCount = estimateCountRuns();
 
     if (estimatedRunsCount < 0) {
@@ -168,11 +191,12 @@ public class V80__repopulate_denormalized_tables_after_facets_removal implements
           totalProcessed,
           getChunkSize());
     }
+    END OF COMMENTED REPOPULATION LOGIC */
   }
 
   @Override
   public String getDescription() {
-    return "Repopulate denormalized lineage tables after removing facets column";
+    return "Repopulate denormalized lineage tables after removing facets column (manual execution required)";
   }
 
   @Override
