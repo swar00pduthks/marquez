@@ -20,43 +20,48 @@ public class PartitionManagementService {
   private static final Logger log = LoggerFactory.getLogger(PartitionManagementService.class);
 
   private final Jdbi jdbi;
-  private final int daysAhead;
+  private final int monthsAhead;
   private final int retentionMonths;
 
-  public PartitionManagementService(Jdbi jdbi, int daysAhead, int retentionMonths) {
+  public PartitionManagementService(Jdbi jdbi, int monthsAhead, int retentionMonths) {
     this.jdbi = jdbi;
-    this.daysAhead = daysAhead;
+    this.monthsAhead = monthsAhead;
     this.retentionMonths = retentionMonths;
   }
 
-  /** Ensures that partitions exist for the given date and the specified number of days ahead. */
+  /** Ensures that a monthly partition exists for the given date. */
   public void ensurePartitionExists(LocalDate date) {
     log.debug("Ensuring partition exists for date: {}", date);
+
+    // Normalize date to the first day of the month since partitions are monthly
+    LocalDate firstOfMonth = date.withDayOfMonth(1);
 
     jdbi.useHandle(
         handle -> {
           // Create partition for run_lineage_denormalized
-          handle.execute("SELECT create_monthly_partition('run_lineage_denormalized', ?)", date);
+          handle.execute(
+              "SELECT create_monthly_partition('run_lineage_denormalized', ?::date)", firstOfMonth);
 
           // Create partition for run_parent_lineage_denormalized
           handle.execute(
-              "SELECT create_monthly_partition('run_parent_lineage_denormalized', ?)", date);
+              "SELECT create_monthly_partition('run_parent_lineage_denormalized', ?::date)",
+              firstOfMonth);
         });
   }
 
-  /** Creates partitions for the next N days starting from the given date. */
-  public void createPartitionsForPeriod(LocalDate startDate, int days) {
-    log.info("Creating partitions for {} days starting from {}", days, startDate);
+  /** Creates partitions for the next N months starting from the given date. */
+  public void createPartitionsForPeriod(LocalDate startDate, int months) {
+    log.info("Creating partitions for {} months starting from {}", months, startDate);
 
-    for (int i = 0; i < days; i++) {
-      LocalDate currentDate = startDate.plusDays(i);
+    for (int i = 0; i < months; i++) {
+      LocalDate currentDate = startDate.plusMonths(i);
       ensurePartitionExists(currentDate);
     }
   }
 
-  /** Creates partitions for the next N days starting from today. */
+  /** Creates partitions for the next N months starting from today. */
   public void createUpcomingPartitions() {
-    createPartitionsForPeriod(LocalDate.now(), daysAhead);
+    createPartitionsForPeriod(LocalDate.now(), monthsAhead);
   }
 
   /** Drops old partitions based on retention policy. */
