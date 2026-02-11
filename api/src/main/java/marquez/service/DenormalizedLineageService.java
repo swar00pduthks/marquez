@@ -245,8 +245,7 @@ public class DenormalizedLineageService {
     // Get the run date for this run (use ended_at since this is only called on COMPLETE)
     String runDateStr =
         handle
-            .createQuery(
-                "SELECT DATE(ended_at) FROM runs WHERE uuid = :runUuid")
+            .createQuery("SELECT DATE(ended_at) FROM runs WHERE uuid = :runUuid")
             .bind("runUuid", runUuid)
             .mapTo(String.class)
             .one();

@@ -884,9 +884,7 @@ public class DenormalizedLineageServiceTest {
           log.info("COMPLETE run ended_at: {}", completeEndedAt);
 
           // START/RUNNING should not have ended_at (not done yet)
-          assertThat(startEndedAt)
-              .withFailMessage("START event should NOT set ended_at")
-              .isNull();
+          assertThat(startEndedAt).withFailMessage("START event should NOT set ended_at").isNull();
           assertThat(runningEndedAt)
               .withFailMessage("RUNNING event should NOT set ended_at")
               .isNull();
@@ -898,7 +896,8 @@ public class DenormalizedLineageServiceTest {
               .isNotNull();
         });
 
-    // In real usage, OpenLineageService only calls denormalizedLineageService.populateLineageForRun()
+    // In real usage, OpenLineageService only calls
+    // denormalizedLineageService.populateLineageForRun()
     // for COMPLETE events. This test documents that behavior expectation.
     //
     // If we were to call populateLineageForRun() on START/RUNNING runs (which we don't in
@@ -989,7 +988,7 @@ public class DenormalizedLineageServiceTest {
   @Test
   public void testLineagePerformanceWithParentAnd100ChildRuns() {
     log.info("Creating parent run with 100 child runs to test lineage performance...");
-    
+
     // Create parent run
     UpdateLineageRow parentLineageRow =
         LineageTestUtils.createLineageRow(
@@ -1141,8 +1140,7 @@ public class DenormalizedLineageServiceTest {
               ._schemaURL(LineageTestUtils.SCHEMA_URL)
               .fields(
                   LineageEvent.ColumnLineageDatasetFacetFields.builder()
-                      .additional(
-                          java.util.Map.of("event_id", eventIdLineage))
+                      .additional(java.util.Map.of("event_id", eventIdLineage))
                       .build())
               .build();
 
@@ -1225,19 +1223,21 @@ public class DenormalizedLineageServiceTest {
                   .bind(0, parentRunUuid)
                   .mapTo(Long.class)
                   .one();
-          
-          log.info("Parent lineage denormalized table has {} rows for parent run", parentLineageCount);
-          
+
+          log.info(
+              "Parent lineage denormalized table has {} rows for parent run", parentLineageCount);
+
           // Query the denormalized table to see what data we have
-          List<String> childJobNames = handle
-              .createQuery(
-                  "SELECT DISTINCT job_name FROM run_parent_lineage_denormalized WHERE run_uuid = ? ORDER BY job_name LIMIT 10")
-              .bind(0, parentRunUuid)
-              .mapTo(String.class)
-              .list();
-          
+          List<String> childJobNames =
+              handle
+                  .createQuery(
+                      "SELECT DISTINCT job_name FROM run_parent_lineage_denormalized WHERE run_uuid = ? ORDER BY job_name LIMIT 10")
+                  .bind(0, parentRunUuid)
+                  .mapTo(String.class)
+                  .list();
+
           log.info("Sample child jobs in denormalized lineage: {}", childJobNames);
-          
+
           // Count total dataset relationships
           Long totalDatasetRelationships =
               handle
@@ -1246,9 +1246,9 @@ public class DenormalizedLineageServiceTest {
                   .bind(0, parentRunUuid)
                   .mapTo(Long.class)
                   .one();
-          
+
           log.info("Total dataset relationships in parent lineage: {}", totalDatasetRelationships);
-          
+
           // Verify run_date is never NULL
           Long nullRunDates =
               handle
@@ -1257,33 +1257,36 @@ public class DenormalizedLineageServiceTest {
                   .bind(0, parentRunUuid)
                   .mapTo(Long.class)
                   .one();
-          
+
           assertThat(nullRunDates)
               .withFailMessage("run_date should never be NULL in parent lineage")
               .isEqualTo(0);
-          
+
           // Count facets stored in the database for all runs
           Long totalRunFacets =
               handle
-                  .createQuery("SELECT COUNT(*) FROM run_facets WHERE run_uuid IN (SELECT uuid FROM run_parent_lineage_denormalized WHERE run_uuid = ?)")
+                  .createQuery(
+                      "SELECT COUNT(*) FROM run_facets WHERE run_uuid IN (SELECT uuid FROM run_parent_lineage_denormalized WHERE run_uuid = ?)")
                   .bind(0, parentRunUuid)
                   .mapTo(Long.class)
                   .one();
-          
+
           Long totalDatasetFacets =
               handle
-                  .createQuery("SELECT COUNT(*) FROM dataset_facets WHERE run_uuid IN (SELECT uuid FROM run_parent_lineage_denormalized WHERE run_uuid = ?)")
+                  .createQuery(
+                      "SELECT COUNT(*) FROM dataset_facets WHERE run_uuid IN (SELECT uuid FROM run_parent_lineage_denormalized WHERE run_uuid = ?)")
                   .bind(0, parentRunUuid)
                   .mapTo(Long.class)
                   .one();
-          
+
           Long totalJobFacets =
               handle
-                  .createQuery("SELECT COUNT(*) FROM job_facets WHERE run_uuid IN (SELECT uuid FROM run_parent_lineage_denormalized WHERE run_uuid = ?)")
+                  .createQuery(
+                      "SELECT COUNT(*) FROM job_facets WHERE run_uuid IN (SELECT uuid FROM run_parent_lineage_denormalized WHERE run_uuid = ?)")
                   .bind(0, parentRunUuid)
                   .mapTo(Long.class)
                   .one();
-          
+
           log.info(
               "===== PERFORMANCE TEST RESULTS =====\n"
                   + "Parent run UUID: {}\n"
@@ -1311,13 +1314,13 @@ public class DenormalizedLineageServiceTest {
               totalDatasetFacets,
               totalJobFacets);
         });
-    
+
     log.info(
-        "To query lineage with facets via API, use: GET /api/v1/lineage?nodeId=run:{}", 
+        "To query lineage with facets via API, use: GET /api/v1/lineage?nodeId=run:{}",
         parentRunUuid);
     log.info(
         "This would aggregate facets from run_facets_view and dataset_facets_view for all {} runs",
-        101);  // 1 parent + 100 children
+        101); // 1 parent + 100 children
     log.info("With all facets, response size would be ~1 MB (vs ~50 KB without facets)");
     log.info(
         "Query time with facets: 500ms-2s (JSON_AGG aggregation) vs 10-50ms without facets (denormalized table)");
