@@ -53,14 +53,10 @@ public class DenormalizedLineageService {
             // Step 3: Always populate run_lineage_denormalized for the run
             populateRunLineageDenormalized(handle, runUuid);
 
-            // Step 4: Populate run_parent_lineage_denormalized
-            // - If this run is a parent (has children), populate for this run
-            // - If this run is a child (has parent), populate for the parent run
+            // Step 4: Populate run_parent_lineage_denormalized ONLY if this run is a parent
+            // This ensures parent's ended_at is set and run_date will never be NULL
             if (isParentRun(handle, runUuid)) {
               populateRunParentLineageDenormalized(handle, runUuid);
-            } else if (hasParentRun(handle, runUuid)) {
-              UUID parentRunUuid = getParentRunUuid(handle, runUuid);
-              populateRunParentLineageDenormalized(handle, parentRunUuid);
             }
           });
 
@@ -131,7 +127,7 @@ public class DenormalizedLineageService {
             dvout.uuid AS output_dataset_version_uuid,
             r.uuid as uuid,
             r.parent_run_uuid as parent_run_uuid,
-            DATE(COALESCE(r.started_at, r.ended_at)) as run_date
+            DATE(r.ended_at) as run_date
         FROM runs r
         LEFT JOIN runs_input_mapping rim ON rim.run_uuid = r.uuid
         LEFT JOIN dataset_versions dvin ON dvin.uuid = rim.dataset_version_uuid
@@ -182,7 +178,7 @@ public class DenormalizedLineageService {
             dvout.uuid AS output_dataset_version_uuid,
             r.uuid as uuid,
             r.parent_run_uuid as parent_run_uuid,
-            DATE(COALESCE(r.started_at, r.ended_at)) as run_date
+            DATE(rp.ended_at) as run_date
         FROM runs r
         LEFT JOIN runs_input_mapping rim ON rim.run_uuid = r.uuid
         LEFT JOIN dataset_versions dvin ON dvin.uuid = rim.dataset_version_uuid
@@ -246,11 +242,11 @@ public class DenormalizedLineageService {
   private void ensurePartitionsExist(org.jdbi.v3.core.Handle handle, UUID runUuid) {
     log.debug("Ensuring partitions exist for run: {}", runUuid);
 
-    // Get the run date for this run
+    // Get the run date for this run (use ended_at since this is only called on COMPLETE)
     String runDateStr =
         handle
             .createQuery(
-                "SELECT DATE(COALESCE(started_at, ended_at, created_at)) FROM runs WHERE uuid = :runUuid")
+                "SELECT DATE(ended_at) FROM runs WHERE uuid = :runUuid")
             .bind("runUuid", runUuid)
             .mapTo(String.class)
             .one();
@@ -355,7 +351,7 @@ public class DenormalizedLineageService {
                 dvout.uuid AS output_dataset_version_uuid,
                 r.uuid as uuid,
                 r.parent_run_uuid as parent_run_uuid,
-                DATE(COALESCE(r.started_at, r.ended_at)) as run_date
+                DATE(COALESCE(r.ended_at, r.started_at)) as run_date
             FROM runs r
             LEFT JOIN runs_input_mapping rim ON rim.run_uuid = r.uuid
             LEFT JOIN dataset_versions dvin ON dvin.uuid = rim.dataset_version_uuid
@@ -400,7 +396,7 @@ public class DenormalizedLineageService {
                 dvout.uuid AS output_dataset_version_uuid,
                 r.uuid as uuid,
                 r.parent_run_uuid as parent_run_uuid,
-                DATE(COALESCE(r.started_at, r.ended_at)) as run_date
+                DATE(rp.ended_at) as run_date
             FROM runs r
             LEFT JOIN runs_input_mapping rim ON rim.run_uuid = r.uuid
             LEFT JOIN dataset_versions dvin ON dvin.uuid = rim.dataset_version_uuid
