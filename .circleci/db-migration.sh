@@ -12,7 +12,7 @@
 
 # Version of PostgreSQL
 readonly POSTGRES_VERSION="14"
-# Version of Marquez
+# Version of Marquez (use official release for baseline)
 readonly MARQUEZ_VERSION=0.51.1
 # Build version of Marquez
 readonly MARQUEZ_BUILD_VERSION="$(git log --pretty=format:'%h' -n 1)" # SHA1
@@ -60,7 +60,7 @@ cd "${project_root}/"
 
 # (1) Apply db migrations on latest Marquez release
 log "start db with latest migrations (marquez=${MARQUEZ_VERSION}):"
-if ! ./docker/up.sh \
+if ! MARQUEZ_REGISTRY=marquezproject ./docker/up.sh \
   --args "--exit-code-from seed_marquez" \
   --tag "${MARQUEZ_VERSION}" \
   --no-web \
