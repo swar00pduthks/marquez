@@ -25,11 +25,13 @@ import org.jdbi.v3.core.Jdbi;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+@Disabled("V78 migration has been disabled - denormalized tables are now populated via triggers")
 @org.junit.jupiter.api.Tag("IntegrationTests")
 @ExtendWith(MarquezJdbiExternalPostgresExtension.class)
 public class V78__BackfillDenormalizedTablesTest {

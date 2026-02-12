@@ -5,11 +5,8 @@
 
 package marquez.db.migrations;
 
-import java.util.List;
-import java.util.UUID;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
-import marquez.service.DenormalizedLineageService;
 import org.flywaydb.core.api.MigrationVersion;
 import org.flywaydb.core.api.migration.Context;
 import org.flywaydb.core.api.migration.JavaMigration;
@@ -42,6 +39,14 @@ public class V78__BackfillDenormalizedTables implements JavaMigration {
 
   @Override
   public void migrate(Context context) throws Exception {
+    // MIGRATION DISABLED: This migration has been disabled because later migrations
+    // (V83+) replace/drop these partition tables. The denormalized tables are now
+    // populated on-demand via triggers when lineage events are inserted.
+    // Keeping this migration file to maintain Flyway migration history continuity.
+    log.info("V78 migration skipped - denormalized tables are now populated via triggers");
+    return;
+
+    /* ORIGINAL MIGRATION CODE - COMMENTED OUT
     log.info("Starting migration to populate denormalized lineage tables with existing data");
 
     if (context != null) {
@@ -169,6 +174,8 @@ public class V78__BackfillDenormalizedTables implements JavaMigration {
           totalProcessed,
           getChunkSize());
     }
+    */
+    // END OF COMMENTED OUT MIGRATION CODE
   }
 
   @Override

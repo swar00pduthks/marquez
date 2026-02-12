@@ -36,6 +36,7 @@ import marquez.common.Utils;
 import marquez.db.DbMigration;
 import marquez.jobs.DbRetentionJob;
 import marquez.jobs.MaterializeViewRefresherJob;
+import marquez.jobs.PartitionManagementJob;
 import marquez.logging.DelegatingSqlLogger;
 import marquez.logging.LabelledSqlLogger;
 import marquez.logging.LoggingMdcFilter;
@@ -166,6 +167,10 @@ public final class MarquezApp extends Application<MarquezConfig> {
     // DISABLED: run_lineage_view replaced with run_lineage_denormalized table (event-driven updates
     // via triggers)
     // env.lifecycle().manage(new RunLineageMaterializeViewRefresherJob(jdbi, refreshFrequency));
+
+    // Initialize partition management job to ensure future partitions exist
+    // Creates partitions for current month + 12 months ahead, runs every 7 days
+    env.lifecycle().manage(new PartitionManagementJob(jdbi, 12, 7));
 
     ExclusionsConfig exclusions = config.getExclude();
     Exclusions.use(exclusions);

@@ -82,8 +82,17 @@ public class StatsTest {
   public void tearDown() {
     try (final Handle handle = DB.open()) {
       // Clean up denormalized lineage tables first (if they exist)
-      handle.execute("DELETE FROM run_parent_lineage_denormalized");
-      handle.execute("DELETE FROM run_lineage_denormalized");
+      // These might fail if partitions don't exist yet, so handle gracefully
+      try {
+        handle.execute("DELETE FROM run_parent_lineage_denormalized");
+      } catch (Exception ignored) {
+        // Partition table might not exist or have no partitions
+      }
+      try {
+        handle.execute("DELETE FROM run_lineage_denormalized");
+      } catch (Exception ignored) {
+        // Partition table might not exist or have no partitions
+      }
 
       // Clean up other tables
       handle.execute("DELETE FROM lineage_events");
