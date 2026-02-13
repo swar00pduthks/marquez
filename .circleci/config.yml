@@ -157,6 +157,7 @@ jobs:
       - run: ./.circleci/get-docker-compose.sh
       - run: ./.circleci/get-jdk17.sh
       - run: ./.circleci/get-k6.sh
+      - run: ./gradlew --no-daemon clean :api:shadowJar
       - run: ./.circleci/api-load-test.sh
       - run: chmod +x .circleci/get-lineage-load-test.sh && ./.circleci/get-lineage-load-test.sh
       - store_artifacts:
