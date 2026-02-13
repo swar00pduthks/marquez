@@ -215,6 +215,8 @@ application {
 }
 
 shadowJar {
+    archiveBaseName.set('marquez-api')
+    archiveVersion.set(project.version.toString())
     archiveClassifier.set('')
     transform(ServiceFileTransformer)
     // Add LICENSE to Jar

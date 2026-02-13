@@ -13,14 +13,15 @@
 
 set -e
 
-# Build version of Marquez
-# Use tr to remove carriage return if present (Windows compatibility)
-readonly MARQUEZ_VERSION=$(grep "^version=" gradle.properties | cut -d'=' -f2 | tr -d '\r')
-echo "Detected Marquez version: '${MARQUEZ_VERSION}'"
-
-# Fully qualified path to marquez.jar
-readonly MARQUEZ_JAR="api/build/libs/marquez-api-${MARQUEZ_VERSION}.jar"
-echo "Expecting JAR at: ${MARQUEZ_JAR}"
+# Fully qualified path to marquez.jar (use wildcard to match version-less or versioned JAR)
+readonly MARQUEZ_JAR=$(ls api/build/libs/marquez-api*.jar 2>/dev/null | head -n1)
+if [ -z "${MARQUEZ_JAR}" ]; then
+  echo "Error: JAR file not found in api/build/libs/"
+  echo "Listing build directory:"
+  ls -la api/build/libs/ || echo "Build directory does not exist"
+  exit 1
+fi
+echo "Found JAR at: ${MARQUEZ_JAR}"
 
 readonly MARQUEZ_HOST="localhost"
 readonly MARQUEZ_ADMIN_PORT=8081

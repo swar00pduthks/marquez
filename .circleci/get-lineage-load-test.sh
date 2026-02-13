@@ -10,9 +10,15 @@
 
 set -e
 
-# Build version of Marquez
-readonly MARQUEZ_VERSION=$(grep "^version=" gradle.properties | cut -d'=' -f2 | tr -d '\r')
-readonly MARQUEZ_JAR="api/build/libs/marquez-api-${MARQUEZ_VERSION}.jar"
+# Fully qualified path to marquez.jar (use wildcard to match version-less or versioned JAR)
+readonly MARQUEZ_JAR=$(ls api/build/libs/marquez-api*.jar 2>/dev/null | head -n1)
+if [ -z "${MARQUEZ_JAR}" ]; then
+  echo "Error: JAR file not found in api/build/libs/"
+  echo "Listing build directory:"
+  ls -la api/build/libs/ || echo "Build directory does not exist"
+  exit 1
+fi
+echo "Found JAR at: ${MARQUEZ_JAR}"
 readonly MARQUEZ_HOST="localhost"
 readonly MARQUEZ_ADMIN_PORT=8081
 readonly MARQUEZ_URL="http://${MARQUEZ_HOST}:8080"
