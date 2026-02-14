@@ -122,7 +122,10 @@ fi
 # (6) Load data into Marquez using POST /lineage
 log "Loading test data into Marquez..."
 cd api/load-testing
-k6 run --vus 25 --duration 2m http.js
+if ! k6 run http.js; then
+    echo "Error: Failed to load test data into Marquez"
+    exit 1
+fi
 cd ../..
 
 log "✓ Test data loaded"
@@ -142,6 +145,12 @@ k6 run --vus ${VUS} --duration ${DURATION} \
     -e SCENARIO=without_facets \
     get-lineage-load-test.js 2>&1 | tee ../../${RESULTS_DIR}/summary-without-facets.txt
 
+# Check k6 exit code (PIPESTATUS[0] is the exit code of k6, not tee)
+if [ ${PIPESTATUS[0]} -ne 0 ]; then
+    echo "Error: GET /lineage load test WITHOUT facets failed"
+    exit 1
+fi
+
 # (9) Run GET lineage load test - WITH facets
 log "Running GET /lineage load test WITH facets..."
 
@@ -149,6 +158,12 @@ k6 run --vus ${VUS} --duration ${DURATION} \
     --out json=../../${RESULTS_DIR}/results-with-facets.json \
     -e SCENARIO=with_facets \
     get-lineage-load-test.js 2>&1 | tee ../../${RESULTS_DIR}/summary-with-facets.txt
+
+# Check k6 exit code
+if [ ${PIPESTATUS[0]} -ne 0 ]; then
+    echo "Error: GET /lineage load test WITH facets failed"
+    exit 1
+fi
 
 cd ../..
 
