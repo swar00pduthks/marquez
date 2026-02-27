@@ -85,7 +85,8 @@ public class V86__BackfillPartitionedDenormalizedTables implements JavaMigration
               ==================================================
               ==================================================
               """);
-      // We end migration successfully although no data has been migrated to denormalized tables
+      // We end migration successfully although no data has been migrated to
+      // denormalized tables
       return;
     }
 
@@ -180,6 +181,7 @@ public class V86__BackfillPartitionedDenormalizedTables implements JavaMigration
       log.info(
           "Migration summary: {} runs processed with chunk size {}",
           totalProcessed,
+          totalFailed != 0 ? totalFailed : 0,
           getChunkSize());
     }
   }

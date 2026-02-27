@@ -1,3 +1,5 @@
+// ...existing code...
+
 /*
  * Copyright 2018-2023 contributors to the Marquez project
  * SPDX-License-Identifier: Apache-2.0
@@ -45,6 +47,9 @@ import org.postgresql.util.PGobject;
 @RegisterRowMapper(ExtendedDatasetVersionRowMapper.class)
 @RegisterRowMapper(DatasetVersionMapper.class)
 public interface DatasetVersionDao extends BaseDao {
+  // Returns the dataset version row for a given dataset UUID and version string, if present
+  java.util.Optional<marquez.db.models.DatasetVersionRow> findDatasetVersionByVersionV2(
+      java.util.UUID datasetUuid, String version);
 
   @Transaction
   default DatasetVersionRow upsertDatasetVersion(
@@ -352,4 +357,14 @@ public interface DatasetVersionDao extends BaseDao {
 
   @SqlUpdate("UPDATE dataset_versions SET fields = :fields WHERE uuid = :uuid")
   void updateFields(UUID uuid, PGobject fields);
+
+  // --- v2 Denormalized Table Methods (placed at end for standards) ---
+
+  @SqlQuery(
+      "SELECT uuid, dataset_uuid, version, created_at, fields, facets, schema_location, lifecycle_state FROM dataset_version_denormalized WHERE dataset_uuid = :datasetUuid ORDER BY created_at DESC LIMIT :limit OFFSET :offset")
+  List<DatasetVersionRow> findAllDatasetVersionsV2(UUID datasetUuid, int limit, int offset);
+
+  @SqlQuery(
+      "SELECT uuid, dataset_uuid, version, created_at, fields, facets, schema_location, lifecycle_state FROM dataset_version_denormalized WHERE uuid = :versionUuid")
+  Optional<DatasetVersionRow> findDatasetVersionByUuidV2(UUID versionUuid);
 }

@@ -42,6 +42,12 @@ import org.jdbi.v3.sqlobject.transaction.Transaction;
 @RegisterRowMapper(DatasetRowMapper.class)
 @RegisterRowMapper(DatasetMapper.class)
 public interface DatasetDao extends BaseDao {
+  @org.jdbi.v3.sqlobject.statement.SqlQuery(
+      "SELECT uuid FROM datasets WHERE namespace_uuid = :namespaceUuid AND name = :datasetName")
+  java.util.Optional<java.util.UUID> findUuidByName(
+      @org.jdbi.v3.sqlobject.customizer.Bind("namespaceUuid") java.util.UUID namespaceUuid,
+      @org.jdbi.v3.sqlobject.customizer.Bind("datasetName") String datasetName);
+
   @SqlQuery(
       "SELECT EXISTS ("
           + "SELECT 1 FROM datasets_view AS d "
@@ -423,4 +429,16 @@ public interface DatasetDao extends BaseDao {
     UUID tagUuid;
     Instant taggedAt;
   }
+
+  // --- v2 Denormalized Table Methods (placed at end for standards) ---
+
+  /** Returns all denormalized datasets for a namespace. */
+  @SqlQuery(
+      "SELECT uuid, type, created_at, updated_at, namespace_uuid, source_uuid, name, physical_name, description, current_version_uuid, tags, schema_location, lifecycle_state FROM dataset_denormalized WHERE namespace_uuid = :namespaceUuid ORDER BY name LIMIT :limit OFFSET :offset")
+  List<DatasetRow> findAllDatasetsV2(UUID namespaceUuid, int limit, int offset);
+
+  /** Returns a denormalized dataset by name for a namespace. */
+  @SqlQuery(
+      "SELECT uuid, type, created_at, updated_at, namespace_uuid, source_uuid, name, physical_name, description, current_version_uuid, tags, schema_location, lifecycle_state FROM dataset_denormalized WHERE namespace_uuid = :namespaceUuid AND name = :datasetName")
+  Optional<DatasetRow> findDatasetByNameV2(UUID namespaceUuid, String datasetName);
 }

@@ -18,6 +18,273 @@ public class DenormalizedLineageService {
   private final Jdbi jdbi;
   private final PartitionManagementService partitionManagementService;
 
+  /**
+   * Populates denormalized dataset, dataset version, and job tables for a given namespace or all.
+   * This should be called asynchronously after relevant dataset/job changes.
+   */
+  /**
+   * Populates denormalized dataset, dataset version, and job tables for a given namespace or all.
+   * This should be called asynchronously after relevant dataset/job changes.
+   */
+  public void populateDenormalizedEntitiesForNamespace(UUID namespaceUuid) {
+    try {
+      log.info("Populating denormalized tables for namespace: {}", namespaceUuid);
+      jdbi.useTransaction(
+          handle -> {
+            // Step 1: Ensure partition exists for this namespace
+            ensureNamespacePartitionExists(handle, namespaceUuid);
+
+            // Step 2: Idempotent upsert each denormalized table
+            upsertDatasetDenormalized(handle, namespaceUuid);
+            upsertDatasetVersionDenormalized(handle, namespaceUuid);
+            upsertJobDenormalized(handle, namespaceUuid);
+          });
+      log.info(
+          "Successfully populated denormalized dataset, dataset version, and job tables for namespace {}",
+          namespaceUuid);
+    } catch (Exception e) {
+      log.error("Failed to populate denormalized tables for namespace: {}", namespaceUuid, e);
+      throw e;
+    }
+  }
+
+  // --- Private helper methods for denormalized entity population (placed at end
+  // of class) ---
+
+  /** Ensure partition exists for the given namespace. */
+  private void ensureNamespacePartitionExists(org.jdbi.v3.core.Handle handle, UUID namespaceUuid) {
+    // For hash partitioning, this may be a no-op if all partitions are pre-created,
+    // but we call
+    // partitionManagementService for future extensibility
+    partitionManagementService.ensureNamespacePartitionExists(namespaceUuid);
+    log.debug("Ensured partition exists for namespace: {}", namespaceUuid);
+  }
+
+  /**
+   * Upserts denormalized dataset entities for a given namespace. This uses a conditional update to
+   * avoid unnecessary writes if data hasn't changed.
+   */
+  private void upsertDatasetDenormalized(org.jdbi.v3.core.Handle handle, UUID namespaceUuid) {
+    log.debug("Upserting dataset_denormalized for namespace: {}", namespaceUuid);
+    String sql =
+        """
+        INSERT INTO dataset_denormalized (
+            uuid, type, created_at, updated_at, namespace_uuid, source_uuid, name,
+            physical_name, description, current_version_uuid, tags, schema_location, lifecycle_state
+        )
+        SELECT
+            d.uuid, d.type, d.created_at, d.updated_at, d.namespace_uuid, d.source_uuid,
+            d.name, d.physical_name, d.description, d.current_version_uuid,
+            (SELECT ARRAY_AGG(t.name) FROM tags t INNER JOIN datasets_tag_mapping m ON m.tag_uuid = t.uuid WHERE m.dataset_uuid = d.uuid),
+            sv.schema_location, dv.lifecycle_state
+        FROM datasets d
+        LEFT JOIN dataset_versions dv ON d.current_version_uuid = dv.uuid
+        LEFT JOIN stream_versions sv ON sv.dataset_version_uuid = dv.uuid
+        WHERE d.namespace_uuid = :namespaceUuid
+        ON CONFLICT (uuid, namespace_uuid) DO UPDATE SET
+            updated_at = EXCLUDED.updated_at,
+            current_version_uuid = EXCLUDED.current_version_uuid,
+            tags = EXCLUDED.tags,
+            schema_location = EXCLUDED.schema_location,
+            lifecycle_state = EXCLUDED.lifecycle_state,
+            description = EXCLUDED.description
+        WHERE
+            dataset_denormalized.current_version_uuid IS DISTINCT FROM EXCLUDED.current_version_uuid
+            OR dataset_denormalized.schema_location IS DISTINCT FROM EXCLUDED.schema_location
+            OR dataset_denormalized.lifecycle_state IS DISTINCT FROM EXCLUDED.lifecycle_state
+            OR dataset_denormalized.tags IS DISTINCT FROM EXCLUDED.tags
+        """;
+    handle.createUpdate(sql).bind("namespaceUuid", namespaceUuid).execute();
+  }
+
+  /**
+   * Upserts denormalized dataset version entities. Additive history: uses DO NOTHING on conflict to
+   * avoid duplicate work for existing versions.
+   */
+  private void upsertDatasetVersionDenormalized(
+      org.jdbi.v3.core.Handle handle, UUID namespaceUuid) {
+    log.debug("Upserting dataset_version_denormalized for namespace: {}", namespaceUuid);
+    String sql =
+        """
+        INSERT INTO dataset_version_denormalized (
+            uuid, dataset_uuid, namespace_uuid, version, created_at, fields, facets, schema_location, lifecycle_state
+        )
+        SELECT
+            dv.uuid, dv.dataset_uuid, d.namespace_uuid, dv.version, dv.created_at, dv.fields,
+            (SELECT JSONB_AGG(df.facet ORDER BY df.lineage_event_time ASC) FROM dataset_facets df WHERE df.dataset_version_uuid = dv.uuid AND df.facet IS NOT NULL),
+            sv.schema_location, dv.lifecycle_state
+        FROM dataset_versions dv
+        INNER JOIN datasets d ON d.uuid = dv.dataset_uuid
+        LEFT JOIN stream_versions sv ON sv.dataset_version_uuid = dv.uuid
+        WHERE d.namespace_uuid = :namespaceUuid
+        ON CONFLICT (uuid, namespace_uuid) DO NOTHING
+        """;
+    handle.createUpdate(sql).bind("namespaceUuid", namespaceUuid).execute();
+  }
+
+  /** Upserts denormalized job entities. */
+  private void upsertJobDenormalized(org.jdbi.v3.core.Handle handle, UUID namespaceUuid) {
+    log.debug("Upserting job_denormalized for namespace: {}", namespaceUuid);
+    String sql =
+        """
+        INSERT INTO job_denormalized (
+            uuid, type, created_at, updated_at, namespace_uuid, name,
+            description, current_version_uuid, tags, lifecycle_state
+        )
+        SELECT
+            j.uuid, j.type, j.created_at, j.updated_at, j.namespace_uuid, j.name,
+            j.description, j.current_version_uuid,
+            (SELECT ARRAY_AGG(t.name) FROM tags t INNER JOIN jobs_tag_mapping m ON m.tag_uuid = t.uuid WHERE m.job_uuid = j.uuid),
+            j.lifecycle_state
+        FROM jobs j
+        WHERE j.namespace_uuid = :namespaceUuid
+        ON CONFLICT (uuid, namespace_uuid) DO UPDATE SET
+            updated_at = EXCLUDED.updated_at,
+            current_version_uuid = EXCLUDED.current_version_uuid,
+            lifecycle_state = EXCLUDED.lifecycle_state,
+            tags = EXCLUDED.tags,
+            description = EXCLUDED.description
+        WHERE
+            job_denormalized.current_version_uuid IS DISTINCT FROM EXCLUDED.current_version_uuid
+            OR job_denormalized.lifecycle_state IS DISTINCT FROM EXCLUDED.lifecycle_state
+            OR job_denormalized.tags IS DISTINCT FROM EXCLUDED.tags
+        """;
+    handle.createUpdate(sql).bind("namespaceUuid", namespaceUuid).execute();
+  }
+
+  /** Bulk populate all denormalized tables for all namespaces. Useful for initial migration. */
+  public void populateAllDenormalizedEntities() {
+    jdbi.useHandle(
+        handle -> {
+          var namespaceUuids =
+              handle.createQuery("SELECT uuid FROM namespaces").mapTo(UUID.class).list();
+          for (UUID ns : namespaceUuids) {
+            populateDenormalizedEntitiesForNamespace(ns);
+          }
+        });
+    log.info("Bulk populated all denormalized dataset, dataset version, and job tables.");
+  }
+
+  /**
+   * High-performance batch backfill for lineage tables by date range. This method uses set-based
+   * logic to process thousands of runs in a single transaction, significantly reducing backfill
+   * time for millions of runs.
+   */
+  public void backfillLineageByDate(LocalDate date) {
+    try {
+      log.info("Batch backfilling lineage for date: {}", date);
+      jdbi.useTransaction(
+          handle -> {
+            // Ensure partitions exist
+            partitionManagementService.ensurePartitionExists(date);
+
+            // Step 1: Populate run_lineage_denormalized in bulk for the day
+            String bulkInsertRunLineage =
+                """
+                INSERT INTO run_lineage_denormalized (
+                    run_uuid, namespace_name, job_name, state, created_at, updated_at,
+                    started_at, ended_at, job_uuid, job_version_uuid, input_version_uuid,
+                    input_dataset_uuid, output_version_uuid, output_dataset_uuid,
+                    input_dataset_namespace, input_dataset_name, input_dataset_version,
+                    input_dataset_version_uuid, output_dataset_namespace, output_dataset_name,
+                    output_dataset_version, output_dataset_version_uuid, uuid, parent_run_uuid, run_date
+                )
+                SELECT
+                    r.uuid AS run_uuid,
+                    r.namespace_name,
+                    r.job_name,
+                    r.current_run_state AS state,
+                    r.created_at,
+                    r.updated_at,
+                    r.started_at,
+                    r.ended_at,
+                    r.job_uuid,
+                    r.job_version_uuid,
+                    rim.dataset_version_uuid AS input_version_uuid,
+                    dvin.dataset_uuid AS input_dataset_uuid,
+                    dvout.uuid AS output_version_uuid,
+                    dvout.dataset_uuid AS output_dataset_uuid,
+                    dvin.namespace_name AS input_dataset_namespace,
+                    dvin.dataset_name AS input_dataset_name,
+                    dvin.version AS input_dataset_version,
+                    dvin.uuid AS input_dataset_version_uuid,
+                    dvout.namespace_name AS output_dataset_namespace,
+                    dvout.dataset_name AS output_dataset_name,
+                    dvout.version AS output_dataset_version,
+                    dvout.uuid AS output_dataset_version_uuid,
+                    r.uuid as uuid,
+                    r.parent_run_uuid as parent_run_uuid,
+                    DATE(COALESCE(r.ended_at, r.started_at)) as rd
+                FROM runs r
+                LEFT JOIN runs_input_mapping rim ON rim.run_uuid = r.uuid
+                LEFT JOIN dataset_versions dvin ON dvin.uuid = rim.dataset_version_uuid
+                LEFT JOIN dataset_versions dvout ON dvout.run_uuid = r.uuid
+                WHERE DATE(COALESCE(r.ended_at, r.started_at)) = :date
+                ON CONFLICT (id, run_date) DO NOTHING
+                """;
+            int insertedLineage =
+                handle.createUpdate(bulkInsertRunLineage).bind("date", date).execute();
+
+            // Step 2: Populate run_parent_lineage_denormalized for the day
+            String bulkInsertParentLineage =
+                """
+                INSERT INTO run_parent_lineage_denormalized (
+                    run_uuid, namespace_name, job_name, state, created_at, updated_at,
+                    started_at, ended_at, job_uuid, job_version_uuid, input_version_uuid,
+                    input_dataset_uuid, output_version_uuid, output_dataset_uuid,
+                    input_dataset_namespace, input_dataset_name, input_dataset_version,
+                    input_dataset_version_uuid, output_dataset_namespace, output_dataset_name,
+                    output_dataset_version, output_dataset_version_uuid, uuid, parent_run_uuid, run_date
+                )
+                SELECT DISTINCT
+                    COALESCE(r.parent_run_uuid,r.uuid) AS run_uuid,
+                    rp.namespace_name,
+                    rp.job_name,
+                    rp.current_run_state AS state,
+                    rp.created_at,
+                    rp.updated_at,
+                    rp.started_at,
+                    rp.ended_at,
+                    rp.job_uuid,
+                    rp.job_version_uuid,
+                    rim.dataset_version_uuid AS input_version_uuid,
+                    dvin.dataset_uuid AS input_dataset_uuid,
+                    dvout.uuid AS output_version_uuid,
+                    dvout.dataset_uuid AS output_dataset_uuid,
+                    dvin.namespace_name AS input_dataset_namespace,
+                    dvin.dataset_name AS input_dataset_name,
+                    dvin.version AS input_dataset_version,
+                    dvin.uuid AS input_dataset_version_uuid,
+                    dvout.namespace_name AS output_dataset_namespace,
+                    dvout.dataset_name AS output_dataset_name,
+                    dvout.version AS output_dataset_version,
+                    dvout.uuid AS output_dataset_version_uuid,
+                    r.uuid as uuid,
+                    r.parent_run_uuid as parent_run_uuid,
+                    DATE(COALESCE(rp.ended_at, rp.started_at)) as rd
+                FROM runs r
+                LEFT JOIN runs_input_mapping rim ON rim.run_uuid = r.uuid
+                LEFT JOIN dataset_versions dvin ON dvin.uuid = rim.dataset_version_uuid
+                LEFT JOIN dataset_versions dvout ON dvout.run_uuid = r.uuid
+                INNER JOIN runs rp ON rp.uuid = r.parent_run_uuid
+                WHERE DATE(COALESCE(rp.ended_at, rp.started_at)) = :date
+                ON CONFLICT (id, run_date) DO NOTHING
+                """;
+            int insertedParentLineage =
+                handle.createUpdate(bulkInsertParentLineage).bind("date", date).execute();
+
+            log.info(
+                "Successfully batch backfilled {} lineage and {} parent lineage rows for {}",
+                insertedLineage,
+                insertedParentLineage,
+                date);
+          });
+    } catch (Exception e) {
+      log.error("Failed batch backfill for date: {}", date, e);
+      throw e;
+    }
+  }
+
   public DenormalizedLineageService(@NonNull final Jdbi jdbi) {
     this.jdbi = jdbi;
     this.partitionManagementService = new PartitionManagementService(jdbi, 10, 12);
@@ -47,14 +314,14 @@ public class DenormalizedLineageService {
             // Step 1: Ensure partitions exist for the run date
             ensurePartitionsExist(handle, runUuid);
 
-            // Step 2: Delete existing records for this run
+            // Step 2: Clear existing records for this run to handle changed dependencies
+            // This is ONLY for lineage tables; entity tables use cumulative upserts.
             deleteExistingRecords(handle, runUuid);
 
-            // Step 3: Always populate run_lineage_denormalized for the run
+            // Step 3: Populate run_lineage_denormalized for the run
             populateRunLineageDenormalized(handle, runUuid);
 
             // Step 4: Populate run_parent_lineage_denormalized ONLY if this run is a parent
-            // This ensures parent's ended_at is set and run_date will never be NULL
             if (isParentRun(handle, runUuid)) {
               populateRunParentLineageDenormalized(handle, runUuid);
             }
@@ -136,7 +403,6 @@ public class DenormalizedLineageService {
         """;
 
     int insertedRows = handle.createUpdate(insertQuery).bind("runUuid", runUuid).execute();
-
     log.debug("Inserted {} rows into run_lineage_denormalized for run: {}", insertedRows, runUuid);
   }
 
@@ -188,7 +454,6 @@ public class DenormalizedLineageService {
         """;
 
     int insertedRows = handle.createUpdate(insertQuery).bind("runUuid", runUuid).execute();
-
     log.debug(
         "Inserted {} rows into run_parent_lineage_denormalized for run: {}", insertedRows, runUuid);
   }
@@ -242,7 +507,8 @@ public class DenormalizedLineageService {
   private void ensurePartitionsExist(org.jdbi.v3.core.Handle handle, UUID runUuid) {
     log.debug("Ensuring partitions exist for run: {}", runUuid);
 
-    // Get the run date for this run (use ended_at since this is only called on COMPLETE)
+    // Get the run date for this run (use ended_at since this is only called on
+    // COMPLETE)
     String runDateStr =
         handle
             .createQuery("SELECT DATE(ended_at) FROM runs WHERE uuid = :runUuid")
@@ -317,92 +583,92 @@ public class DenormalizedLineageService {
             // Populate run_lineage_denormalized for all runs
             String bulkInsertRunLineage =
                 """
-            INSERT INTO run_lineage_denormalized (
-                run_uuid, namespace_name, job_name, state, created_at, updated_at,
-                started_at, ended_at, job_uuid, job_version_uuid, input_version_uuid,
-                input_dataset_uuid, output_version_uuid, output_dataset_uuid,
-                input_dataset_namespace, input_dataset_name, input_dataset_version,
-                input_dataset_version_uuid, output_dataset_namespace, output_dataset_name,
-                output_dataset_version, output_dataset_version_uuid, uuid, parent_run_uuid, run_date
-            )
-            SELECT
-                r.uuid AS run_uuid,
-                r.namespace_name,
-                r.job_name,
-                r.current_run_state AS state,
-                r.created_at,
-                r.updated_at,
-                r.started_at,
-                r.ended_at,
-                r.job_uuid,
-                r.job_version_uuid,
-                rim.dataset_version_uuid AS input_version_uuid,
-                dvin.dataset_uuid AS input_dataset_uuid,
-                dvout.uuid AS output_version_uuid,
-                dvout.dataset_uuid AS output_dataset_uuid,
-                dvin.namespace_name AS input_dataset_namespace,
-                dvin.dataset_name AS input_dataset_name,
-                dvin.version AS input_dataset_version,
-                dvin.uuid AS input_dataset_version_uuid,
-                dvout.namespace_name AS output_dataset_namespace,
-                dvout.dataset_name AS output_dataset_name,
-                dvout.version AS output_dataset_version,
-                dvout.uuid AS output_dataset_version_uuid,
-                r.uuid as uuid,
-                r.parent_run_uuid as parent_run_uuid,
-                DATE(COALESCE(r.ended_at, r.started_at)) as run_date
-            FROM runs r
-            LEFT JOIN runs_input_mapping rim ON rim.run_uuid = r.uuid
-            LEFT JOIN dataset_versions dvin ON dvin.uuid = rim.dataset_version_uuid
-            LEFT JOIN dataset_versions dvout ON dvout.run_uuid = r.uuid
-            """;
+                INSERT INTO run_lineage_denormalized (
+                    run_uuid, namespace_name, job_name, state, created_at, updated_at,
+                    started_at, ended_at, job_uuid, job_version_uuid, input_version_uuid,
+                    input_dataset_uuid, output_version_uuid, output_dataset_uuid,
+                    input_dataset_namespace, input_dataset_name, input_dataset_version,
+                    input_dataset_version_uuid, output_dataset_namespace, output_dataset_name,
+                    output_dataset_version, output_dataset_version_uuid, uuid, parent_run_uuid, run_date
+                )
+                SELECT
+                    r.uuid AS run_uuid,
+                    r.namespace_name,
+                    r.job_name,
+                    r.current_run_state AS state,
+                    r.created_at,
+                    r.updated_at,
+                    r.started_at,
+                    r.ended_at,
+                    r.job_uuid,
+                    r.job_version_uuid,
+                    rim.dataset_version_uuid AS input_version_uuid,
+                    dvin.dataset_uuid AS input_dataset_uuid,
+                    dvout.uuid AS output_version_uuid,
+                    dvout.dataset_uuid AS output_dataset_uuid,
+                    dvin.namespace_name AS input_dataset_namespace,
+                    dvin.dataset_name AS input_dataset_name,
+                    dvin.version AS input_dataset_version,
+                    dvin.uuid AS input_dataset_version_uuid,
+                    dvout.namespace_name AS output_dataset_namespace,
+                    dvout.dataset_name AS output_dataset_name,
+                    dvout.version AS output_dataset_version,
+                    dvout.uuid AS output_dataset_version_uuid,
+                    r.uuid as uuid,
+                    r.parent_run_uuid as parent_run_uuid,
+                    DATE(COALESCE(r.ended_at, r.started_at)) as run_date
+                FROM runs r
+                LEFT JOIN runs_input_mapping rim ON rim.run_uuid = r.uuid
+                LEFT JOIN dataset_versions dvin ON dvin.uuid = rim.dataset_version_uuid
+                LEFT JOIN dataset_versions dvout ON dvout.run_uuid = r.uuid
+                """;
 
             int runLineageRows = handle.createUpdate(bulkInsertRunLineage).execute();
 
             // Populate run_parent_lineage_denormalized for all runs with parents
             String bulkInsertParentLineage =
                 """
-            INSERT INTO run_parent_lineage_denormalized (
-                run_uuid, namespace_name, job_name, state, created_at, updated_at,
-                started_at, ended_at, job_uuid, job_version_uuid, input_version_uuid,
-                input_dataset_uuid, output_version_uuid, output_dataset_uuid,
-                input_dataset_namespace, input_dataset_name, input_dataset_version,
-                input_dataset_version_uuid, output_dataset_namespace, output_dataset_name,
-                output_dataset_version, output_dataset_version_uuid, uuid, parent_run_uuid, run_date
-            )
-            SELECT DISTINCT
-                COALESCE(r.parent_run_uuid,r.uuid) AS run_uuid,
-                rp.namespace_name,
-                rp.job_name,
-                rp.current_run_state AS state,
-                rp.created_at,
-                rp.updated_at,
-                rp.started_at,
-                rp.ended_at,
-                rp.job_uuid,
-                rp.job_version_uuid,
-                rim.dataset_version_uuid AS input_version_uuid,
-                dvin.dataset_uuid AS input_dataset_uuid,
-                dvout.uuid AS output_version_uuid,
-                dvout.dataset_uuid AS output_dataset_uuid,
-                dvin.namespace_name AS input_dataset_namespace,
-                dvin.dataset_name AS input_dataset_name,
-                dvin.version AS input_dataset_version,
-                dvin.uuid AS input_dataset_version_uuid,
-                dvout.namespace_name AS output_dataset_namespace,
-                dvout.dataset_name AS output_dataset_name,
-                dvout.version AS output_dataset_version,
-                dvout.uuid AS output_dataset_version_uuid,
-                r.uuid as uuid,
-                r.parent_run_uuid as parent_run_uuid,
-                DATE(rp.ended_at) as run_date
-            FROM runs r
-            LEFT JOIN runs_input_mapping rim ON rim.run_uuid = r.uuid
-            LEFT JOIN dataset_versions dvin ON dvin.uuid = rim.dataset_version_uuid
-            LEFT JOIN dataset_versions dvout ON dvout.run_uuid = r.uuid
-            LEFT JOIN runs rp ON rp.uuid=r.parent_run_uuid
-            WHERE r.parent_run_uuid is not null
-            """;
+                INSERT INTO run_parent_lineage_denormalized (
+                    run_uuid, namespace_name, job_name, state, created_at, updated_at,
+                    started_at, ended_at, job_uuid, job_version_uuid, input_version_uuid,
+                    input_dataset_uuid, output_version_uuid, output_dataset_uuid,
+                    input_dataset_namespace, input_dataset_name, input_dataset_version,
+                    input_dataset_version_uuid, output_dataset_namespace, output_dataset_name,
+                    output_dataset_version, output_dataset_version_uuid, uuid, parent_run_uuid, run_date
+                )
+                SELECT DISTINCT
+                    COALESCE(r.parent_run_uuid,r.uuid) AS run_uuid,
+                    rp.namespace_name,
+                    rp.job_name,
+                    rp.current_run_state AS state,
+                    rp.created_at,
+                    rp.updated_at,
+                    rp.started_at,
+                    rp.ended_at,
+                    rp.job_uuid,
+                    rp.job_version_uuid,
+                    rim.dataset_version_uuid AS input_version_uuid,
+                    dvin.dataset_uuid AS input_dataset_uuid,
+                    dvout.uuid AS output_version_uuid,
+                    dvout.dataset_uuid AS output_dataset_uuid,
+                    dvin.namespace_name AS input_dataset_namespace,
+                    dvin.dataset_name AS input_dataset_name,
+                    dvin.version AS input_dataset_version,
+                    dvin.uuid AS input_dataset_version_uuid,
+                    dvout.namespace_name AS output_dataset_namespace,
+                    dvout.dataset_name AS output_dataset_name,
+                    dvout.version AS output_dataset_version,
+                    dvout.uuid AS output_dataset_version_uuid,
+                    r.uuid as uuid,
+                    r.parent_run_uuid as parent_run_uuid,
+                    DATE(rp.ended_at) as run_date
+                FROM runs r
+                LEFT JOIN runs_input_mapping rim ON rim.run_uuid = r.uuid
+                LEFT JOIN dataset_versions dvin ON dvin.uuid = rim.dataset_version_uuid
+                LEFT JOIN dataset_versions dvout ON dvout.run_uuid = r.uuid
+                LEFT JOIN runs rp ON rp.uuid=r.parent_run_uuid
+                WHERE r.parent_run_uuid is not null
+                """;
 
             int parentLineageRows = handle.createUpdate(bulkInsertParentLineage).execute();
 

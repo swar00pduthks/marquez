@@ -23,6 +23,7 @@ import marquez.api.StatsResource;
 import marquez.api.TagResource;
 import marquez.api.exceptions.JdbiExceptionExceptionMapper;
 import marquez.api.exceptions.JsonProcessingExceptionMapper;
+import marquez.api.v2.DatasetVersionResource;
 import marquez.db.BaseDao;
 import marquez.db.ColumnLineageDao;
 import marquez.db.DatasetDao;
@@ -104,6 +105,9 @@ public final class MarquezContext {
   @Getter private final TagResource tagResource;
   @Getter private final OpenLineageResource openLineageResource;
   @Getter private final marquez.api.v2beta.SearchResource v2BetasearchResource;
+  @Getter private final marquez.api.v2.DatasetResource v2DatasetResource;
+  @Getter private final marquez.api.v2.DatasetVersionResource v2DatasetVersionResource;
+  @Getter private final marquez.api.v2.JobResource v2JobResource;
   @Getter private final SearchResource searchResource;
   @Getter private final StatsResource opsResource;
   @Getter private final ImmutableList<Object> resources;
@@ -184,6 +188,9 @@ public final class MarquezContext {
     this.searchResource = new SearchResource(searchDao);
     this.opsResource = new StatsResource(serviceFactory);
     this.v2BetasearchResource = new marquez.api.v2beta.SearchResource(serviceFactory);
+    this.v2DatasetResource = new marquez.api.v2.DatasetResource(serviceFactory);
+    this.v2DatasetVersionResource = new DatasetVersionResource(serviceFactory);
+    this.v2JobResource = new marquez.api.v2.JobResource(serviceFactory);
 
     this.resources =
         ImmutableList.of(
@@ -198,6 +205,9 @@ public final class MarquezContext {
             openLineageResource,
             searchResource,
             v2BetasearchResource,
+            v2DatasetResource,
+            v2DatasetVersionResource,
+            v2JobResource,
             opsResource);
 
     final MarquezGraphqlServletBuilder servlet = new MarquezGraphqlServletBuilder();

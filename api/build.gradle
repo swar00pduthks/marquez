@@ -142,6 +142,10 @@ test {
         showStandardStreams = true
         exceptionFormat = 'full'
     }
+    // JVM memory settings to prevent test worker crashes
+    jvmArgs '-Xmx2g', '-XX:MaxMetaspaceSize=512m', '-XX:+HeapDumpOnOutOfMemoryError'
+    forkEvery = 50
+    maxParallelForks = 1
     // Set Docker API version for Testcontainers
     environment "DOCKER_API_VERSION", "1.41"
     environment "TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE", "/var/run/docker.sock"
