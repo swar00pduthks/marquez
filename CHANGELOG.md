@@ -1,9 +1,14 @@
 # Changelog
 
-## [Unreleased](https://github.com/swar00pduthks/marquez/compare/0.52.30...HEAD)
+## [Unreleased](https://github.com/swar00pduthks/marquez/compare/0.52.41...HEAD)
 
 ### Added
 
+* API: **New V2 API endpoints** for Datasets, DatasetVersions, and Jobs to support high-scale multi-tenant operations.
+* API: **Static Swagger UI** integrated at `/swagger-ui/` for professional API documentation and exploration.
+* API: **High-performance backfill utility** `backfillLineageByDate` in `DenormalizedLineageService` for set-based processing of millions of runs.
+* API: Database migration **V90** - Java migration to backfill denormalized entity tables (datasets, jobs) created in V88.
+* Docs: **Strategic Roadmap (2026-2027)** for transitioning Marquez into an AI-Native Metadata Platform.
 * API: **Partitioned denormalized lineage tables** for significant performance improvements on large datasets [`1ea6840`](https://github.com/swar00pduthks/marquez/commit/1ea684056497fd7f46d9f3d74772451230f0382c) [@swar00pduthks](https://github.com/swar00pduthks)
   * Introduced `run_lineage_denormalized` and `run_parent_lineage_denormalized` tables partitioned by `run_date` with monthly partitions
   * Pre-computed lineage data replaces complex joins with simple table lookups, dramatically improving query performance for the Marquez UI
