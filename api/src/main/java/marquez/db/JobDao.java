@@ -587,10 +587,10 @@ public interface JobDao extends BaseDao {
   // --- v2 Denormalized Table Methods (placed at end for standards) ---
 
   @SqlQuery(
-      "SELECT uuid, type, created_at, updated_at, namespace_uuid, name, description, current_version_uuid, tags, lifecycle_state FROM job_denormalized WHERE namespace_uuid = :namespaceUuid ORDER BY name LIMIT :limit OFFSET :offset")
+      "SELECT uuid, type, created_at, updated_at, namespace_uuid, name, description, current_version_uuid, tags FROM job_denormalized WHERE namespace_uuid = :namespaceUuid ORDER BY name LIMIT :limit OFFSET :offset")
   List<JobRow> findAllJobsV2(UUID namespaceUuid, int limit, int offset);
 
   @SqlQuery(
-      "SELECT uuid, type, created_at, updated_at, namespace_uuid, name, description, current_version_uuid, tags, lifecycle_state FROM job_denormalized WHERE namespace_uuid = :namespaceUuid AND name = :jobName")
+      "SELECT uuid, type, created_at, updated_at, namespace_uuid, name, description, current_version_uuid, tags FROM job_denormalized WHERE namespace_uuid = :namespaceUuid AND name = :jobName")
   Optional<JobRow> findJobByNameV2(UUID namespaceUuid, String jobName);
 }

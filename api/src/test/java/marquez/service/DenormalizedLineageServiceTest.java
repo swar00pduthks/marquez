@@ -50,6 +50,67 @@ public class DenormalizedLineageServiceTest {
         handle -> {
           handle.execute("DELETE FROM run_lineage_denormalized");
           handle.execute("DELETE FROM run_parent_lineage_denormalized");
+          handle.execute("DELETE FROM job_denormalized");
+          handle.execute("DELETE FROM dataset_denormalized");
+          handle.execute("DELETE FROM dataset_version_denormalized");
+        });
+  }
+
+  @Test
+  public void testPopulateDenormalizedEntitiesForNamespace() {
+    // 1. Create a namespace and job/dataset via LineageEvent (this populates source tables)
+    UpdateLineageRow lineageRow =
+        LineageTestUtils.createLineageRow(
+            openLineageDao,
+            "entity_test_job",
+            "COMPLETE",
+            JobFacet.builder()
+                .documentation(
+                    LineageEvent.DocumentationJobFacet.builder()
+                        .description("Test Job Description")
+                        .build())
+                .build(),
+            List.of(new Dataset("namespace", "entity_test_input", null)),
+            List.of(new Dataset("namespace", "entity_test_output", null)));
+
+    UUID namespaceUuid = lineageRow.getNamespace().getUuid();
+
+    // 2. When: Populate denormalized entities for the namespace
+    assertThatCode(
+            () ->
+                denormalizedLineageService.populateDenormalizedEntitiesForNamespace(namespaceUuid))
+        .doesNotThrowAnyException();
+
+    // 3. Then: Verify entity denormalized tables are populated correctly
+    jdbi.useHandle(
+        handle -> {
+          // Verify Job
+          Long jobCount =
+              handle
+                  .createQuery("SELECT COUNT(*) FROM job_denormalized WHERE uuid = ?")
+                  .bind(0, lineageRow.getJob().getUuid())
+                  .mapTo(Long.class)
+                  .one();
+          assertThat(jobCount).isEqualTo(1);
+
+          // Verify Dataset
+          Long datasetCount =
+              handle
+                  .createQuery("SELECT COUNT(*) FROM dataset_denormalized WHERE namespace_uuid = ?")
+                  .bind(0, namespaceUuid)
+                  .mapTo(Long.class)
+                  .one();
+          assertThat(datasetCount).isGreaterThanOrEqualTo(2); // input + output
+
+          // Verify Dataset Version
+          Long versionCount =
+              handle
+                  .createQuery(
+                      "SELECT COUNT(*) FROM dataset_version_denormalized WHERE namespace_uuid = ?")
+                  .bind(0, namespaceUuid)
+                  .mapTo(Long.class)
+                  .one();
+          assertThat(versionCount).isGreaterThanOrEqualTo(2);
         });
   }
 

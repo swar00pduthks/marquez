@@ -129,24 +129,21 @@ public class DenormalizedLineageService {
         """
         INSERT INTO job_denormalized (
             uuid, type, created_at, updated_at, namespace_uuid, name,
-            description, current_version_uuid, tags, lifecycle_state
+            description, current_version_uuid, tags
         )
         SELECT
             j.uuid, j.type, j.created_at, j.updated_at, j.namespace_uuid, j.name,
             j.description, j.current_version_uuid,
-            (SELECT ARRAY_AGG(t.name) FROM tags t INNER JOIN jobs_tag_mapping m ON m.tag_uuid = t.uuid WHERE m.job_uuid = j.uuid),
-            j.lifecycle_state
+            (SELECT ARRAY_AGG(t.name) FROM tags t INNER JOIN jobs_tag_mapping m ON m.tag_uuid = t.uuid WHERE m.job_uuid = j.uuid)
         FROM jobs j
         WHERE j.namespace_uuid = :namespaceUuid
         ON CONFLICT (uuid, namespace_uuid) DO UPDATE SET
             updated_at = EXCLUDED.updated_at,
             current_version_uuid = EXCLUDED.current_version_uuid,
-            lifecycle_state = EXCLUDED.lifecycle_state,
             tags = EXCLUDED.tags,
             description = EXCLUDED.description
         WHERE
             job_denormalized.current_version_uuid IS DISTINCT FROM EXCLUDED.current_version_uuid
-            OR job_denormalized.lifecycle_state IS DISTINCT FROM EXCLUDED.lifecycle_state
             OR job_denormalized.tags IS DISTINCT FROM EXCLUDED.tags
         """;
     handle.createUpdate(sql).bind("namespaceUuid", namespaceUuid).execute();
