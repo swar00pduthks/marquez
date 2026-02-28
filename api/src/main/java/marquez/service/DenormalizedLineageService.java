@@ -28,7 +28,7 @@ public class DenormalizedLineageService {
    */
   public void populateDenormalizedEntitiesForNamespace(UUID namespaceUuid) {
     try {
-      log.info("Populating denormalized tables for namespace: {}", namespaceUuid);
+      log.debug("Populating denormalized tables for namespace: {}", namespaceUuid);
       jdbi.useTransaction(
           handle -> {
             // Step 1: Ensure partition exists for this namespace
@@ -39,7 +39,7 @@ public class DenormalizedLineageService {
             upsertDatasetVersionDenormalized(handle, namespaceUuid);
             upsertJobDenormalized(handle, namespaceUuid);
           });
-      log.info(
+      log.debug(
           "Successfully populated denormalized dataset, dataset version, and job tables for namespace {}",
           namespaceUuid);
     } catch (Exception e) {
