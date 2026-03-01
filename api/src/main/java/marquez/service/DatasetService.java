@@ -101,4 +101,18 @@ public class DatasetService extends DelegatingDaos.DelegatingDatasetDao {
   public java.util.Optional<UUID> findDatasetUuidByName(UUID namespaceUuid, String dataset) {
     return datasetDao.findUuidByName(namespaceUuid, dataset);
   }
+
+  public int countDatasets(String namespaceName) {
+    return datasetDao.countFor(namespaceName);
+  }
+
+  public List<Dataset> findAllWithTags(
+      String namespaceName, int limit, int offset, java.util.Set<String> includeFacets) {
+    return datasetDao.findAllWithTags(namespaceName, limit, offset, includeFacets);
+  }
+
+  public java.util.Optional<Dataset> findWithTags(
+      String namespaceName, String datasetName, java.util.Set<String> includeFacets) {
+    return datasetDao.findWithTags(namespaceName, datasetName, includeFacets);
+  }
 }

@@ -76,53 +76,107 @@ public interface RunDao extends BaseDao {
 
   String BASE_FIND_RUN_SQL =
       """
-      SELECT r.*, ra.args, f.facets,
-      jv.version AS job_version,
-      ri.input_versions, ro.output_versions, df.dataset_facets
-      FROM runs_view AS r
-      LEFT OUTER JOIN
-      (
-          SELECT rf.run_uuid, JSON_AGG(rf.facet ORDER BY rf.lineage_event_time ASC) AS facets
-          FROM run_facets_view rf
-          GROUP BY rf.run_uuid
-      ) AS f ON r.uuid=f.run_uuid
-      LEFT OUTER JOIN run_args AS ra ON ra.uuid = r.run_args_uuid
-      LEFT OUTER JOIN job_versions jv ON jv.uuid=r.job_version_uuid
-      LEFT OUTER JOIN (
-          SELECT im.run_uuid, JSON_AGG(json_build_object('namespace', dv.namespace_name,
-              'name', dv.dataset_name,
-              'version', dv.version,
-              'dataset_version_uuid', uuid)) AS input_versions
-          FROM runs_input_mapping im
-          INNER JOIN dataset_versions dv on im.dataset_version_uuid = dv.uuid
-          GROUP BY im.run_uuid
-      ) ri ON ri.run_uuid=r.uuid
-      LEFT OUTER JOIN (
-          SELECT run_uuid, JSON_AGG(json_build_object('namespace', namespace_name,
-                                                      'name', dataset_name,
-                                                      'version', version,
-                                                      'dataset_version_uuid', uuid
-                                                      )) AS output_versions
-          FROM dataset_versions
-          GROUP BY run_uuid
-      ) ro ON ro.run_uuid=r.uuid
-      LEFT OUTER JOIN (
-          SELECT
-              run_uuid,
-              JSON_AGG(json_build_object(
-                  'dataset_version_uuid', dataset_version_uuid,
-                  'name', name,
-                  'type', type,
-                  'facet', facet
-              ) ORDER BY created_at ASC) as dataset_facets
-          FROM dataset_facets_view
-          WHERE (type ILIKE 'output' OR type ILIKE 'input')
-          GROUP BY run_uuid
-      ) AS df ON r.uuid = df.run_uuid
-      """;
+            SELECT r.*, ra.args, f.facets,
+            jv.version AS job_version,
+            ri.input_versions, ro.output_versions, df.dataset_facets
+            FROM runs_view AS r
+            LEFT OUTER JOIN
+            (
+                SELECT rf.run_uuid, JSON_AGG(rf.facet ORDER BY rf.lineage_event_time ASC) AS facets
+                FROM run_facets_view rf
+                GROUP BY rf.run_uuid
+            ) AS f ON r.uuid=f.run_uuid
+            LEFT OUTER JOIN run_args AS ra ON ra.uuid = r.run_args_uuid
+            LEFT OUTER JOIN job_versions jv ON jv.uuid=r.job_version_uuid
+            LEFT OUTER JOIN (
+                SELECT im.run_uuid, JSON_AGG(json_build_object('namespace', dv.namespace_name,
+                    'name', dv.dataset_name,
+                    'version', dv.version,
+                    'dataset_version_uuid', uuid)) AS input_versions
+                FROM runs_input_mapping im
+                INNER JOIN dataset_versions dv on im.dataset_version_uuid = dv.uuid
+                GROUP BY im.run_uuid
+            ) ri ON ri.run_uuid=r.uuid
+            LEFT OUTER JOIN (
+                SELECT run_uuid, JSON_AGG(json_build_object('namespace', namespace_name,
+                                                            'name', dataset_name,
+                                                            'version', version,
+                                                            'dataset_version_uuid', uuid
+                                                            )) AS output_versions
+                FROM dataset_versions
+                GROUP BY run_uuid
+            ) ro ON ro.run_uuid=r.uuid
+            LEFT OUTER JOIN (
+                SELECT
+                    run_uuid,
+                    JSON_AGG(json_build_object(
+                        'dataset_version_uuid', dataset_version_uuid,
+                        'name', name,
+                        'type', type,
+                        'facet', facet
+                    ) ORDER BY created_at ASC) as dataset_facets
+                FROM dataset_facets_view
+                WHERE (type ILIKE 'output' OR type ILIKE 'input')
+                GROUP BY run_uuid
+            ) AS df ON r.uuid = df.run_uuid
+            """;
 
   @SqlQuery(BASE_FIND_RUN_SQL + "WHERE r.uuid = :runUuid")
   Optional<Run> findRunByUuid(UUID runUuid);
+
+  String BASE_FIND_RUN_SQL_WITH_FACET_FILTER =
+      """
+            SELECT r.*, ra.args, f.facets,
+            jv.version AS job_version,
+            ri.input_versions, ro.output_versions, df.dataset_facets
+            FROM runs_view AS r
+            LEFT OUTER JOIN
+            (
+                SELECT rf.run_uuid, JSON_AGG(rf.facet ORDER BY rf.lineage_event_time ASC) AS facets
+                FROM run_facets_view rf
+                WHERE 1=1 <runFacetFilter>
+                GROUP BY rf.run_uuid
+            ) AS f ON r.uuid=f.run_uuid
+            LEFT OUTER JOIN run_args AS ra ON ra.uuid = r.run_args_uuid
+            LEFT OUTER JOIN job_versions jv ON jv.uuid=r.job_version_uuid
+            LEFT OUTER JOIN (
+                SELECT im.run_uuid, JSON_AGG(json_build_object('namespace', dv.namespace_name,
+                    'name', dv.dataset_name,
+                    'version', dv.version,
+                    'dataset_version_uuid', uuid)) AS input_versions
+                FROM runs_input_mapping im
+                INNER JOIN dataset_versions dv on im.dataset_version_uuid = dv.uuid
+                GROUP BY im.run_uuid
+            ) ri ON ri.run_uuid=r.uuid
+            LEFT OUTER JOIN (
+                SELECT run_uuid, JSON_AGG(json_build_object('namespace', namespace_name,
+                                                            'name', dataset_name,
+                                                            'version', version,
+                                                            'dataset_version_uuid', uuid
+                                                            )) AS output_versions
+                FROM dataset_versions
+                GROUP BY run_uuid
+            ) ro ON ro.run_uuid=r.uuid
+            LEFT OUTER JOIN (
+                SELECT
+                    run_uuid,
+                    JSON_AGG(json_build_object(
+                        'dataset_version_uuid', dataset_version_uuid,
+                        'name', name,
+                        'type', type,
+                        'facet', facet
+                    ) ORDER BY created_at ASC) as dataset_facets
+                FROM dataset_facets_view
+                WHERE (type ILIKE 'output' OR type ILIKE 'input') <datasetFacetFilter>
+                GROUP BY run_uuid
+            ) AS df ON r.uuid = df.run_uuid
+            """;
+
+  @SqlQuery(BASE_FIND_RUN_SQL_WITH_FACET_FILTER + "WHERE r.uuid = :runUuid")
+  Optional<Run> findRunByUuid(
+      @org.jdbi.v3.sqlobject.customizer.Bind("runUuid") UUID runUuid,
+      @org.jdbi.v3.sqlobject.customizer.Define("runFacetFilter") String runFacetFilter,
+      @org.jdbi.v3.sqlobject.customizer.Define("datasetFacetFilter") String datasetFacetFilter);
 
   @SqlQuery(BASE_FIND_RUN_SQL + "WHERE r.uuid = :runUuid")
   Optional<ExtendedRunRow> findRunByUuidAsExtendedRow(UUID runUuid);
@@ -132,95 +186,185 @@ public interface RunDao extends BaseDao {
 
   @SqlQuery(
       """
-  SELECT j.* FROM jobs_view j
-  INNER JOIN runs_view r  ON r.job_uuid=j.uuid
-  WHERE r.uuid=:uuid
-""")
+              SELECT j.* FROM jobs_view j
+              INNER JOIN runs_view r  ON r.job_uuid=j.uuid
+              WHERE r.uuid=:uuid
+            """)
   Optional<JobRow> findJobRowByRunUuid(UUID uuid);
 
   @SqlQuery(
       """
-          WITH filtered_jobs AS (
-            SELECT
-                jv.uuid,
-                jv.namespace_name,
-                jv.name
-            FROM jobs_view jv
-            WHERE jv.namespace_name=:namespace AND (jv.name=:jobName OR :jobName = ANY(jv.aliases))
-          ),
-          run_facets_agg AS (
-            SELECT
-                run_uuid,
-                JSON_AGG(facet ORDER BY lineage_event_time ASC) AS facets
-            FROM run_facets_view
-            -- This filter here is used for performance purpose: we only aggregate the json of run_uuid that matters
-            WHERE
-                run_uuid IN (SELECT uuid FROM runs_view WHERE job_uuid IN (SELECT uuid FROM filtered_jobs))
-            GROUP BY run_uuid
-          ),
-          input_versions_agg AS (
-               SELECT
-                   im.run_uuid,
-                   JSON_AGG(json_build_object('namespace', dv.namespace_name,
-                        'name', dv.dataset_name,
-                        'version', dv.version,
-                        'dataset_version_uuid', dv.uuid
-                   )) AS input_versions
-               FROM runs_input_mapping im
-               INNER JOIN dataset_versions dv ON im.dataset_version_uuid = dv.uuid
-               -- This filter here is used for performance purpose: we only aggregate the json of run_uuid that matters
-               WHERE
-                   im.run_uuid IN (SELECT uuid FROM runs_view WHERE job_uuid IN (SELECT uuid FROM filtered_jobs))
-               GROUP BY im.run_uuid
-          ),
-          output_versions_agg AS (
-              SELECT
-                  dv.run_uuid,
-              JSON_AGG(json_build_object('namespace', namespace_name,
-                                       'name', dataset_name,
-                                       'version', version,
-                                       'dataset_version_uuid', uuid
-                                       )) AS output_versions
-              FROM dataset_versions dv
-              -- This filter here is used for performance purpose: we only aggregate the json of run_uuid that matters
-              WHERE dv.run_uuid IN (SELECT uuid FROM runs_view WHERE job_uuid IN (SELECT uuid FROM filtered_jobs))
-              GROUP BY dv.run_uuid
-          ),
-          dataset_facets_agg AS (
-              SELECT
-                  run_uuid,
-                  JSON_AGG(json_build_object(
-                      'dataset_version_uuid', dataset_version_uuid,
-                      'name', name,
-                      'type', type,
-                      'facet', facet
-                  ) ORDER BY created_at ASC) as dataset_facets
-              FROM dataset_facets_view
-              -- This filter here is used for performance purpose: we only aggregate the json of run_uuid that matters
-              WHERE run_uuid IN (SELECT uuid FROM runs_view WHERE job_uuid IN (SELECT uuid FROM filtered_jobs))
-              AND (type ILIKE 'output' OR type ILIKE 'input')
-              GROUP BY run_uuid
-          )
-          SELECT
-              r.*,
-              ra.args,
-              f.facets,
-              jv.version AS job_version,
-              ri.input_versions,
-              ro.output_versions,
-              df.dataset_facets
-          FROM runs_view r
-          INNER JOIN filtered_jobs fj ON r.job_uuid = fj.uuid
-          LEFT JOIN run_facets_agg f ON r.uuid = f.run_uuid
-          LEFT JOIN run_args ra ON ra.uuid = r.run_args_uuid
-          LEFT JOIN job_versions jv ON jv.uuid = r.job_version_uuid
-          LEFT JOIN input_versions_agg ri ON r.uuid = ri.run_uuid
-          LEFT JOIN output_versions_agg ro ON r.uuid = ro.run_uuid
-          LEFT JOIN dataset_facets_agg df ON r.uuid = df.run_uuid
-          ORDER BY r.started_at DESC NULLS LAST
-          LIMIT :limit OFFSET :offset
-      """)
+                WITH filtered_jobs AS (
+                  SELECT
+                      jv.uuid,
+                      jv.namespace_name,
+                      jv.name
+                  FROM jobs_view jv
+                  WHERE jv.namespace_name=:namespace AND (jv.name=:jobName OR :jobName = ANY(jv.aliases))
+                ),
+                run_facets_agg AS (
+                  SELECT
+                      run_uuid,
+                      JSON_AGG(facet ORDER BY lineage_event_time ASC) AS facets
+                  FROM run_facets_view
+                  -- This filter here is used for performance purpose: we only aggregate the json of run_uuid that matters
+                  WHERE
+                      run_uuid IN (SELECT uuid FROM runs_view WHERE job_uuid IN (SELECT uuid FROM filtered_jobs))
+                  GROUP BY run_uuid
+                ),
+                input_versions_agg AS (
+                     SELECT
+                         im.run_uuid,
+                         JSON_AGG(json_build_object('namespace', dv.namespace_name,
+                              'name', dv.dataset_name,
+                              'version', dv.version,
+                              'dataset_version_uuid', dv.uuid
+                         )) AS input_versions
+                     FROM runs_input_mapping im
+                     INNER JOIN dataset_versions dv ON im.dataset_version_uuid = dv.uuid
+                     -- This filter here is used for performance purpose: we only aggregate the json of run_uuid that matters
+                     WHERE
+                         im.run_uuid IN (SELECT uuid FROM runs_view WHERE job_uuid IN (SELECT uuid FROM filtered_jobs))
+                     GROUP BY im.run_uuid
+                ),
+                output_versions_agg AS (
+                    SELECT
+                        dv.run_uuid,
+                    JSON_AGG(json_build_object('namespace', namespace_name,
+                                             'name', dataset_name,
+                                             'version', version,
+                                             'dataset_version_uuid', uuid
+                                             )) AS output_versions
+                    FROM dataset_versions dv
+                    -- This filter here is used for performance purpose: we only aggregate the json of run_uuid that matters
+                    WHERE dv.run_uuid IN (SELECT uuid FROM runs_view WHERE job_uuid IN (SELECT uuid FROM filtered_jobs))
+                    GROUP BY dv.run_uuid
+                ),
+                dataset_facets_agg AS (
+                    SELECT
+                        run_uuid,
+                        JSON_AGG(json_build_object(
+                            'dataset_version_uuid', dataset_version_uuid,
+                            'name', name,
+                            'type', type,
+                            'facet', facet
+                        ) ORDER BY created_at ASC) as dataset_facets
+                    FROM dataset_facets_view
+                    -- This filter here is used for performance purpose: we only aggregate the json of run_uuid that matters
+                    WHERE run_uuid IN (SELECT uuid FROM runs_view WHERE job_uuid IN (SELECT uuid FROM filtered_jobs))
+                    AND (type ILIKE 'output' OR type ILIKE 'input')
+                    GROUP BY run_uuid
+                )
+                SELECT
+                    r.*,
+                    ra.args,
+                    f.facets,
+                    jv.version AS job_version,
+                    ri.input_versions,
+                    ro.output_versions,
+                    df.dataset_facets
+                FROM runs_view r
+                INNER JOIN filtered_jobs fj ON r.job_uuid = fj.uuid
+                LEFT JOIN run_facets_agg f ON r.uuid = f.run_uuid
+                LEFT JOIN run_args ra ON ra.uuid = r.run_args_uuid
+                LEFT JOIN job_versions jv ON jv.uuid = r.job_version_uuid
+                LEFT JOIN input_versions_agg ri ON r.uuid = ri.run_uuid
+                LEFT JOIN output_versions_agg ro ON r.uuid = ro.run_uuid
+                LEFT JOIN dataset_facets_agg df ON r.uuid = df.run_uuid
+                ORDER BY r.started_at DESC NULLS LAST
+                LIMIT :limit OFFSET :offset
+            """)
   List<Run> findAll(String namespace, String jobName, int limit, int offset);
+
+  @SqlQuery(
+      """
+                WITH filtered_jobs AS (
+                  SELECT
+                      jv.uuid,
+                      jv.namespace_name,
+                      jv.name
+                  FROM jobs_view jv
+                  WHERE jv.namespace_name=:namespace AND (jv.name=:jobName OR :jobName = ANY(jv.aliases))
+                ),
+                run_facets_agg AS (
+                  SELECT
+                      run_uuid,
+                      JSON_AGG(facet ORDER BY lineage_event_time ASC) AS facets
+                  FROM run_facets_view
+                  -- This filter here is used for performance purpose: we only aggregate the json of run_uuid that matters
+                  WHERE
+                      run_uuid IN (SELECT uuid FROM runs_view WHERE job_uuid IN (SELECT uuid FROM filtered_jobs)) <runFacetFilter>
+                  GROUP BY run_uuid
+                ),
+                input_versions_agg AS (
+                     SELECT
+                         im.run_uuid,
+                         JSON_AGG(json_build_object('namespace', dv.namespace_name,
+                              'name', dv.dataset_name,
+                              'version', dv.version,
+                              'dataset_version_uuid', dv.uuid
+                         )) AS input_versions
+                     FROM runs_input_mapping im
+                     INNER JOIN dataset_versions dv ON im.dataset_version_uuid = dv.uuid
+                     -- This filter here is used for performance purpose: we only aggregate the json of run_uuid that matters
+                     WHERE
+                         im.run_uuid IN (SELECT uuid FROM runs_view WHERE job_uuid IN (SELECT uuid FROM filtered_jobs))
+                     GROUP BY im.run_uuid
+                ),
+                output_versions_agg AS (
+                    SELECT
+                        dv.run_uuid,
+                    JSON_AGG(json_build_object('namespace', namespace_name,
+                                             'name', dataset_name,
+                                             'version', version,
+                                             'dataset_version_uuid', uuid
+                                             )) AS output_versions
+                    FROM dataset_versions dv
+                    -- This filter here is used for performance purpose: we only aggregate the json of run_uuid that matters
+                    WHERE dv.run_uuid IN (SELECT uuid FROM runs_view WHERE job_uuid IN (SELECT uuid FROM filtered_jobs))
+                    GROUP BY dv.run_uuid
+                ),
+                dataset_facets_agg AS (
+                    SELECT
+                        run_uuid,
+                        JSON_AGG(json_build_object(
+                            'dataset_version_uuid', dataset_version_uuid,
+                            'name', name,
+                            'type', type,
+                            'facet', facet
+                        ) ORDER BY created_at ASC) as dataset_facets
+                    FROM dataset_facets_view
+                    -- This filter here is used for performance purpose: we only aggregate the json of run_uuid that matters
+                    WHERE run_uuid IN (SELECT uuid FROM runs_view WHERE job_uuid IN (SELECT uuid FROM filtered_jobs))
+                    AND (type ILIKE 'output' OR type ILIKE 'input') <datasetFacetFilter>
+                    GROUP BY run_uuid
+                )
+                SELECT
+                    r.*,
+                    ra.args,
+                    f.facets,
+                    jv.version AS job_version,
+                    ri.input_versions,
+                    ro.output_versions,
+                    df.dataset_facets
+                FROM runs_view r
+                INNER JOIN filtered_jobs fj ON r.job_uuid = fj.uuid
+                LEFT JOIN run_facets_agg f ON r.uuid = f.run_uuid
+                LEFT JOIN run_args ra ON ra.uuid = r.run_args_uuid
+                LEFT JOIN job_versions jv ON jv.uuid = r.job_version_uuid
+                LEFT JOIN input_versions_agg ri ON r.uuid = ri.run_uuid
+                LEFT JOIN output_versions_agg ro ON r.uuid = ro.run_uuid
+                LEFT JOIN dataset_facets_agg df ON r.uuid = df.run_uuid
+                ORDER BY r.started_at DESC NULLS LAST
+                LIMIT :limit OFFSET :offset
+            """)
+  List<Run> findAll(
+      @org.jdbi.v3.sqlobject.customizer.Bind("namespace") String namespace,
+      @org.jdbi.v3.sqlobject.customizer.Bind("jobName") String jobName,
+      @org.jdbi.v3.sqlobject.customizer.Bind("limit") int limit,
+      @org.jdbi.v3.sqlobject.customizer.Bind("offset") int offset,
+      @org.jdbi.v3.sqlobject.customizer.Define("runFacetFilter") String runFacetFilter,
+      @org.jdbi.v3.sqlobject.customizer.Define("datasetFacetFilter") String datasetFacetFilter);
 
   @SqlQuery(
       "INSERT INTO runs ( "
@@ -510,33 +654,52 @@ public interface RunDao extends BaseDao {
   @SqlQuery(
       BASE_FIND_RUN_SQL
           + """
-      WHERE r.uuid IN (
-        SELECT r.uuid FROM runs_view r
-        INNER JOIN jobs_view j ON j.namespace_name=r.namespace_name AND j.name=r.job_name
-        WHERE j.namespace_name=:namespace AND (j.name=:jobName OR j.name=ANY(j.aliases))
-      )
-      ORDER BY transitioned_at DESC, started_at DESC
-      LIMIT :limit OFFSET :offset
-      """)
+                    WHERE r.uuid IN (
+                      SELECT r.uuid FROM runs_view r
+                      INNER JOIN jobs_view j ON j.namespace_name=r.namespace_name AND j.name=r.job_name
+                      WHERE j.namespace_name=:namespace AND (j.name=:jobName OR j.name=ANY(j.aliases))
+                    )
+                    ORDER BY transitioned_at DESC, started_at DESC
+                    LIMIT :limit OFFSET :offset
+                    """)
   List<Run> findByLatestJob(String namespace, String jobName, int limit, int offset);
 
   @SqlQuery(
+      BASE_FIND_RUN_SQL_WITH_FACET_FILTER
+          + """
+                    WHERE r.uuid IN (
+                      SELECT r.uuid FROM runs_view r
+                      INNER JOIN jobs_view j ON j.namespace_name=r.namespace_name AND j.name=r.job_name
+                      WHERE j.namespace_name=:namespace AND (j.name=:jobName OR j.name=ANY(j.aliases))
+                    )
+                    ORDER BY transitioned_at DESC, started_at DESC
+                    LIMIT :limit OFFSET :offset
+                    """)
+  List<Run> findByLatestJob(
+      @org.jdbi.v3.sqlobject.customizer.Bind("namespace") String namespace,
+      @org.jdbi.v3.sqlobject.customizer.Bind("jobName") String jobName,
+      @org.jdbi.v3.sqlobject.customizer.Bind("limit") int limit,
+      @org.jdbi.v3.sqlobject.customizer.Bind("offset") int offset,
+      @org.jdbi.v3.sqlobject.customizer.Define("runFacetFilter") String runFacetFilter,
+      @org.jdbi.v3.sqlobject.customizer.Define("datasetFacetFilter") String datasetFacetFilter);
+
+  @SqlQuery(
       """
-          SELECT distinct dv.run_uuid AS run_uuid
-          FROM dataset_versions AS dv WHERE dv.uuid = :datasetVersion AND dv.run_uuid IS NOT NULL
-          UNION ALL
-          SELECT ri.run_uuid AS run_uuid from runs_input_mapping ri where ri.dataset_version_uuid = :datasetVersion
-      """)
+                SELECT distinct dv.run_uuid AS run_uuid
+                FROM dataset_versions AS dv WHERE dv.uuid = :datasetVersion AND dv.run_uuid IS NOT NULL
+                UNION ALL
+                SELECT ri.run_uuid AS run_uuid from runs_input_mapping ri where ri.dataset_version_uuid = :datasetVersion
+            """)
   Set<UUID> findRunFromDatasetVersionUuids(UUID datasetVersion);
 
   @SqlQuery(
       """
-        select distinct parent_run_uuid as run_uuid from runs where uuid in (
-		  SELECT dv.run_uuid AS run_uuid
-          FROM dataset_versions AS dv WHERE dv.uuid = :datasetVersion AND dv.run_uuid IS NOT NULL
-          UNION ALL
-          SELECT ri.run_uuid AS run_uuid from runs_input_mapping ri where ri.dataset_version_uuid = :datasetVersion)
-    """)
+                select distinct parent_run_uuid as run_uuid from runs where uuid in (
+            SELECT dv.run_uuid AS run_uuid
+                  FROM dataset_versions AS dv WHERE dv.uuid = :datasetVersion AND dv.run_uuid IS NOT NULL
+                  UNION ALL
+                  SELECT ri.run_uuid AS run_uuid from runs_input_mapping ri where ri.dataset_version_uuid = :datasetVersion)
+            """)
   Set<UUID> findParentRunFromDatasetVersionUuids(UUID datasetVersion);
 
   @Builder

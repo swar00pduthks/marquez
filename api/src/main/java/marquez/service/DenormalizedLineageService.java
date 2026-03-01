@@ -107,11 +107,10 @@ public class DenormalizedLineageService {
     String sql =
         """
         INSERT INTO dataset_version_denormalized (
-            uuid, dataset_uuid, namespace_uuid, version, created_at, fields, facets, schema_location, lifecycle_state
+            uuid, dataset_uuid, namespace_uuid, version, created_at, fields, schema_location, lifecycle_state
         )
         SELECT
             dv.uuid, dv.dataset_uuid, d.namespace_uuid, dv.version, dv.created_at, dv.fields,
-            (SELECT JSONB_AGG(df.facet ORDER BY df.lineage_event_time ASC) FROM dataset_facets df WHERE df.dataset_version_uuid = dv.uuid AND df.facet IS NOT NULL),
             sv.schema_location, dv.lifecycle_state
         FROM dataset_versions dv
         INNER JOIN datasets d ON d.uuid = dv.dataset_uuid

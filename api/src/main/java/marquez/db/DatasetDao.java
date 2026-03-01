@@ -101,6 +101,36 @@ public interface DatasetDao extends BaseDao {
       """)
   Optional<Dataset> findDatasetByName(String namespaceName, String datasetName);
 
+  @SqlQuery(
+      """
+          SELECT d.*, dv.fields, dv.lifecycle_state, sv.schema_location, t.tags, facets
+          FROM datasets_view d
+          LEFT JOIN dataset_versions dv ON d.current_version_uuid = dv.uuid
+          LEFT JOIN stream_versions AS sv ON sv.dataset_version_uuid = dv.uuid
+          LEFT JOIN (
+              SELECT ARRAY_AGG(t.name) AS tags, m.dataset_uuid
+              FROM tags AS t
+                       INNER JOIN datasets_tag_mapping AS m ON m.tag_uuid = t.uuid
+              GROUP BY m.dataset_uuid
+          ) t ON t.dataset_uuid = d.uuid
+          LEFT JOIN (
+              SELECT
+                  df.dataset_version_uuid,
+                  JSONB_AGG(df.facet ORDER BY df.lineage_event_time ASC) AS facets
+              FROM dataset_facets AS df
+              WHERE df.facet IS NOT NULL AND
+               (df.type ILIKE 'dataset' OR df.type ILIKE 'unknown' OR df.type ILIKE 'input') AND
+                df.dataset_uuid = (SELECT uuid FROM datasets WHERE name = :datasetName AND namespace_name = :namespaceName)
+                <facetFilter>
+              GROUP BY df.dataset_version_uuid
+          ) f ON f.dataset_version_uuid = d.current_version_uuid
+          WHERE CAST((:namespaceName, :datasetName) AS DATASET_NAME) = ANY(d.dataset_symlinks)
+      """)
+  Optional<Dataset> findDatasetByName(
+      @org.jdbi.v3.sqlobject.customizer.Bind("namespaceName") String namespaceName,
+      @org.jdbi.v3.sqlobject.customizer.Bind("datasetName") String datasetName,
+      @org.jdbi.v3.sqlobject.customizer.Define("facetFilter") String facetFilter);
+
   default Optional<Dataset> findWithTags(String namespaceName, String datasetName) {
     Optional<Dataset> dataset = findDatasetByName(namespaceName, datasetName);
     dataset.ifPresent(this::setFields);
@@ -139,6 +169,7 @@ public interface DatasetDao extends BaseDao {
              AND (df.type ILIKE 'dataset'
                   OR df.type ILIKE 'unknown'
                   OR df.type ILIKE 'input')
+             <facetFilter>
              AND df.dataset_uuid IN
                (SELECT UUID
                 FROM datasets_view
@@ -172,7 +203,15 @@ public interface DatasetDao extends BaseDao {
       LIMIT :limit
       OFFSET :offset
       """)
-  List<Dataset> findAll(String namespaceName, int limit, int offset);
+  List<Dataset> findAll(
+      @org.jdbi.v3.sqlobject.customizer.Bind("namespaceName") String namespaceName,
+      @org.jdbi.v3.sqlobject.customizer.Bind("limit") int limit,
+      @org.jdbi.v3.sqlobject.customizer.Bind("offset") int offset,
+      @org.jdbi.v3.sqlobject.customizer.Define("facetFilter") String facetFilter);
+
+  default List<Dataset> findAll(String namespaceName, int limit, int offset) {
+    return findAll(namespaceName, limit, offset, "");
+  }
 
   @SqlQuery("SELECT count(*) FROM datasets_view")
   int count();
@@ -185,46 +224,75 @@ public interface DatasetDao extends BaseDao {
     return datasets.stream().peek(this::setFields).collect(Collectors.toList());
   }
 
+  default List<Dataset> findAllWithTags(
+      String namespaceName, int limit, int offset, java.util.Set<String> includeFacets) {
+    String facetFilter = "";
+    if (includeFacets != null && !includeFacets.isEmpty()) {
+      String inClause =
+          includeFacets.stream()
+              .map(f -> "'" + f.replace("'", "''") + "'")
+              .collect(Collectors.joining(","));
+      facetFilter = " AND df.name IN (" + inClause + ") ";
+    }
+    List<Dataset> datasets = findAll(namespaceName, limit, offset, facetFilter);
+    return datasets.stream().peek(this::setFields).collect(Collectors.toList());
+  }
+
+  default Optional<Dataset> findWithTags(
+      String namespaceName, String datasetName, java.util.Set<String> includeFacets) {
+    String facetFilter = "";
+    if (includeFacets != null && !includeFacets.isEmpty()) {
+      String inClause =
+          includeFacets.stream()
+              .map(f -> "'" + f.replace("'", "''") + "'")
+              .collect(Collectors.joining(","));
+      facetFilter = " AND df.name IN (" + inClause + ") ";
+    }
+    Optional<Dataset> dataset = findDatasetByName(namespaceName, datasetName, facetFilter);
+    dataset.ifPresent(this::setFields);
+    return dataset;
+  }
+
   @SqlQuery(
       """
-      INSERT INTO datasets (
-          uuid,
-          type,
-          created_at,
-          updated_at,
-          namespace_uuid,
-          namespace_name,
-          source_uuid,
-          source_name,
-          name,
-          physical_name,
-          description,
-          is_deleted,
-          is_hidden
-          ) VALUES (
-            :uuid,
-            :type,
-            :now,
-            :now,
-            :namespaceUuid,
-            :namespaceName,
-            :sourceUuid,
-            :sourceName,
-            :name,
-            :physicalName,
-            :description,
-            :isDeleted,
-            false
-          ) ON CONFLICT (uuid)
-          DO UPDATE SET
-          type = EXCLUDED.type,
-          updated_at = EXCLUDED.updated_at,
-          physical_name = EXCLUDED.physical_name,
-          description = EXCLUDED.description,
-          is_deleted = EXCLUDED.is_deleted,
-          is_hidden = EXCLUDED.is_hidden
-          RETURNING *
-    """)
+        INSERT INTO datasets (
+            uuid,
+            type,
+            created_at,
+            updated_at,
+            namespace_uuid,
+            namespace_name,
+            source_uuid,
+            source_name,
+            name,
+            physical_name,
+            description,
+            is_deleted,
+            is_hidden
+            ) VALUES (
+              :uuid,
+              :type,
+              :now,
+              :now,
+              :namespaceUuid,
+              :namespaceName,
+              :sourceUuid,
+              :sourceName,
+              :name,
+              :physicalName,
+              :description,
+              :isDeleted,
+              false
+            ) ON CONFLICT (uuid)
+            DO UPDATE SET
+            type = EXCLUDED.type,
+            updated_at = EXCLUDED.updated_at,
+            physical_name = EXCLUDED.physical_name,
+            description = EXCLUDED.description,
+            is_deleted = EXCLUDED.is_deleted,
+            is_hidden = EXCLUDED.is_hidden
+            RETURNING *
+      """)
   DatasetRow upsert(
       UUID uuid,
       DatasetType type,

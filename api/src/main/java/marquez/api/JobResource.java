@@ -256,12 +256,14 @@ public class JobResource extends BaseResource {
       @PathParam("namespace") NamespaceName namespaceName,
       @PathParam("job") JobName jobName,
       @QueryParam("limit") @DefaultValue("100") @Min(value = 0) int limit,
-      @QueryParam("offset") @DefaultValue("0") @Min(value = 0) int offset) {
+      @QueryParam("offset") @DefaultValue("0") @Min(value = 0) int offset,
+      @QueryParam("includeFacets") java.util.Set<String> includeFacets) {
     throwIfNotExists(namespaceName);
     throwIfNotExists(namespaceName, jobName);
 
     final List<Run> runs =
-        runService.findAll(namespaceName.getValue(), jobName.getValue(), limit, offset);
+        runService.findAllWithFacets(
+            namespaceName.getValue(), jobName.getValue(), limit, offset, includeFacets);
     final int totalCount = jobService.countJobRuns(namespaceName.getValue(), jobName.getValue());
     return Response.ok(new Runs(runs, totalCount)).build();
   }

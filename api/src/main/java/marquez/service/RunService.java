@@ -74,6 +74,64 @@ public class RunService extends DelegatingDaos.DelegatingRunDao {
     return findRunByUuid(runRow.getUuid()).get();
   }
 
+  private static String buildRunFacetFilter(java.util.Set<String> includeFacets) {
+    if (includeFacets == null || includeFacets.isEmpty()) {
+      return "";
+    }
+    String facetList =
+        includeFacets.stream()
+            .map(f -> "'" + f.replace("'", "''") + "'")
+            .collect(java.util.stream.Collectors.joining(","));
+    return " AND rf.name IN (" + facetList + ")";
+  }
+
+  private static String buildDatasetFacetFilter(java.util.Set<String> includeFacets) {
+    if (includeFacets == null || includeFacets.isEmpty()) {
+      return "";
+    }
+    String facetList =
+        includeFacets.stream()
+            .map(f -> "'" + f.replace("'", "''") + "'")
+            .collect(java.util.stream.Collectors.joining(","));
+    return " AND name IN (" + facetList + ")"; // name is the facet name in dataset_facets_view
+  }
+
+  public java.util.Optional<marquez.service.models.Run> findRunByUuidWithFacets(
+      java.util.UUID runUuid, java.util.Set<String> includeFacets) {
+    return findRunByUuid(
+        runUuid, buildRunFacetFilter(includeFacets), buildDatasetFacetFilter(includeFacets));
+  }
+
+  public java.util.List<marquez.service.models.Run> findAllWithFacets(
+      String namespace,
+      String jobName,
+      int limit,
+      int offset,
+      java.util.Set<String> includeFacets) {
+    return findAll(
+        namespace,
+        jobName,
+        limit,
+        offset,
+        buildRunFacetFilter(includeFacets),
+        buildDatasetFacetFilter(includeFacets));
+  }
+
+  public java.util.List<marquez.service.models.Run> findByLatestJobWithFacets(
+      String namespace,
+      String jobName,
+      int limit,
+      int offset,
+      java.util.Set<String> includeFacets) {
+    return findByLatestJob(
+        namespace,
+        jobName,
+        limit,
+        offset,
+        buildRunFacetFilter(includeFacets),
+        buildDatasetFacetFilter(includeFacets));
+  }
+
   public void markRunAs(
       @NonNull RunId runId, @NonNull RunState runState, @Nullable Instant transitionedAt) {
     log.debug("Marking run with ID '{}' as '{}'...", runId, runState);
@@ -93,8 +151,10 @@ public class RunService extends DelegatingDaos.DelegatingRunDao {
               transitionedAt,
               true);
 
-      // TODO: We should also notify that the outputs have been updated when a run is in a done
-      // state to be consistent with existing job versioning logic. We'll want to add testing to
+      // TODO: We should also notify that the outputs have been updated when a run is
+      // in a done
+      // state to be consistent with existing job versioning logic. We'll want to add
+      // testing to
       // confirm the new behavior before updating the logic.
       if (runState == COMPLETED) {
         notify(
