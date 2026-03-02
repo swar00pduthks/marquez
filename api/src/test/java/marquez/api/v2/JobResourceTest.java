@@ -7,6 +7,7 @@ package marquez.api.v2;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anySet;
 import static org.mockito.Mockito.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -15,9 +16,9 @@ import jakarta.ws.rs.core.Response;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
-import marquez.db.models.JobRow;
 import marquez.service.JobService;
 import marquez.service.ServiceFactory;
+import marquez.service.models.Job;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mock;
@@ -40,29 +41,29 @@ class JobResourceTest {
   @Test
   void testListJobs_returnsOk() {
     java.util.UUID nsUuid = java.util.UUID.randomUUID();
-    List<JobRow> jobs = Collections.emptyList();
-    when(datasetService.findNamespaceUuidByName(eq("testns"))).thenReturn(Optional.of(nsUuid));
-    when(jobService.findAllJobsV2(eq(nsUuid), anyInt(), anyInt())).thenReturn(jobs);
-    Response response = resource.listJobs("testns", 100, 0);
+    List<Job> jobs = Collections.emptyList();
+    when(jobService.findNamespaceUuidByName(eq("testns"))).thenReturn(Optional.of(nsUuid));
+    when(jobService.findAllJobsV2(eq(nsUuid), anyInt(), anyInt(), anySet())).thenReturn(jobs);
+    Response response = resource.listJobs("testns", 100, 0, Collections.emptySet());
     assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
   }
 
   @Test
   void testGetJob_found() {
     java.util.UUID nsUuid = java.util.UUID.randomUUID();
-    JobRow row = mock(JobRow.class);
-    when(datasetService.findNamespaceUuidByName(eq("testns"))).thenReturn(Optional.of(nsUuid));
-    when(jobService.findJobByNameV2(eq(nsUuid), eq("job"))).thenReturn(Optional.of(row));
-    Response response = resource.getJob("testns", "job");
+    Job job = mock(Job.class);
+    when(jobService.findNamespaceUuidByName(eq("testns"))).thenReturn(Optional.of(nsUuid));
+    when(jobService.findJobByNameV2(eq(nsUuid), eq("job"), anySet())).thenReturn(Optional.of(job));
+    Response response = resource.getJob("testns", "job", Collections.emptySet());
     assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
   }
 
   @Test
   void testGetJob_notFound() {
     java.util.UUID nsUuid = java.util.UUID.randomUUID();
-    when(datasetService.findNamespaceUuidByName(eq("testns"))).thenReturn(Optional.of(nsUuid));
-    when(jobService.findJobByNameV2(eq(nsUuid), eq("job"))).thenReturn(Optional.empty());
-    Response response = resource.getJob("testns", "job");
+    when(jobService.findNamespaceUuidByName(eq("testns"))).thenReturn(Optional.of(nsUuid));
+    when(jobService.findJobByNameV2(eq(nsUuid), eq("job"), anySet())).thenReturn(Optional.empty());
+    Response response = resource.getJob("testns", "job", Collections.emptySet());
     assertEquals(Response.Status.NOT_FOUND.getStatusCode(), response.getStatus());
   }
 }

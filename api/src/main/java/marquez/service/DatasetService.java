@@ -7,6 +7,8 @@ package marquez.service;
 
 import io.prometheus.client.Counter;
 import java.util.List;
+import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import lombok.NonNull;
 import lombok.extern.slf4j.Slf4j;
@@ -100,6 +102,16 @@ public class DatasetService extends DelegatingDaos.DelegatingDatasetDao {
    */
   public java.util.Optional<UUID> findDatasetUuidByName(UUID namespaceUuid, String dataset) {
     return datasetDao.findUuidByName(namespaceUuid, dataset);
+  }
+
+  public List<Dataset> findAllDatasetsV2(
+      UUID namespaceUuid, int limit, int offset, Set<String> includeFacets) {
+    return datasetDao.findAllDatasetsV2(namespaceUuid, limit, offset, includeFacets);
+  }
+
+  public Optional<Dataset> findDatasetByNameV2(
+      UUID namespaceUuid, String datasetName, Set<String> includeFacets) {
+    return datasetDao.findDatasetByNameV2(namespaceUuid, datasetName, includeFacets);
   }
 
   public int countDatasets(String namespaceName) {

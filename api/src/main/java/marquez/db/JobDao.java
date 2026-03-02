@@ -37,6 +37,7 @@ import marquez.service.models.JobMeta;
 import marquez.service.models.Run;
 import org.jdbi.v3.sqlobject.config.RegisterRowMapper;
 import org.jdbi.v3.sqlobject.customizer.BindList;
+import org.jdbi.v3.sqlobject.customizer.Define;
 import org.jdbi.v3.sqlobject.statement.SqlQuery;
 import org.jdbi.v3.sqlobject.statement.SqlUpdate;
 import org.postgresql.util.PGobject;
@@ -585,12 +586,83 @@ public interface JobDao extends BaseDao {
   void deleteJobTags(String namespaceName, String jobName, String tagName);
 
   // --- v2 Denormalized Table Methods (placed at end for standards) ---
+  @SqlQuery(
+      """
+      WITH facets_t AS
+          (SELECT jf.run_uuid,
+                  jf.facet,
+                  jf."name",
+                  jf.lineage_event_time,
+                  rank() OVER (PARTITION BY jf.run_uuid, "name"
+                               ORDER BY lineage_event_time DESC) AS r
+          FROM job_facets_view AS jf
+          WHERE jf.facet IS NOT NULL
+             <facetFilter>
+             AND jf.job_uuid IN
+               (SELECT UUID
+                FROM job_denormalized
+                WHERE namespace_uuid = :namespaceUuid
+                ORDER BY name
+                LIMIT :limit
+                OFFSET :offset))
+      SELECT j.*,
+          JSONB_AGG(f.facet) AS facets
+      FROM job_denormalized j
+      LEFT JOIN (
+          SELECT run_uuid, facet
+          FROM facets_t
+          WHERE r = 1
+      ) f ON f.run_uuid = j.current_run_uuid
+      WHERE j.namespace_uuid = :namespaceUuid
+      GROUP BY j.uuid, j.type, j.created_at, j.updated_at, j.namespace_uuid, j.namespace_name, j.name, j.description, j.current_location, j.current_inputs, j.symlink_target_uuid, j.parent_job_uuid_string, j.current_run_uuid, j.current_version_uuid, j.is_hidden, j.tags
+      ORDER BY j.name
+      LIMIT :limit
+      OFFSET :offset
+      """)
+  List<Job> findAllJobsV2(
+      @org.jdbi.v3.sqlobject.customizer.Bind("namespaceUuid") UUID namespaceUuid,
+      @org.jdbi.v3.sqlobject.customizer.Bind("limit") int limit,
+      @org.jdbi.v3.sqlobject.customizer.Bind("offset") int offset,
+      @Define("facetFilter") String facetFilter);
+
+  default List<Job> findAllJobsV2(
+      UUID namespaceUuid, int limit, int offset, java.util.Set<String> includeFacets) {
+    String facetFilter = "";
+    if (includeFacets != null && !includeFacets.isEmpty()) {
+      String inClause =
+          includeFacets.stream()
+              .map(f -> "'" + f.replace("'", "''") + "'")
+              .collect(Collectors.joining(", "));
+      facetFilter = " AND jf.name IN (" + inClause + ") ";
+    }
+    return findAllJobsV2(namespaceUuid, limit, offset, facetFilter);
+  }
 
   @SqlQuery(
-      "SELECT uuid, type, created_at, updated_at, namespace_uuid, name, description, current_version_uuid, tags FROM job_denormalized WHERE namespace_uuid = :namespaceUuid ORDER BY name LIMIT :limit OFFSET :offset")
-  List<JobRow> findAllJobsV2(UUID namespaceUuid, int limit, int offset);
+      """
+      SELECT j.*,
+          JSONB_AGG(jf.facet ORDER BY jf.lineage_event_time ASC) AS facets
+      FROM job_denormalized j
+      LEFT JOIN job_facets_view jf ON jf.run_uuid = j.current_run_uuid
+          <facetFilter>
+      WHERE j.namespace_uuid = :namespaceUuid AND j.name = :jobName
+      GROUP BY j.uuid, j.type, j.created_at, j.updated_at, j.namespace_uuid, j.namespace_name, j.name, j.description, j.current_location, j.current_inputs, j.symlink_target_uuid, j.parent_job_uuid_string, j.current_run_uuid, j.current_version_uuid, j.is_hidden, j.tags
+      """)
+  Optional<Job> findJobByNameV2(
+      @org.jdbi.v3.sqlobject.customizer.Bind("namespaceUuid") UUID namespaceUuid,
+      @org.jdbi.v3.sqlobject.customizer.Bind("jobName") String jobName,
+      @Define("facetFilter") String facetFilter);
 
-  @SqlQuery(
-      "SELECT uuid, type, created_at, updated_at, namespace_uuid, name, description, current_version_uuid, tags FROM job_denormalized WHERE namespace_uuid = :namespaceUuid AND name = :jobName")
-  Optional<JobRow> findJobByNameV2(UUID namespaceUuid, String jobName);
+  default Optional<Job> findJobByNameV2(
+      UUID namespaceUuid, String jobName, java.util.Set<String> includeFacets) {
+    String facetFilter = "";
+    if (includeFacets != null && !includeFacets.isEmpty()) {
+      String inClause =
+          includeFacets.stream()
+              .map(f -> "'" + f.replace("'", "''") + "'")
+              .collect(Collectors.joining(", "));
+      facetFilter = " AND jf.name IN (" + inClause + ") ";
+    }
+    return findJobByNameV2(namespaceUuid, jobName, facetFilter);
+  }
 }

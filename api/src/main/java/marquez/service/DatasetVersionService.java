@@ -15,10 +15,9 @@ public class DatasetVersionService extends DelegatingDaos.DelegatingDatasetVersi
     this.datasetVersionDao = baseDao.createDatasetVersionDao();
   }
 
-  public java.util.Optional<marquez.db.models.DatasetVersionRow> findDatasetVersionByVersionV2(
-      java.util.UUID datasetUuid, String version) {
-    // You may need to implement this in the DAO if not present
-    return datasetVersionDao.findDatasetVersionByVersionV2(datasetUuid, version);
+  public java.util.Optional<marquez.service.models.DatasetVersion> findDatasetVersionByVersionV2(
+      java.util.UUID datasetUuid, String version, java.util.Set<String> includeFacets) {
+    return datasetVersionDao.findDatasetVersionByVersionV2(datasetUuid, version, includeFacets);
   }
 
   private static String buildFacetFilter(java.util.Set<String> includeFacets) {

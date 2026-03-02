@@ -34,6 +34,7 @@ import marquez.service.models.DatasetMeta;
 import org.jdbi.v3.sqlobject.config.RegisterRowMapper;
 import org.jdbi.v3.sqlobject.customizer.BindBean;
 import org.jdbi.v3.sqlobject.customizer.BindList;
+import org.jdbi.v3.sqlobject.customizer.Define;
 import org.jdbi.v3.sqlobject.statement.SqlBatch;
 import org.jdbi.v3.sqlobject.statement.SqlQuery;
 import org.jdbi.v3.sqlobject.statement.SqlUpdate;
@@ -499,14 +500,87 @@ public interface DatasetDao extends BaseDao {
   }
 
   // --- v2 Denormalized Table Methods (placed at end for standards) ---
-
-  /** Returns all denormalized datasets for a namespace. */
   @SqlQuery(
-      "SELECT uuid, type, created_at, updated_at, namespace_uuid, source_uuid, name, physical_name, description, current_version_uuid, tags, schema_location, lifecycle_state FROM dataset_denormalized WHERE namespace_uuid = :namespaceUuid ORDER BY name LIMIT :limit OFFSET :offset")
-  List<DatasetRow> findAllDatasetsV2(UUID namespaceUuid, int limit, int offset);
+      """
+      WITH facets_t AS
+          (SELECT df.dataset_version_uuid,
+                  df.facet,
+                  df."name",
+                  df.created_at,
+                  rank() OVER (PARTITION BY df.dataset_version_uuid, "name"
+                               ORDER BY created_at DESC) AS r
+          FROM dataset_facets AS df
+          WHERE df.facet IS NOT NULL
+             AND (df.type ILIKE 'dataset'
+                  OR df.type ILIKE 'unknown'
+                  OR df.type ILIKE 'input')
+             <facetFilter>
+             AND df.dataset_uuid IN
+               (SELECT UUID
+                FROM dataset_denormalized
+                WHERE namespace_uuid = :namespaceUuid
+                ORDER BY name
+                LIMIT :limit
+                OFFSET :offset))
+      SELECT d.*,
+          JSONB_AGG(f.facet) AS facets
+      FROM dataset_denormalized d
+      LEFT JOIN (
+          SELECT dataset_version_uuid, facet
+          FROM facets_t
+          WHERE r = 1
+      ) f ON f.dataset_version_uuid = d.current_version_uuid
+      WHERE d.namespace_uuid = :namespaceUuid
+      GROUP BY d.uuid, d.type, d.created_at, d.updated_at, d.namespace_uuid, d.namespace_name, d.source_uuid, d.source_name, d.name, d.physical_name, d.description, d.is_deleted, d.current_version_uuid, d.last_modified_at, d.tags, d.fields, d.lifecycle_state, d.schema_location
+      ORDER BY d.name
+      LIMIT :limit
+      OFFSET :offset
+      """)
+  List<Dataset> findAllDatasetsV2(
+      @org.jdbi.v3.sqlobject.customizer.Bind("namespaceUuid") UUID namespaceUuid,
+      @org.jdbi.v3.sqlobject.customizer.Bind("limit") int limit,
+      @org.jdbi.v3.sqlobject.customizer.Bind("offset") int offset,
+      @Define("facetFilter") String facetFilter);
 
-  /** Returns a denormalized dataset by name for a namespace. */
+  default List<Dataset> findAllDatasetsV2(
+      UUID namespaceUuid, int limit, int offset, java.util.Set<String> includeFacets) {
+    String facetFilter = "";
+    if (includeFacets != null && !includeFacets.isEmpty()) {
+      String inClause =
+          includeFacets.stream()
+              .map(f -> "'" + f.replace("'", "''") + "'")
+              .collect(Collectors.joining(", "));
+      facetFilter = " AND df.name IN (" + inClause + ") ";
+    }
+    return findAllDatasetsV2(namespaceUuid, limit, offset, facetFilter);
+  }
+
   @SqlQuery(
-      "SELECT uuid, type, created_at, updated_at, namespace_uuid, source_uuid, name, physical_name, description, current_version_uuid, tags, schema_location, lifecycle_state FROM dataset_denormalized WHERE namespace_uuid = :namespaceUuid AND name = :datasetName")
-  Optional<DatasetRow> findDatasetByNameV2(UUID namespaceUuid, String datasetName);
+      """
+      SELECT d.*,
+          JSONB_AGG(df.facet ORDER BY df.lineage_event_time ASC) AS facets
+      FROM dataset_denormalized d
+      LEFT JOIN dataset_facets df ON df.dataset_version_uuid = d.current_version_uuid
+          AND (df.type ILIKE 'dataset' OR df.type ILIKE 'unknown' OR df.type ILIKE 'input')
+          <facetFilter>
+      WHERE d.namespace_uuid = :namespaceUuid AND d.name = :datasetName
+      GROUP BY d.uuid, d.type, d.created_at, d.updated_at, d.namespace_uuid, d.namespace_name, d.source_uuid, d.source_name, d.name, d.physical_name, d.description, d.is_deleted, d.current_version_uuid, d.last_modified_at, d.tags, d.fields, d.lifecycle_state, d.schema_location
+      """)
+  Optional<Dataset> findDatasetByNameV2(
+      @org.jdbi.v3.sqlobject.customizer.Bind("namespaceUuid") UUID namespaceUuid,
+      @org.jdbi.v3.sqlobject.customizer.Bind("datasetName") String datasetName,
+      @Define("facetFilter") String facetFilter);
+
+  default Optional<Dataset> findDatasetByNameV2(
+      UUID namespaceUuid, String datasetName, java.util.Set<String> includeFacets) {
+    String facetFilter = "";
+    if (includeFacets != null && !includeFacets.isEmpty()) {
+      String inClause =
+          includeFacets.stream()
+              .map(f -> "'" + f.replace("'", "''") + "'")
+              .collect(Collectors.joining(", "));
+      facetFilter = " AND df.name IN (" + inClause + ") ";
+    }
+    return findDatasetByNameV2(namespaceUuid, datasetName, facetFilter);
+  }
 }

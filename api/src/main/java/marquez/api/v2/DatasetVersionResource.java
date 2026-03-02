@@ -15,10 +15,11 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import marquez.api.BaseResource;
-import marquez.db.models.DatasetVersionRow;
 import marquez.service.ServiceFactory;
+import marquez.service.models.DatasetVersion;
 
 @Path("/api/v2/namespaces/{namespace}/datasets/{dataset}/versions")
 @Produces(MediaType.APPLICATION_JSON)
@@ -32,7 +33,8 @@ public class DatasetVersionResource extends BaseResource {
       @PathParam("namespace") String namespace,
       @PathParam("dataset") String dataset,
       @QueryParam("limit") @DefaultValue("100") int limit,
-      @QueryParam("offset") @DefaultValue("0") int offset) {
+      @QueryParam("offset") @DefaultValue("0") int offset,
+      @QueryParam("includeFacets") @DefaultValue("") Set<String> includeFacets) {
     Optional<UUID> nsUuidOpt = datasetService.findNamespaceUuidByName(namespace);
     if (nsUuidOpt.isEmpty()) {
       return Response.status(Response.Status.NOT_FOUND).entity("Namespace not found").build();
@@ -43,8 +45,8 @@ public class DatasetVersionResource extends BaseResource {
       return Response.status(Response.Status.NOT_FOUND).entity("Dataset not found").build();
     }
     UUID datasetUuid = dsUuidOpt.get();
-    List<DatasetVersionRow> versions =
-        datasetVersionService.findAllDatasetVersionsV2(datasetUuid, limit, offset);
+    List<DatasetVersion> versions =
+        datasetVersionService.findAllDatasetVersionsV2(datasetUuid, limit, offset, includeFacets);
     return Response.ok(versions).build();
   }
 
@@ -53,7 +55,8 @@ public class DatasetVersionResource extends BaseResource {
   public Response getDatasetVersion(
       @PathParam("namespace") String namespace,
       @PathParam("dataset") String dataset,
-      @PathParam("version") String version) {
+      @PathParam("version") String version,
+      @QueryParam("includeFacets") @DefaultValue("") Set<String> includeFacets) {
     Optional<UUID> nsUuidOpt = datasetService.findNamespaceUuidByName(namespace);
     if (nsUuidOpt.isEmpty()) {
       return Response.status(Response.Status.NOT_FOUND).entity("Namespace not found").build();
@@ -64,8 +67,8 @@ public class DatasetVersionResource extends BaseResource {
       return Response.status(Response.Status.NOT_FOUND).entity("Dataset not found").build();
     }
     UUID datasetUuid = dsUuidOpt.get();
-    Optional<DatasetVersionRow> versionOpt =
-        datasetVersionService.findDatasetVersionByVersionV2(datasetUuid, version);
+    Optional<DatasetVersion> versionOpt =
+        datasetVersionService.findDatasetVersionByVersionV2(datasetUuid, version, includeFacets);
     if (versionOpt.isEmpty()) {
       return Response.status(Response.Status.NOT_FOUND).entity("Dataset version not found").build();
     }

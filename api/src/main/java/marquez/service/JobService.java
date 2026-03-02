@@ -7,6 +7,7 @@ package marquez.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import lombok.NonNull;
 import lombok.extern.slf4j.Slf4j;
@@ -26,6 +27,8 @@ import marquez.service.models.JobMeta;
 
 @Slf4j
 public class JobService extends DelegatingDaos.DelegatingJobDao {
+
+  private final marquez.db.NamespaceDao namespaceDao;
   private final RunDao runDao;
   private final ObjectMapper mapper = Utils.newObjectMapper();
   private final DatasetVersionDao datasetVersionDao;
@@ -33,6 +36,7 @@ public class JobService extends DelegatingDaos.DelegatingJobDao {
 
   public JobService(@NonNull BaseDao baseDao, @NonNull final RunService runService) {
     super(baseDao.createJobDao());
+    this.namespaceDao = baseDao.createNamespaceDao();
     this.runDao = baseDao.createRunDao();
     this.datasetVersionDao = baseDao.createDatasetVersionDao();
     this.runService = runService;
@@ -47,8 +51,10 @@ public class JobService extends DelegatingDaos.DelegatingJobDao {
       @NonNull NamespaceName namespaceName, @NonNull JobName jobName, @NonNull JobMeta jobMeta) {
     JobRow jobRow = upsertJobMeta(namespaceName, jobName, jobMeta, mapper);
 
-    // Run updates come in through this endpoint to notify of input and output datasets.
-    // Note: There is an alternative route to registering /output/ datasets in the dataset api.
+    // Run updates come in through this endpoint to notify of input and output
+    // datasets.
+    // Note: There is an alternative route to registering /output/ datasets in the
+    // dataset api.
     if (jobMeta.getRunId().isPresent()) {
       UUID runUuid = jobMeta.getRunId().get().getValue();
       runDao.notifyJobChange(runUuid, jobRow, jobMeta);
@@ -69,5 +75,11 @@ public class JobService extends DelegatingDaos.DelegatingJobDao {
     JobMetrics.emitJobCreationMetric(namespaceName.getValue(), jobMeta.getType().toString());
 
     return this.findWithDatasetsAndRun(jobRow.getNamespaceName(), jobRow.getName()).get();
+  }
+
+  public Optional<UUID> findNamespaceUuidByName(String namespaceName) {
+    return namespaceDao
+        .findNamespaceByName(namespaceName)
+        .map(marquez.db.models.NamespaceRow::getUuid);
   }
 }

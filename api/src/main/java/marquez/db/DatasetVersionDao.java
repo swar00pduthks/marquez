@@ -38,6 +38,7 @@ import marquez.service.models.LineageEvent.SchemaField;
 import marquez.service.models.Run;
 import marquez.service.models.StreamMeta;
 import org.jdbi.v3.sqlobject.config.RegisterRowMapper;
+import org.jdbi.v3.sqlobject.customizer.Define;
 import org.jdbi.v3.sqlobject.statement.SqlQuery;
 import org.jdbi.v3.sqlobject.statement.SqlUpdate;
 import org.jdbi.v3.sqlobject.transaction.Transaction;
@@ -47,10 +48,6 @@ import org.postgresql.util.PGobject;
 @RegisterRowMapper(ExtendedDatasetVersionRowMapper.class)
 @RegisterRowMapper(DatasetVersionMapper.class)
 public interface DatasetVersionDao extends BaseDao {
-  // Returns the dataset version row for a given dataset UUID and version string,
-  // if present
-  java.util.Optional<marquez.db.models.DatasetVersionRow> findDatasetVersionByVersionV2(
-      java.util.UUID datasetUuid, String version);
 
   @Transaction
   default DatasetVersionRow upsertDatasetVersion(
@@ -171,128 +168,128 @@ public interface DatasetVersionDao extends BaseDao {
 
   @SqlQuery(
       """
-      WITH selected_dataset_versions AS (
-          SELECT dv.*
-          FROM dataset_versions dv
-          WHERE dv.uuid = :version
-      ), selected_dataset_version_facets AS (
-          SELECT dv.uuid, dv.dataset_name, dv.namespace_name, df.run_uuid, df.lineage_event_time, df.facet
-          FROM selected_dataset_versions dv
-          LEFT JOIN dataset_facets_view df ON df.dataset_version_uuid = dv.uuid
-      )
-      SELECT d.type, d.name, d.physical_name, d.namespace_name, d.source_name, d.description, dv.lifecycle_state,\s
-          dv.created_at, dv.uuid AS current_version_uuid, dv.version, dv.dataset_schema_version_uuid, dv.fields, dv.run_uuid AS createdByRunUuid,
-          sv.schema_location, t.tags, f.facets
-      FROM selected_dataset_versions dv
-      LEFT JOIN datasets_view d ON d.uuid = dv.dataset_uuid
-      LEFT JOIN stream_versions AS sv ON sv.dataset_version_uuid = dv.uuid
-      LEFT JOIN (
-          SELECT ARRAY_AGG(t.name) AS tags, m.dataset_uuid
-          FROM tags AS t
-                   INNER JOIN datasets_tag_mapping AS m ON m.tag_uuid = t.uuid
-          GROUP BY m.dataset_uuid
-      ) t ON t.dataset_uuid = dv.dataset_uuid
-      LEFT JOIN (
-          SELECT dvf.uuid AS dataset_uuid, JSONB_AGG(dvf.facet ORDER BY dvf.lineage_event_time ASC) AS facets
-          FROM selected_dataset_version_facets dvf
-          WHERE dvf.run_uuid = dvf.run_uuid
-          GROUP BY dvf.uuid
-      ) f ON f.dataset_uuid = dv.uuid""")
+            WITH selected_dataset_versions AS (
+                SELECT dv.*
+                FROM dataset_versions dv
+                WHERE dv.uuid = :version
+            ), selected_dataset_version_facets AS (
+                SELECT dv.uuid, dv.dataset_name, dv.namespace_name, df.run_uuid, df.lineage_event_time, df.facet
+                FROM selected_dataset_versions dv
+                LEFT JOIN dataset_facets_view df ON df.dataset_version_uuid = dv.uuid
+            )
+            SELECT d.type, d.name, d.physical_name, d.namespace_name, d.source_name, d.description, dv.lifecycle_state,\s
+                dv.created_at, dv.uuid AS current_version_uuid, dv.version, dv.dataset_schema_version_uuid, dv.fields, dv.run_uuid AS createdByRunUuid,
+                sv.schema_location, t.tags, f.facets
+            FROM selected_dataset_versions dv
+            LEFT JOIN datasets_view d ON d.uuid = dv.dataset_uuid
+            LEFT JOIN stream_versions AS sv ON sv.dataset_version_uuid = dv.uuid
+            LEFT JOIN (
+                SELECT ARRAY_AGG(t.name) AS tags, m.dataset_uuid
+                FROM tags AS t
+                         INNER JOIN datasets_tag_mapping AS m ON m.tag_uuid = t.uuid
+                GROUP BY m.dataset_uuid
+            ) t ON t.dataset_uuid = dv.dataset_uuid
+            LEFT JOIN (
+                SELECT dvf.uuid AS dataset_uuid, JSONB_AGG(dvf.facet ORDER BY dvf.lineage_event_time ASC) AS facets
+                FROM selected_dataset_version_facets dvf
+                WHERE dvf.run_uuid = dvf.run_uuid
+                GROUP BY dvf.uuid
+            ) f ON f.dataset_uuid = dv.uuid""")
   Optional<DatasetVersion> findBy(UUID version);
 
   @SqlQuery(
       """
-      WITH selected_dataset_versions AS (
-          SELECT dv.*
-          FROM dataset_versions dv
-          WHERE dv.uuid = :version
-      ), selected_dataset_version_facets AS (
-          SELECT dv.uuid, dv.dataset_name, dv.namespace_name, df.run_uuid, df.lineage_event_time, df.facet
-          FROM selected_dataset_versions dv
-          LEFT JOIN dataset_facets_view df ON df.dataset_version_uuid = dv.uuid <facetFilter>
-      )
-      SELECT d.type, d.name, d.physical_name, d.namespace_name, d.source_name, d.description, dv.lifecycle_state,\s
-          dv.created_at, dv.uuid AS current_version_uuid, dv.version, dv.dataset_schema_version_uuid, dv.fields, dv.run_uuid AS createdByRunUuid,
-          sv.schema_location, t.tags, f.facets
-      FROM selected_dataset_versions dv
-      LEFT JOIN datasets_view d ON d.uuid = dv.dataset_uuid
-      LEFT JOIN stream_versions AS sv ON sv.dataset_version_uuid = dv.uuid
-      LEFT JOIN (
-          SELECT ARRAY_AGG(t.name) AS tags, m.dataset_uuid
-          FROM tags AS t
-                   INNER JOIN datasets_tag_mapping AS m ON m.tag_uuid = t.uuid
-          GROUP BY m.dataset_uuid
-      ) t ON t.dataset_uuid = dv.dataset_uuid
-      LEFT JOIN (
-          SELECT dvf.uuid AS dataset_uuid, JSONB_AGG(dvf.facet ORDER BY dvf.lineage_event_time ASC) AS facets
-          FROM selected_dataset_version_facets dvf
-          WHERE dvf.run_uuid = dvf.run_uuid
-          GROUP BY dvf.uuid
-      ) f ON f.dataset_uuid = dv.uuid""")
+            WITH selected_dataset_versions AS (
+                SELECT dv.*
+                FROM dataset_versions dv
+                WHERE dv.uuid = :version
+            ), selected_dataset_version_facets AS (
+                SELECT dv.uuid, dv.dataset_name, dv.namespace_name, df.run_uuid, df.lineage_event_time, df.facet
+                FROM selected_dataset_versions dv
+                LEFT JOIN dataset_facets_view df ON df.dataset_version_uuid = dv.uuid <facetFilter>
+            )
+            SELECT d.type, d.name, d.physical_name, d.namespace_name, d.source_name, d.description, dv.lifecycle_state,\s
+                dv.created_at, dv.uuid AS current_version_uuid, dv.version, dv.dataset_schema_version_uuid, dv.fields, dv.run_uuid AS createdByRunUuid,
+                sv.schema_location, t.tags, f.facets
+            FROM selected_dataset_versions dv
+            LEFT JOIN datasets_view d ON d.uuid = dv.dataset_uuid
+            LEFT JOIN stream_versions AS sv ON sv.dataset_version_uuid = dv.uuid
+            LEFT JOIN (
+                SELECT ARRAY_AGG(t.name) AS tags, m.dataset_uuid
+                FROM tags AS t
+                         INNER JOIN datasets_tag_mapping AS m ON m.tag_uuid = t.uuid
+                GROUP BY m.dataset_uuid
+            ) t ON t.dataset_uuid = dv.dataset_uuid
+            LEFT JOIN (
+                SELECT dvf.uuid AS dataset_uuid, JSONB_AGG(dvf.facet ORDER BY dvf.lineage_event_time ASC) AS facets
+                FROM selected_dataset_version_facets dvf
+                WHERE dvf.run_uuid = dvf.run_uuid
+                GROUP BY dvf.uuid
+            ) f ON f.dataset_uuid = dv.uuid""")
   Optional<DatasetVersion> findBy(
       @org.jdbi.v3.sqlobject.customizer.Bind("version") UUID version,
       @org.jdbi.v3.sqlobject.customizer.Define("facetFilter") String facetFilter);
 
   @SqlQuery(
       """
-      WITH selected_dataset_versions AS (
-          SELECT dv.*
-          FROM dataset_versions dv
-          WHERE dv.uuid = :uuid
-      ), selected_dataset_version_facets AS (
-          SELECT dv.uuid, dv.dataset_name, dv.namespace_name, df.run_uuid, df.lineage_event_time, df.facet
-          FROM selected_dataset_versions dv
-          LEFT JOIN dataset_facets_view df ON df.dataset_version_uuid = dv.uuid  AND (df.type ILIKE 'dataset' OR df.type ILIKE 'unknown' OR df.type ILIKE 'input')
-      )
-      SELECT d.type, d.name, d.physical_name, d.namespace_name, d.source_name, d.description, dv.lifecycle_state,\s
-          dv.created_at, dv.uuid AS current_version_uuid, dv.version, dv.dataset_schema_version_uuid, dv.fields, dv.run_uuid AS createdByRunUuid,
-          sv.schema_location, t.tags, f.facets
-      FROM selected_dataset_versions dv
-      LEFT JOIN datasets_view d ON d.uuid = dv.dataset_uuid
-      LEFT JOIN stream_versions AS sv ON sv.dataset_version_uuid = dv.uuid
-      LEFT JOIN (
-          SELECT ARRAY_AGG(t.name) AS tags, m.dataset_uuid
-          FROM tags AS t
-                   INNER JOIN datasets_tag_mapping AS m ON m.tag_uuid = t.uuid
-          GROUP BY m.dataset_uuid
-      ) t ON t.dataset_uuid = dv.dataset_uuid
-      LEFT JOIN (
-          SELECT dvf.uuid AS dataset_uuid, JSONB_AGG(dvf.facet ORDER BY dvf.lineage_event_time ASC) AS facets
-          FROM selected_dataset_version_facets dvf
-          WHERE dvf.run_uuid = dvf.run_uuid
-          GROUP BY dvf.uuid
-      ) f ON f.dataset_uuid = dv.uuid""")
+            WITH selected_dataset_versions AS (
+                SELECT dv.*
+                FROM dataset_versions dv
+                WHERE dv.uuid = :uuid
+            ), selected_dataset_version_facets AS (
+                SELECT dv.uuid, dv.dataset_name, dv.namespace_name, df.run_uuid, df.lineage_event_time, df.facet
+                FROM selected_dataset_versions dv
+                LEFT JOIN dataset_facets_view df ON df.dataset_version_uuid = dv.uuid  AND (df.type ILIKE 'dataset' OR df.type ILIKE 'unknown' OR df.type ILIKE 'input')
+            )
+            SELECT d.type, d.name, d.physical_name, d.namespace_name, d.source_name, d.description, dv.lifecycle_state,\s
+                dv.created_at, dv.uuid AS current_version_uuid, dv.version, dv.dataset_schema_version_uuid, dv.fields, dv.run_uuid AS createdByRunUuid,
+                sv.schema_location, t.tags, f.facets
+            FROM selected_dataset_versions dv
+            LEFT JOIN datasets_view d ON d.uuid = dv.dataset_uuid
+            LEFT JOIN stream_versions AS sv ON sv.dataset_version_uuid = dv.uuid
+            LEFT JOIN (
+                SELECT ARRAY_AGG(t.name) AS tags, m.dataset_uuid
+                FROM tags AS t
+                         INNER JOIN datasets_tag_mapping AS m ON m.tag_uuid = t.uuid
+                GROUP BY m.dataset_uuid
+            ) t ON t.dataset_uuid = dv.dataset_uuid
+            LEFT JOIN (
+                SELECT dvf.uuid AS dataset_uuid, JSONB_AGG(dvf.facet ORDER BY dvf.lineage_event_time ASC) AS facets
+                FROM selected_dataset_version_facets dvf
+                WHERE dvf.run_uuid = dvf.run_uuid
+                GROUP BY dvf.uuid
+            ) f ON f.dataset_uuid = dv.uuid""")
   Optional<DatasetVersion> findByUuid(UUID uuid);
 
   @SqlQuery(
       """
-      WITH selected_dataset_versions AS (
-          SELECT dv.*
-          FROM dataset_versions dv
-          WHERE dv.uuid = :uuid
-      ), selected_dataset_version_facets AS (
-          SELECT dv.uuid, dv.dataset_name, dv.namespace_name, df.run_uuid, df.lineage_event_time, df.facet
-          FROM selected_dataset_versions dv
-          LEFT JOIN dataset_facets_view df ON df.dataset_version_uuid = dv.uuid  AND (df.type ILIKE 'dataset' OR df.type ILIKE 'unknown' OR df.type ILIKE 'input') <facetFilter>
-      )
-      SELECT d.type, d.name, d.physical_name, d.namespace_name, d.source_name, d.description, dv.lifecycle_state,\s
-          dv.created_at, dv.uuid AS current_version_uuid, dv.version, dv.dataset_schema_version_uuid, dv.fields, dv.run_uuid AS createdByRunUuid,
-          sv.schema_location, t.tags, f.facets
-      FROM selected_dataset_versions dv
-      LEFT JOIN datasets_view d ON d.uuid = dv.dataset_uuid
-      LEFT JOIN stream_versions AS sv ON sv.dataset_version_uuid = dv.uuid
-      LEFT JOIN (
-          SELECT ARRAY_AGG(t.name) AS tags, m.dataset_uuid
-          FROM tags AS t
-                   INNER JOIN datasets_tag_mapping AS m ON m.tag_uuid = t.uuid
-          GROUP BY m.dataset_uuid
-      ) t ON t.dataset_uuid = dv.dataset_uuid
-      LEFT JOIN (
-          SELECT dvf.uuid AS dataset_uuid, JSONB_AGG(dvf.facet ORDER BY dvf.lineage_event_time ASC) AS facets
-          FROM selected_dataset_version_facets dvf
-          WHERE dvf.run_uuid = dvf.run_uuid
-          GROUP BY dvf.uuid
-      ) f ON f.dataset_uuid = dv.uuid""")
+            WITH selected_dataset_versions AS (
+                SELECT dv.*
+                FROM dataset_versions dv
+                WHERE dv.uuid = :uuid
+            ), selected_dataset_version_facets AS (
+                SELECT dv.uuid, dv.dataset_name, dv.namespace_name, df.run_uuid, df.lineage_event_time, df.facet
+                FROM selected_dataset_versions dv
+                LEFT JOIN dataset_facets_view df ON df.dataset_version_uuid = dv.uuid  AND (df.type ILIKE 'dataset' OR df.type ILIKE 'unknown' OR df.type ILIKE 'input') <facetFilter>
+            )
+            SELECT d.type, d.name, d.physical_name, d.namespace_name, d.source_name, d.description, dv.lifecycle_state,\s
+                dv.created_at, dv.uuid AS current_version_uuid, dv.version, dv.dataset_schema_version_uuid, dv.fields, dv.run_uuid AS createdByRunUuid,
+                sv.schema_location, t.tags, f.facets
+            FROM selected_dataset_versions dv
+            LEFT JOIN datasets_view d ON d.uuid = dv.dataset_uuid
+            LEFT JOIN stream_versions AS sv ON sv.dataset_version_uuid = dv.uuid
+            LEFT JOIN (
+                SELECT ARRAY_AGG(t.name) AS tags, m.dataset_uuid
+                FROM tags AS t
+                         INNER JOIN datasets_tag_mapping AS m ON m.tag_uuid = t.uuid
+                GROUP BY m.dataset_uuid
+            ) t ON t.dataset_uuid = dv.dataset_uuid
+            LEFT JOIN (
+                SELECT dvf.uuid AS dataset_uuid, JSONB_AGG(dvf.facet ORDER BY dvf.lineage_event_time ASC) AS facets
+                FROM selected_dataset_version_facets dvf
+                WHERE dvf.run_uuid = dvf.run_uuid
+                GROUP BY dvf.uuid
+            ) f ON f.dataset_uuid = dv.uuid""")
   Optional<DatasetVersion> findByUuid(
       @org.jdbi.v3.sqlobject.customizer.Bind("uuid") UUID uuid,
       @org.jdbi.v3.sqlobject.customizer.Define("facetFilter") String facetFilter);
@@ -325,96 +322,96 @@ public interface DatasetVersionDao extends BaseDao {
 
   @SqlQuery(
       """
-          WITH dataset_info AS (
-         SELECT d.type, d.name, d.physical_name, d.namespace_name, d.source_name, d.description, dv.lifecycle_state,
-      dv.created_at, dv.uuid AS current_version_uuid, dv.version, dv.dataset_schema_version_uuid, dv.fields, dv.run_uuid AS createdByRunUuid,
-      sv.schema_location, t.tags, f.facets, f.lineage_event_time, f.dataset_version_uuid, facet_name
-      FROM dataset_versions dv
-      LEFT JOIN datasets_view d ON d.uuid = dv.dataset_uuid
-      LEFT JOIN stream_versions AS sv ON sv.dataset_version_uuid = dv.uuid
-      LEFT JOIN (
-      	SELECT ARRAY_AGG(t.name) AS tags, m.dataset_uuid
-      	FROM tags AS t
-      	INNER JOIN datasets_tag_mapping AS m ON m.tag_uuid = t.uuid
-      	GROUP BY m.dataset_uuid
-      ) t ON t.dataset_uuid = dv.dataset_uuid
-      LEFT JOIN (
-      	SELECT
-      		dataset_version_uuid,
-      		name as facet_name,
-      		facet as facets,lineage_event_time
-      	FROM dataset_facets_view
-      	WHERE
-      		(type ILIKE 'dataset' OR type ILIKE 'unknown' OR type ILIKE 'input')
-          	) f ON f.dataset_version_uuid = dv.uuid
-          	WHERE dv.namespace_name = :namespaceName
-                AND dv.dataset_name = :datasetName
-            ),
-            dataset_symlinks_names as (
-              SELECT DISTINCT dataset_uuid, name
-              FROM dataset_symlinks
-              WHERE NOT is_primary
-            )
-            SELECT
-             type, name, physical_name, namespace_name, source_name, description, lifecycle_state,
-                created_at, current_version_uuid, version, dataset_schema_version_uuid, fields, createdByRunUuid, schema_location,
-                tags, dataset_version_uuid,
-             JSONB_AGG(facets ORDER BY lineage_event_time ASC) AS facets
-            FROM dataset_info
-            WHERE name NOT IN (SELECT name FROM dataset_symlinks_names)
-            GROUP BY type, name, physical_name, namespace_name, source_name, description, lifecycle_state,
-                created_at, current_version_uuid, version, dataset_schema_version_uuid, fields, createdByRunUuid, schema_location,
-                tags, dataset_version_uuid
-            ORDER BY created_at DESC
-            LIMIT :limit OFFSET :offset
-      """)
+                WITH dataset_info AS (
+               SELECT d.type, d.name, d.physical_name, d.namespace_name, d.source_name, d.description, dv.lifecycle_state,
+            dv.created_at, dv.uuid AS current_version_uuid, dv.version, dv.dataset_schema_version_uuid, dv.fields, dv.run_uuid AS createdByRunUuid,
+            sv.schema_location, t.tags, f.facets, f.lineage_event_time, f.dataset_version_uuid, facet_name
+            FROM dataset_versions dv
+            LEFT JOIN datasets_view d ON d.uuid = dv.dataset_uuid
+            LEFT JOIN stream_versions AS sv ON sv.dataset_version_uuid = dv.uuid
+            LEFT JOIN (
+            	SELECT ARRAY_AGG(t.name) AS tags, m.dataset_uuid
+            	FROM tags AS t
+            	INNER JOIN datasets_tag_mapping AS m ON m.tag_uuid = t.uuid
+            	GROUP BY m.dataset_uuid
+            ) t ON t.dataset_uuid = dv.dataset_uuid
+            LEFT JOIN (
+            	SELECT
+            		dataset_version_uuid,
+            		name as facet_name,
+            		facet as facets,lineage_event_time
+            	FROM dataset_facets_view
+            	WHERE
+            		(type ILIKE 'dataset' OR type ILIKE 'unknown' OR type ILIKE 'input')
+                	) f ON f.dataset_version_uuid = dv.uuid
+                	WHERE dv.namespace_name = :namespaceName
+                      AND dv.dataset_name = :datasetName
+                  ),
+                  dataset_symlinks_names as (
+                    SELECT DISTINCT dataset_uuid, name
+                    FROM dataset_symlinks
+                    WHERE NOT is_primary
+                  )
+                  SELECT
+                   type, name, physical_name, namespace_name, source_name, description, lifecycle_state,
+                      created_at, current_version_uuid, version, dataset_schema_version_uuid, fields, createdByRunUuid, schema_location,
+                      tags, dataset_version_uuid,
+                   JSONB_AGG(facets ORDER BY lineage_event_time ASC) AS facets
+                  FROM dataset_info
+                  WHERE name NOT IN (SELECT name FROM dataset_symlinks_names)
+                  GROUP BY type, name, physical_name, namespace_name, source_name, description, lifecycle_state,
+                      created_at, current_version_uuid, version, dataset_schema_version_uuid, fields, createdByRunUuid, schema_location,
+                      tags, dataset_version_uuid
+                  ORDER BY created_at DESC
+                  LIMIT :limit OFFSET :offset
+            """)
   List<DatasetVersion> findAll(String namespaceName, String datasetName, int limit, int offset);
 
   @SqlQuery(
       """
-          WITH dataset_info AS (
-         SELECT d.type, d.name, d.physical_name, d.namespace_name, d.source_name, d.description, dv.lifecycle_state,
-      dv.created_at, dv.uuid AS current_version_uuid, dv.version, dv.dataset_schema_version_uuid, dv.fields, dv.run_uuid AS createdByRunUuid,
-      sv.schema_location, t.tags, f.facets, f.lineage_event_time, f.dataset_version_uuid, facet_name
-      FROM dataset_versions dv
-      LEFT JOIN datasets_view d ON d.uuid = dv.dataset_uuid
-      LEFT JOIN stream_versions AS sv ON sv.dataset_version_uuid = dv.uuid
-      LEFT JOIN (
-      	SELECT ARRAY_AGG(t.name) AS tags, m.dataset_uuid
-      	FROM tags AS t
-      	INNER JOIN datasets_tag_mapping AS m ON m.tag_uuid = t.uuid
-      	GROUP BY m.dataset_uuid
-      ) t ON t.dataset_uuid = dv.dataset_uuid
-      LEFT JOIN (
-      	SELECT
-      		dataset_version_uuid,
-      		name as facet_name,
-      		facet as facets,lineage_event_time
-      	FROM dataset_facets_view
-      	WHERE
-      		(type ILIKE 'dataset' OR type ILIKE 'unknown' OR type ILIKE 'input') <facetFilter>
-          	) f ON f.dataset_version_uuid = dv.uuid
-          	WHERE dv.namespace_name = :namespaceName
-                AND dv.dataset_name = :datasetName
-            ),
-            dataset_symlinks_names as (
-              SELECT DISTINCT dataset_uuid, name
-              FROM dataset_symlinks
-              WHERE NOT is_primary
-            )
-            SELECT
-             type, name, physical_name, namespace_name, source_name, description, lifecycle_state,
-                created_at, current_version_uuid, version, dataset_schema_version_uuid, fields, createdByRunUuid, schema_location,
-                tags, dataset_version_uuid,
-             JSONB_AGG(facets ORDER BY lineage_event_time ASC) AS facets
-            FROM dataset_info
-            WHERE name NOT IN (SELECT name FROM dataset_symlinks_names)
-            GROUP BY type, name, physical_name, namespace_name, source_name, description, lifecycle_state,
-                created_at, current_version_uuid, version, dataset_schema_version_uuid, fields, createdByRunUuid, schema_location,
-                tags, dataset_version_uuid
-            ORDER BY created_at DESC
-            LIMIT :limit OFFSET :offset
-      """)
+                WITH dataset_info AS (
+               SELECT d.type, d.name, d.physical_name, d.namespace_name, d.source_name, d.description, dv.lifecycle_state,
+            dv.created_at, dv.uuid AS current_version_uuid, dv.version, dv.dataset_schema_version_uuid, dv.fields, dv.run_uuid AS createdByRunUuid,
+            sv.schema_location, t.tags, f.facets, f.lineage_event_time, f.dataset_version_uuid, facet_name
+            FROM dataset_versions dv
+            LEFT JOIN datasets_view d ON d.uuid = dv.dataset_uuid
+            LEFT JOIN stream_versions AS sv ON sv.dataset_version_uuid = dv.uuid
+            LEFT JOIN (
+            	SELECT ARRAY_AGG(t.name) AS tags, m.dataset_uuid
+            	FROM tags AS t
+            	INNER JOIN datasets_tag_mapping AS m ON m.tag_uuid = t.uuid
+            	GROUP BY m.dataset_uuid
+            ) t ON t.dataset_uuid = dv.dataset_uuid
+            LEFT JOIN (
+            	SELECT
+            		dataset_version_uuid,
+            		name as facet_name,
+            		facet as facets,lineage_event_time
+            	FROM dataset_facets_view
+            	WHERE
+            		(type ILIKE 'dataset' OR type ILIKE 'unknown' OR type ILIKE 'input') <facetFilter>
+                	) f ON f.dataset_version_uuid = dv.uuid
+                	WHERE dv.namespace_name = :namespaceName
+                      AND dv.dataset_name = :datasetName
+                  ),
+                  dataset_symlinks_names as (
+                    SELECT DISTINCT dataset_uuid, name
+                    FROM dataset_symlinks
+                    WHERE NOT is_primary
+                  )
+                  SELECT
+                   type, name, physical_name, namespace_name, source_name, description, lifecycle_state,
+                      created_at, current_version_uuid, version, dataset_schema_version_uuid, fields, createdByRunUuid, schema_location,
+                      tags, dataset_version_uuid,
+                   JSONB_AGG(facets ORDER BY lineage_event_time ASC) AS facets
+                  FROM dataset_info
+                  WHERE name NOT IN (SELECT name FROM dataset_symlinks_names)
+                  GROUP BY type, name, physical_name, namespace_name, source_name, description, lifecycle_state,
+                      created_at, current_version_uuid, version, dataset_schema_version_uuid, fields, createdByRunUuid, schema_location,
+                      tags, dataset_version_uuid
+                  ORDER BY created_at DESC
+                  LIMIT :limit OFFSET :offset
+            """)
   List<DatasetVersion> findAll(
       @org.jdbi.v3.sqlobject.customizer.Bind("namespaceName") String namespaceName,
       @org.jdbi.v3.sqlobject.customizer.Bind("datasetName") String datasetName,
@@ -441,16 +438,16 @@ public interface DatasetVersionDao extends BaseDao {
 
   @SqlQuery(
       """
-      select
-          count(*)
-      from
-          dataset_versions
-      where
-          namespace_name = :namespaceName
-      and
-          dataset_name = :dataset
-      ;
-      """)
+            select
+                count(*)
+            from
+                dataset_versions
+            where
+                namespace_name = :namespaceName
+            and
+                dataset_name = :dataset
+            ;
+            """)
   int countDatasetVersions(String namespaceName, String dataset);
 
   @SqlQuery(
@@ -478,12 +475,62 @@ public interface DatasetVersionDao extends BaseDao {
   void updateFields(UUID uuid, PGobject fields);
 
   // --- v2 Denormalized Table Methods (placed at end for standards) ---
+  @SqlQuery(
+      """
+            SELECT *, JSONB_AGG(df.facet ORDER BY df.lineage_event_time ASC) AS facets
+            FROM dataset_versions dv
+            LEFT JOIN dataset_facets df ON df.dataset_version_uuid = dv.uuid
+                AND (df.type ILIKE 'dataset' OR df.type ILIKE 'unknown' OR df.type ILIKE 'input')
+                <facetFilter>
+            WHERE dv.dataset_uuid = :datasetUuid
+            GROUP BY dv.uuid, dv.created_at, dv.dataset_uuid, dv.version, dv.dataset_schema_version_uuid, dv.run_uuid, dv.fields, dv.namespace_name, dv.dataset_name, dv.lifecycle_state
+            ORDER BY dv.created_at DESC
+            LIMIT :limit
+            OFFSET :offset
+            """)
+  List<DatasetVersion> findAllDatasetVersionsV2(
+      @org.jdbi.v3.sqlobject.customizer.Bind("datasetUuid") UUID datasetUuid,
+      @org.jdbi.v3.sqlobject.customizer.Bind("limit") int limit,
+      @org.jdbi.v3.sqlobject.customizer.Bind("offset") int offset,
+      @Define("facetFilter") String facetFilter);
+
+  default List<DatasetVersion> findAllDatasetVersionsV2(
+      UUID datasetUuid, int limit, int offset, java.util.Set<String> includeFacets) {
+    String facetFilter = "";
+    if (includeFacets != null && !includeFacets.isEmpty()) {
+      String inClause =
+          includeFacets.stream()
+              .map(f -> "'" + f.replace("'", "''") + "'")
+              .collect(Collectors.joining(", "));
+      facetFilter = " AND df.name IN (" + inClause + ") ";
+    }
+    return findAllDatasetVersionsV2(datasetUuid, limit, offset, facetFilter);
+  }
 
   @SqlQuery(
-      "SELECT uuid, dataset_uuid, version, created_at, fields, null AS facets, null AS schema_location, lifecycle_state, run_uuid, namespace_name, dataset_name, dataset_schema_version_uuid FROM dataset_versions WHERE dataset_uuid = :datasetUuid ORDER BY created_at DESC LIMIT :limit OFFSET :offset")
-  List<DatasetVersionRow> findAllDatasetVersionsV2(UUID datasetUuid, int limit, int offset);
+      """
+            SELECT *, JSONB_AGG(df.facet ORDER BY df.lineage_event_time ASC) AS facets
+            FROM dataset_versions dv
+            LEFT JOIN dataset_facets df ON df.dataset_version_uuid = dv.uuid
+                AND (df.type ILIKE 'dataset' OR df.type ILIKE 'unknown' OR df.type ILIKE 'input')
+                <facetFilter>
+            WHERE dv.version = :version
+            GROUP BY dv.uuid, dv.created_at, dv.dataset_uuid, dv.version, dv.dataset_schema_version_uuid, dv.run_uuid, dv.fields, dv.namespace_name, dv.dataset_name, dv.lifecycle_state
+            """)
+  Optional<DatasetVersion> findDatasetVersionByVersionV2(
+      @org.jdbi.v3.sqlobject.customizer.Bind("version") String version,
+      @Define("facetFilter") String facetFilter);
 
-  @SqlQuery(
-      "SELECT uuid, dataset_uuid, version, created_at, fields, null AS facets, null AS schema_location, lifecycle_state, run_uuid, namespace_name, dataset_name, dataset_schema_version_uuid FROM dataset_versions WHERE uuid = :versionUuid")
-  Optional<DatasetVersionRow> findDatasetVersionByUuidV2(UUID versionUuid);
+  default Optional<DatasetVersion> findDatasetVersionByVersionV2(
+      UUID datasetUuid, String version, java.util.Set<String> includeFacets) {
+    String facetFilter = "";
+    if (includeFacets != null && !includeFacets.isEmpty()) {
+      String inClause =
+          includeFacets.stream()
+              .map(f -> "'" + f.replace("'", "''") + "'")
+              .collect(Collectors.joining(", "));
+      facetFilter = " AND df.name IN (" + inClause + ") ";
+    }
+    return findDatasetVersionByVersionV2(version, facetFilter);
+  }
 }

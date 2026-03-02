@@ -15,10 +15,11 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import marquez.api.BaseResource;
-import marquez.db.models.DatasetRow;
 import marquez.service.ServiceFactory;
+import marquez.service.models.Dataset;
 
 @Path("/api/v2/namespaces/{namespace}/datasets")
 @Produces(MediaType.APPLICATION_JSON)
@@ -31,27 +32,32 @@ public class DatasetResource extends BaseResource {
   public Response listDatasets(
       @PathParam("namespace") String namespace,
       @QueryParam("limit") @DefaultValue("100") int limit,
-      @QueryParam("offset") @DefaultValue("0") int offset) {
+      @QueryParam("offset") @DefaultValue("0") int offset,
+      @QueryParam("includeFacets") @DefaultValue("") Set<String> includeFacets) {
     // Resolve namespace UUID
     Optional<UUID> nsUuidOpt = datasetService.findNamespaceUuidByName(namespace);
     if (nsUuidOpt.isEmpty()) {
       return Response.status(Response.Status.NOT_FOUND).entity("Namespace not found").build();
     }
     UUID namespaceUuid = nsUuidOpt.get();
-    List<DatasetRow> datasets = datasetService.findAllDatasetsV2(namespaceUuid, limit, offset);
+    List<Dataset> datasets =
+        datasetService.findAllDatasetsV2(namespaceUuid, limit, offset, includeFacets);
     return Response.ok(datasets).build();
   }
 
   @GET
   @Path("/{dataset}")
   public Response getDataset(
-      @PathParam("namespace") String namespace, @PathParam("dataset") String dataset) {
+      @PathParam("namespace") String namespace,
+      @PathParam("dataset") String dataset,
+      @QueryParam("includeFacets") @DefaultValue("") Set<String> includeFacets) {
     Optional<UUID> nsUuidOpt = datasetService.findNamespaceUuidByName(namespace);
     if (nsUuidOpt.isEmpty()) {
       return Response.status(Response.Status.NOT_FOUND).entity("Namespace not found").build();
     }
     UUID namespaceUuid = nsUuidOpt.get();
-    Optional<DatasetRow> dsOpt = datasetService.findDatasetByNameV2(namespaceUuid, dataset);
+    Optional<Dataset> dsOpt =
+        datasetService.findDatasetByNameV2(namespaceUuid, dataset, includeFacets);
     if (dsOpt.isEmpty()) {
       return Response.status(Response.Status.NOT_FOUND).entity("Dataset not found").build();
     }
