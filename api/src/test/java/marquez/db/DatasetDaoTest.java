@@ -170,8 +170,71 @@ class DatasetDaoTest {
             "dataSource",
             "description",
             "writeFacet",
-            "inputFacet",
             "anotherInputFacet");
+  }
+
+  @Test
+  public void testGetDatasetWithIncludeFacets() {
+    createLineageRow(
+        openLineageDao,
+        "aWriteJob",
+        "COMPLETE",
+        jobFacet,
+        Collections.emptyList(),
+        Collections.singletonList(
+            newCommonDataset(
+                ImmutableMap.of("writeFacet", new CustomValueFacet("firstWriteValue")))));
+
+    Optional<marquez.service.models.Dataset> datasetByName =
+        datasetDao.findDatasetByName(NAMESPACE, DATASET, " AND df.name IN ('schema')");
+    assertThat(datasetByName)
+        .isPresent()
+        .get()
+        .extracting(
+            marquez.service.models.Dataset::getFacets,
+            InstanceOfAssertFactories.map(String.class, Object.class))
+        .isNotEmpty()
+        .hasSize(1)
+        .containsKeys("schema");
+
+    // Include facet that is in the DB but not 'schema'
+    datasetByName =
+        datasetDao.findDatasetByName(NAMESPACE, DATASET, " AND df.name IN ('writeFacet')");
+    assertThat(datasetByName)
+        .isPresent()
+        .get()
+        .extracting(
+            marquez.service.models.Dataset::getFacets,
+            InstanceOfAssertFactories.map(String.class, Object.class))
+        .isNotEmpty()
+        .hasSize(1)
+        .containsKeys("writeFacet");
+
+    // Multiple
+    datasetByName =
+        datasetDao.findDatasetByName(
+            NAMESPACE, DATASET, " AND df.name IN ('schema', 'writeFacet')");
+    assertThat(datasetByName)
+        .isPresent()
+        .get()
+        .extracting(
+            marquez.service.models.Dataset::getFacets,
+            InstanceOfAssertFactories.map(String.class, Object.class))
+        .isNotEmpty()
+        .hasSize(2)
+        .containsKeys("schema", "writeFacet");
+
+    // Empty shouldn't filter, returning all
+    datasetByName = datasetDao.findDatasetByName(NAMESPACE, DATASET, "");
+    assertThat(datasetByName)
+        .isPresent()
+        .get()
+        .extracting(
+            marquez.service.models.Dataset::getFacets,
+            InstanceOfAssertFactories.map(String.class, Object.class))
+        .isNotEmpty()
+        .hasSize(4)
+        .containsKeys("documentation", "schema", "dataSource", "writeFacet");
   }
 
   @Test
@@ -640,7 +703,8 @@ class DatasetDaoTest {
                 "http://test.schema/"));
 
     // write a third version of the writeJob
-    // since there is no read of this version, all input facets will be missing from the response
+    // since there is no read of this version, all input facets will be missing from
+    // the response
     createLineageRow(
         openLineageDao,
         "aWriteJob",

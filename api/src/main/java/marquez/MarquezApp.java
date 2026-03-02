@@ -109,6 +109,11 @@ public final class MarquezApp extends Application<MarquezConfig> {
             "/graphql-playground",
             "graphql-playground/index.htm",
             "graphql-playground"));
+
+    bootstrap.addBundle(
+        new AssetsBundle("/assets/swagger-ui", "/swagger-ui", "index.html", "swagger-ui"));
+
+    bootstrap.addBundle(new AssetsBundle("/assets", "/assets", null, "assets"));
   }
 
   @Override
@@ -164,9 +169,11 @@ public final class MarquezApp extends Application<MarquezConfig> {
             ? config.getMaterializedViewRefresh().getFrequencyMinutes()
             : 60; // Default to 60 minutes
     env.lifecycle().manage(new MaterializeViewRefresherJob(jdbi, refreshFrequency));
-    // DISABLED: run_lineage_view replaced with run_lineage_denormalized table (event-driven updates
+    // DISABLED: run_lineage_view replaced with run_lineage_denormalized table
+    // (event-driven updates
     // via triggers)
-    // env.lifecycle().manage(new RunLineageMaterializeViewRefresherJob(jdbi, refreshFrequency));
+    // env.lifecycle().manage(new RunLineageMaterializeViewRefresherJob(jdbi,
+    // refreshFrequency));
 
     // Initialize partition management job to ensure future partitions exist
     // Creates partitions for current month + 12 months ahead, runs every 7 days

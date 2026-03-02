@@ -43,10 +43,10 @@ public class RunResource {
   @GET
   @Path("/")
   @Produces(APPLICATION_JSON)
-  public Response getRun() {
+  public Response getRun(@QueryParam("includeFacets") java.util.Set<String> includeFacets) {
     final Run run =
         runService
-            .findRunByUuid(runId.getValue())
+            .findRunByUuidWithFacets(runId.getValue(), includeFacets)
             .orElseThrow(() -> new RunNotFoundException(runId));
     return Response.ok(run).build();
   }
@@ -113,6 +113,6 @@ public class RunResource {
 
   Response markRunAs(@NonNull RunState runState, @QueryParam("at") String atAsIso) {
     runService.markRunAs(runId, runState, Utils.toInstant(atAsIso));
-    return getRun();
+    return getRun(java.util.Collections.emptySet());
   }
 }

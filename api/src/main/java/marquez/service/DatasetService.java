@@ -7,6 +7,8 @@ package marquez.service;
 
 import io.prometheus.client.Counter;
 import java.util.List;
+import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import lombok.NonNull;
 import lombok.extern.slf4j.Slf4j;
@@ -25,6 +27,9 @@ import marquez.service.models.DatasetMeta;
 
 @Slf4j
 public class DatasetService extends DelegatingDaos.DelegatingDatasetDao {
+  private final marquez.db.NamespaceDao namespaceDao;
+  private final marquez.db.DatasetDao datasetDao;
+
   public static final Counter datasets =
       Counter.build()
           .namespace("marquez")
@@ -46,6 +51,8 @@ public class DatasetService extends DelegatingDaos.DelegatingDatasetDao {
 
   public DatasetService(@NonNull final BaseDao baseDao, @NonNull final RunService runService) {
     super(baseDao.createDatasetDao());
+    this.namespaceDao = baseDao.createNamespaceDao();
+    this.datasetDao = baseDao.createDatasetDao();
     this.datasetVersionDao = baseDao.createDatasetVersionDao();
     this.runDao = baseDao.createRunDao();
     this.runService = runService;
@@ -81,5 +88,43 @@ public class DatasetService extends DelegatingDaos.DelegatingDatasetDao {
         datasetMeta);
 
     return upsertDatasetMeta(namespaceName, datasetName, datasetMeta);
+  }
+
+  /** Find the UUID for a namespace by name, or return Optional.empty() if not found. */
+  public java.util.Optional<UUID> findNamespaceUuidByName(String namespace) {
+    return java.util.Optional.ofNullable(namespaceDao.findNamespaceByName(namespace))
+        .flatMap(opt -> opt.map(row -> row.getUuid()));
+  }
+
+  /**
+   * Find the UUID for a dataset by namespace UUID and dataset name, or return Optional.empty() if
+   * not found.
+   */
+  public java.util.Optional<UUID> findDatasetUuidByName(UUID namespaceUuid, String dataset) {
+    return datasetDao.findUuidByName(namespaceUuid, dataset);
+  }
+
+  public List<Dataset> findAllDatasetsV2(
+      UUID namespaceUuid, int limit, int offset, Set<String> includeFacets) {
+    return datasetDao.findAllDatasetsV2(namespaceUuid, limit, offset, includeFacets);
+  }
+
+  public Optional<Dataset> findDatasetByNameV2(
+      UUID namespaceUuid, String datasetName, Set<String> includeFacets) {
+    return datasetDao.findDatasetByNameV2(namespaceUuid, datasetName, includeFacets);
+  }
+
+  public int countDatasets(String namespaceName) {
+    return datasetDao.countFor(namespaceName);
+  }
+
+  public List<Dataset> findAllWithTags(
+      String namespaceName, int limit, int offset, java.util.Set<String> includeFacets) {
+    return datasetDao.findAllWithTags(namespaceName, limit, offset, includeFacets);
+  }
+
+  public java.util.Optional<Dataset> findWithTags(
+      String namespaceName, String datasetName, java.util.Set<String> includeFacets) {
+    return datasetDao.findWithTags(namespaceName, datasetName, includeFacets);
   }
 }

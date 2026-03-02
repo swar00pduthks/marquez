@@ -62,54 +62,54 @@ public interface LineageDao {
    */
   @SqlQuery(
       """
-      WITH RECURSIVE
-                 job_io AS (
-                    SELECT
-                           io.job_uuid AS job_uuid,
-                           io.job_symlink_target_uuid AS job_symlink_target_uuid,
-                           ARRAY_AGG(DISTINCT io.dataset_uuid) FILTER (WHERE io.io_type='INPUT') AS inputs,
-                           ARRAY_AGG(DISTINCT io.dataset_uuid) FILTER (WHERE io.io_type='OUTPUT') AS outputs
-                    FROM job_versions_io_mapping io
-                    WHERE io.is_current_job_version = TRUE
-                    GROUP BY io.job_symlink_target_uuid, io.job_uuid
-                ),
-                lineage(job_uuid, job_symlink_target_uuid, inputs, outputs) AS (
-                    SELECT job_uuid,
-                           job_symlink_target_uuid,
-                           COALESCE(inputs, Array[]::uuid[]) AS inputs,
-                           COALESCE(outputs, Array[]::uuid[]) AS outputs,
-                           0 AS depth
-                    FROM job_io
-                    WHERE job_uuid IN (<jobIds>) OR job_symlink_target_uuid IN (<jobIds>)
-                    UNION
-                    SELECT io.job_uuid, io.job_symlink_target_uuid, io.inputs, io.outputs, l.depth + 1
-                    FROM job_io io, lineage l
-                    WHERE (io.job_uuid != l.job_uuid) AND
-                        array_cat(io.inputs, io.outputs) && array_cat(l.inputs, l.outputs)
-                      AND depth < :depth),
-                lineage_outside_job_io(job_uuid) AS (
-                    SELECT
-                      param_jobs.param_job_uuid as job_uuid,
-                      j.symlink_target_uuid,
-                      Array[]::uuid[] AS inputs,
-                      Array[]::uuid[] AS outputs,
-                      0 AS depth
-                    FROM (SELECT unnest(ARRAY[<jobIds>]::UUID[]) AS param_job_uuid) param_jobs
-                    LEFT JOIN lineage l on param_jobs.param_job_uuid = l.job_uuid
-                    INNER JOIN jobs j ON j.uuid = param_jobs.param_job_uuid
-                    WHERE l.job_uuid IS NULL
-                )
-            SELECT DISTINCT ON (j.uuid) j.*, inputs AS input_uuids, outputs AS output_uuids
-            FROM (SELECT * FROM lineage UNION SELECT * FROM lineage_outside_job_io) l2
-            INNER JOIN jobs_view j ON (j.uuid=l2.job_uuid OR j.uuid=l2.job_symlink_target_uuid)
-  """)
+          WITH RECURSIVE
+                     job_io AS (
+                        SELECT
+                               io.job_uuid AS job_uuid,
+                               io.job_symlink_target_uuid AS job_symlink_target_uuid,
+                               ARRAY_AGG(DISTINCT io.dataset_uuid) FILTER (WHERE io.io_type='INPUT') AS inputs,
+                               ARRAY_AGG(DISTINCT io.dataset_uuid) FILTER (WHERE io.io_type='OUTPUT') AS outputs
+                        FROM job_versions_io_mapping io
+                        WHERE io.is_current_job_version = TRUE
+                        GROUP BY io.job_symlink_target_uuid, io.job_uuid
+                    ),
+                    lineage(job_uuid, job_symlink_target_uuid, inputs, outputs) AS (
+                        SELECT job_uuid,
+                               job_symlink_target_uuid,
+                               COALESCE(inputs, Array[]::uuid[]) AS inputs,
+                               COALESCE(outputs, Array[]::uuid[]) AS outputs,
+                               0 AS depth
+                        FROM job_io
+                        WHERE job_uuid IN (<jobIds>) OR job_symlink_target_uuid IN (<jobIds>)
+                        UNION
+                        SELECT io.job_uuid, io.job_symlink_target_uuid, io.inputs, io.outputs, l.depth + 1
+                        FROM job_io io, lineage l
+                        WHERE (io.job_uuid != l.job_uuid) AND
+                            array_cat(io.inputs, io.outputs) && array_cat(l.inputs, l.outputs)
+                          AND depth < :depth),
+                    lineage_outside_job_io(job_uuid) AS (
+                        SELECT
+                          param_jobs.param_job_uuid as job_uuid,
+                          j.symlink_target_uuid,
+                          Array[]::uuid[] AS inputs,
+                          Array[]::uuid[] AS outputs,
+                          0 AS depth
+                        FROM (SELECT unnest(ARRAY[<jobIds>]::UUID[]) AS param_job_uuid) param_jobs
+                        LEFT JOIN lineage l on param_jobs.param_job_uuid = l.job_uuid
+                        INNER JOIN jobs j ON j.uuid = param_jobs.param_job_uuid
+                        WHERE l.job_uuid IS NULL
+                    )
+                SELECT DISTINCT ON (j.uuid) j.*, inputs AS input_uuids, outputs AS output_uuids
+                FROM (SELECT * FROM lineage UNION SELECT * FROM lineage_outside_job_io) l2
+                INNER JOIN jobs_view j ON (j.uuid=l2.job_uuid OR j.uuid=l2.job_symlink_target_uuid)
+      """)
   Set<JobData> getLineage(@BindList Set<UUID> jobIds, int depth);
 
   @SqlQuery(
       """
-    SELECT j.*, NULL as input_uuids, NULL AS output_uuids FROM jobs_view j
-    WHERE j.parent_job_uuid= :jobId
-    LIMIT 1""")
+      SELECT j.*, NULL as input_uuids, NULL AS output_uuids FROM jobs_view j
+      WHERE j.parent_job_uuid= :jobId
+      LIMIT 1""")
   Optional<JobData> getParentJobData(UUID jobId);
 
   @SqlQuery(
@@ -146,43 +146,43 @@ public interface LineageDao {
 
   @SqlQuery(
       """
-                  WITH latest_runs AS (
-                      SELECT DISTINCT on(r.job_name, r.namespace_name) r.*, jv.version
-                      FROM runs_view r
-                      INNER JOIN job_versions jv ON jv.uuid=r.job_version_uuid
-                      INNER JOIN jobs_view j ON j.uuid=jv.job_uuid
-                      WHERE j.uuid in (<jobUuid>) OR j.symlink_target_uuid IN (<jobUuid>)
-                      ORDER BY r.job_name, r.namespace_name, created_at DESC
-                  )
-                  SELECT r.*, ra.args, f.facets,
-                    r.version AS job_version, ri.input_versions, ro.output_versions
-                    from latest_runs AS r
-                  LEFT JOIN run_args AS ra ON ra.uuid = r.run_args_uuid
-                  LEFT JOIN LATERAL (
-                      SELECT im.run_uuid,
-                             JSON_AGG(json_build_object('namespace', dv.namespace_name,
-                                                        'name', dv.dataset_name,
-                                                        'version', dv.version)) AS input_versions
-                      FROM runs_input_mapping im
-                      INNER JOIN dataset_versions dv on im.dataset_version_uuid = dv.uuid
-                      WHERE im.run_uuid=r.uuid
-                      GROUP BY im.run_uuid
-                  ) ri ON ri.run_uuid=r.uuid
-                  LEFT JOIN LATERAL (
-                      SELECT rf.run_uuid, JSON_AGG(rf.facet ORDER BY rf.lineage_event_time ASC) AS facets
-                      FROM run_facets_view AS rf
-                      WHERE rf.run_uuid=r.uuid
-                      GROUP BY rf.run_uuid
-                  ) AS f ON r.uuid=f.run_uuid
-                  LEFT JOIN LATERAL (
-                      SELECT run_uuid, JSON_AGG(json_build_object('namespace', namespace_name,
-                                                                  'name', dataset_name,
-                                                                  'version', version)) AS output_versions
-                      FROM dataset_versions
-                      WHERE run_uuid=r.uuid
-                      GROUP BY run_uuid
-                  ) ro ON ro.run_uuid=r.uuid
-                  """)
+      WITH latest_runs AS (
+          SELECT DISTINCT on(r.job_name, r.namespace_name) r.*, jv.version
+          FROM runs_view r
+          INNER JOIN job_versions jv ON jv.uuid=r.job_version_uuid
+          INNER JOIN jobs_view j ON j.uuid=jv.job_uuid
+          WHERE j.uuid in (<jobUuid>) OR j.symlink_target_uuid IN (<jobUuid>)
+          ORDER BY r.job_name, r.namespace_name, created_at DESC
+      )
+      SELECT r.*, ra.args, f.facets,
+        r.version AS job_version, ri.input_versions, ro.output_versions
+        from latest_runs AS r
+      LEFT JOIN run_args AS ra ON ra.uuid = r.run_args_uuid
+      LEFT JOIN LATERAL (
+          SELECT im.run_uuid,
+                 JSON_AGG(json_build_object('namespace', dv.namespace_name,
+                                            'name', dv.dataset_name,
+                                            'version', dv.version)) AS input_versions
+          FROM runs_input_mapping im
+          INNER JOIN dataset_versions dv on im.dataset_version_uuid = dv.uuid
+          WHERE im.run_uuid=r.uuid
+          GROUP BY im.run_uuid
+      ) ri ON ri.run_uuid=r.uuid
+      LEFT JOIN LATERAL (
+          SELECT rf.run_uuid, JSON_AGG(rf.facet ORDER BY rf.lineage_event_time ASC) AS facets
+          FROM run_facets_view AS rf
+          WHERE rf.run_uuid=r.uuid
+          GROUP BY rf.run_uuid
+      ) AS f ON r.uuid=f.run_uuid
+      LEFT JOIN LATERAL (
+          SELECT run_uuid, JSON_AGG(json_build_object('namespace', namespace_name,
+                                                      'name', dataset_name,
+                                                      'version', version)) AS output_versions
+          FROM dataset_versions
+          WHERE run_uuid=r.uuid
+          GROUP BY run_uuid
+      ) ro ON ro.run_uuid=r.uuid
+      """)
   List<Run> getCurrentRunsWithFacets(@BindList Collection<UUID> jobUuid);
 
   @SqlQuery(
@@ -277,69 +277,69 @@ public interface LineageDao {
 
   @SqlQuery(
       """
-WITH RECURSIVE
-  lineage AS (
-    SELECT
-      r.run_uuid, r.namespace_name, r.job_name, r.state, r.created_at, r.updated_at,
-      r.started_at, r.ended_at, r.job_uuid, r.job_version_uuid, r.input_version_uuid,
-      r.input_dataset_uuid, r.output_version_uuid, r.output_dataset_uuid,
-      r.input_dataset_namespace, r.input_dataset_name, r.input_dataset_version,
-      r.input_dataset_version_uuid, r.output_dataset_namespace, r.output_dataset_name,
-      r.output_dataset_version, r.output_dataset_version_uuid, r.uuid, r.parent_run_uuid,
-      0 AS depth
-    FROM run_lineage_denormalized r
-    WHERE r.run_uuid IN (<runIds>)
-      AND (:minDate::date IS NULL OR r.run_date >= :minDate::date)
-      AND (:maxDate::date IS NULL OR r.run_date <= :maxDate::date)
+      WITH RECURSIVE
+        lineage AS (
+          SELECT
+            r.run_uuid, r.namespace_name, r.job_name, r.state, r.created_at, r.updated_at,
+            r.started_at, r.ended_at, r.job_uuid, r.job_version_uuid, r.input_version_uuid,
+            r.input_dataset_uuid, r.output_version_uuid, r.output_dataset_uuid,
+            r.input_dataset_namespace, r.input_dataset_name, r.input_dataset_version,
+            r.input_dataset_version_uuid, r.output_dataset_namespace, r.output_dataset_name,
+            r.output_dataset_version, r.output_dataset_version_uuid, r.uuid, r.parent_run_uuid,
+            0 AS depth
+          FROM run_lineage_denormalized r
+          WHERE r.run_uuid IN (<runIds>)
+            AND (:minDate::date IS NULL OR r.run_date >= :minDate::date)
+            AND (:maxDate::date IS NULL OR r.run_date <= :maxDate::date)
 
-    UNION ALL
+          UNION ALL
 
-    SELECT
-      io.run_uuid, io.namespace_name, io.job_name, io.state, io.created_at, io.updated_at,
-      io.started_at, io.ended_at, io.job_uuid, io.job_version_uuid, io.input_version_uuid,
-      io.input_dataset_uuid, io.output_version_uuid, io.output_dataset_uuid,
-      io.input_dataset_namespace, io.input_dataset_name, io.input_dataset_version,
-      io.input_dataset_version_uuid, io.output_dataset_namespace, io.output_dataset_name,
-      io.output_dataset_version, io.output_dataset_version_uuid, io.uuid, io.parent_run_uuid,
-      l.depth + 1 AS depth
-    FROM run_lineage_denormalized io
-    JOIN lineage l
-      ON (io.input_version_uuid = l.output_version_uuid OR io.output_version_uuid = l.input_version_uuid)
-     AND io.run_uuid != l.run_uuid
-    WHERE l.depth < :depth
-      AND (:minDate::date IS NULL OR io.run_date >= :minDate::date)
-      AND (:maxDate::date IS NULL OR io.run_date <= :maxDate::date)
-  )
-SELECT
-  run_uuid AS uuid,
-  created_at,
-  updated_at,
-  started_at,
-  ended_at,
-  state,
-  job_uuid,
-  job_version_uuid,
-  namespace_name,
-  job_name,
-  COALESCE(ARRAY_AGG(DISTINCT input_dataset_uuid) FILTER (WHERE input_dataset_uuid IS NOT NULL), Array[]::uuid[]) AS input_uuids,
-  COALESCE(ARRAY_AGG(DISTINCT output_dataset_uuid) FILTER (WHERE output_dataset_uuid IS NOT NULL), Array[]::uuid[]) AS output_uuids,
-  JSON_AGG(DISTINCT jsonb_build_object('namespace', input_dataset_namespace,
-              'name', input_dataset_name,
-              'version', input_dataset_version,
-              'dataset_version_uuid', input_dataset_version_uuid)) FILTER (WHERE input_dataset_name IS NOT NULL) AS input_versions,
-  JSON_AGG(DISTINCT jsonb_build_object('namespace', output_dataset_namespace,
-                                                      'name', output_dataset_name,
-                                                      'version', output_dataset_version,
-                                                      'dataset_version_uuid', output_dataset_version_uuid
-                                                      )) FILTER (WHERE output_dataset_name IS NOT NULL) AS output_versions,
-  COALESCE(Array_AGG(distinct uuid) FILTER (WHERE uuid IS NOT NULL), Array[]::uuid[]) as child_run_id,
-  COALESCE(Array_AGG(distinct parent_run_uuid) FILTER (WHERE parent_run_uuid IS NOT NULL), Array[]::uuid[]) as parent_run_id,
-  MIN(depth) AS depth
-FROM lineage
-GROUP BY
-  run_uuid, created_at, updated_at, started_at, ended_at,
-  state, job_uuid, job_version_uuid, namespace_name, job_name
-""")
+          SELECT
+            io.run_uuid, io.namespace_name, io.job_name, io.state, io.created_at, io.updated_at,
+            io.started_at, io.ended_at, io.job_uuid, io.job_version_uuid, io.input_version_uuid,
+            io.input_dataset_uuid, io.output_version_uuid, io.output_dataset_uuid,
+            io.input_dataset_namespace, io.input_dataset_name, io.input_dataset_version,
+            io.input_dataset_version_uuid, io.output_dataset_namespace, io.output_dataset_name,
+            io.output_dataset_version, io.output_dataset_version_uuid, io.uuid, io.parent_run_uuid,
+            l.depth + 1 AS depth
+          FROM run_lineage_denormalized io
+          JOIN lineage l
+            ON (io.input_version_uuid = l.output_version_uuid OR io.output_version_uuid = l.input_version_uuid)
+           AND io.run_uuid != l.run_uuid
+          WHERE l.depth < :depth
+            AND (:minDate::date IS NULL OR io.run_date >= :minDate::date)
+            AND (:maxDate::date IS NULL OR io.run_date <= :maxDate::date)
+        )
+      SELECT
+        run_uuid AS uuid,
+        created_at,
+        updated_at,
+        started_at,
+        ended_at,
+        state,
+        job_uuid,
+        job_version_uuid,
+        namespace_name,
+        job_name,
+        COALESCE(ARRAY_AGG(DISTINCT input_dataset_uuid) FILTER (WHERE input_dataset_uuid IS NOT NULL), Array[]::uuid[]) AS input_uuids,
+        COALESCE(ARRAY_AGG(DISTINCT output_dataset_uuid) FILTER (WHERE output_dataset_uuid IS NOT NULL), Array[]::uuid[]) AS output_uuids,
+        JSON_AGG(DISTINCT jsonb_build_object('namespace', input_dataset_namespace,
+                    'name', input_dataset_name,
+                    'version', input_dataset_version,
+                    'dataset_version_uuid', input_dataset_version_uuid)) FILTER (WHERE input_dataset_name IS NOT NULL) AS input_versions,
+        JSON_AGG(DISTINCT jsonb_build_object('namespace', output_dataset_namespace,
+                                                            'name', output_dataset_name,
+                                                            'version', output_dataset_version,
+                                                            'dataset_version_uuid', output_dataset_version_uuid
+                                                            )) FILTER (WHERE output_dataset_name IS NOT NULL) AS output_versions,
+        COALESCE(Array_AGG(distinct uuid) FILTER (WHERE uuid IS NOT NULL), Array[]::uuid[]) as child_run_id,
+        COALESCE(Array_AGG(distinct parent_run_uuid) FILTER (WHERE parent_run_uuid IS NOT NULL), Array[]::uuid[]) as parent_run_id,
+        MIN(depth) AS depth
+      FROM lineage
+      GROUP BY
+        run_uuid, created_at, updated_at, started_at, ended_at,
+        state, job_uuid, job_version_uuid, namespace_name, job_name
+      """)
   Set<RunData> getRunLineage(
       @BindList("runIds") Set<UUID> runIds,
       @Bind("depth") int depth,
@@ -349,76 +349,75 @@ GROUP BY
   /** Get run lineage with filtered facets - only returns specified facets */
   @SqlQuery(
       """
-WITH RECURSIVE
-  lineage AS (
-    SELECT
-      r.run_uuid, r.namespace_name, r.job_name, r.state, r.created_at, r.updated_at,
-      r.started_at, r.ended_at, r.job_uuid, r.job_version_uuid, r.input_version_uuid,
-      r.input_dataset_uuid, r.output_version_uuid, r.output_dataset_uuid,
-      r.input_dataset_namespace, r.input_dataset_name, r.input_dataset_version,
-      r.input_dataset_version_uuid, r.output_dataset_namespace, r.output_dataset_name,
-      r.output_dataset_version, r.output_dataset_version_uuid, r.uuid, r.parent_run_uuid,
-      rf.name as facet_name,
-      rf.facet as facet_data,
-      0 AS depth
-    FROM run_lineage_denormalized r
-    LEFT JOIN run_facets rf ON rf.run_uuid = r.run_uuid
-      AND rf.name IN (<includeFacets>)
-    WHERE r.run_uuid IN (<runIds>)
-      AND (:minDate::date IS NULL OR r.run_date >= :minDate::date)
-      AND (:maxDate::date IS NULL OR r.run_date <= :maxDate::date)
+      WITH RECURSIVE
+        lineage_graph AS (
+          SELECT
+            r.run_uuid, r.namespace_name, r.job_name, r.state, r.created_at, r.updated_at,
+            r.started_at, r.ended_at, r.job_uuid, r.job_version_uuid, r.input_version_uuid,
+            r.input_dataset_uuid, r.output_version_uuid, r.output_dataset_uuid,
+            r.input_dataset_namespace, r.input_dataset_name, r.input_dataset_version,
+            r.input_dataset_version_uuid, r.output_dataset_namespace, r.output_dataset_name,
+            r.output_dataset_version, r.output_dataset_version_uuid, r.uuid, r.parent_run_uuid,
+            0 AS depth
+          FROM run_lineage_denormalized r
+          WHERE r.run_uuid IN (<runIds>)
+            AND (:minDate::date IS NULL OR r.run_date >= :minDate::date)
+            AND (:maxDate::date IS NULL OR r.run_date <= :maxDate::date)
 
-    UNION ALL
+          UNION ALL
 
-    SELECT
-      io.run_uuid, io.namespace_name, io.job_name, io.state, io.created_at, io.updated_at,
-      io.started_at, io.ended_at, io.job_uuid, io.job_version_uuid, io.input_version_uuid,
-      io.input_dataset_uuid, io.output_version_uuid, io.output_dataset_uuid,
-      io.input_dataset_namespace, io.input_dataset_name, io.input_dataset_version,
-      io.input_dataset_version_uuid, io.output_dataset_namespace, io.output_dataset_name,
-      io.output_dataset_version, io.output_dataset_version_uuid, io.uuid, io.parent_run_uuid,
-      rf.name as facet_name,
-      rf.facet as facet_data,
-      l.depth + 1 AS depth
-    FROM run_lineage_denormalized io
-    LEFT JOIN run_facets rf ON rf.run_uuid = io.run_uuid
-      AND rf.name IN (<includeFacets>)
-    JOIN lineage l
-      ON (io.input_version_uuid = l.output_version_uuid OR io.output_version_uuid = l.input_version_uuid)
-     AND io.run_uuid != l.run_uuid
-    WHERE l.depth < :depth
-  )
-SELECT
-  run_uuid AS uuid,
-  created_at,
-  updated_at,
-  started_at,
-  ended_at,
-  state,
-  job_uuid,
-  job_version_uuid,
-  namespace_name,
-  job_name,
-  COALESCE(ARRAY_AGG(DISTINCT input_dataset_uuid) FILTER (WHERE input_dataset_uuid IS NOT NULL), Array[]::uuid[]) AS input_uuids,
-  COALESCE(ARRAY_AGG(DISTINCT output_dataset_uuid) FILTER (WHERE output_dataset_uuid IS NOT NULL), Array[]::uuid[]) AS output_uuids,
-  JSON_AGG(DISTINCT jsonb_build_object('namespace', input_dataset_namespace,
-              'name', input_dataset_name,
-              'version', input_dataset_version,
-              'dataset_version_uuid', input_dataset_version_uuid)) FILTER (WHERE input_dataset_name IS NOT NULL) AS input_versions,
-  JSON_AGG(DISTINCT jsonb_build_object('namespace', output_dataset_namespace,
-                                                      'name', output_dataset_name,
-                                                      'version', output_dataset_version,
-                                                      'dataset_version_uuid', output_dataset_version_uuid
-                                                      )) FILTER (WHERE output_dataset_name IS NOT NULL) AS output_versions,
-  COALESCE(Array_AGG(distinct uuid) FILTER (WHERE uuid IS NOT NULL), Array[]::uuid[]) as child_run_id,
-  COALESCE(Array_AGG(distinct parent_run_uuid) FILTER (WHERE parent_run_uuid IS NOT NULL), Array[]::uuid[]) as parent_run_id,
-  JSON_AGG(DISTINCT jsonb_build_object(facet_name, facet_data)) FILTER (WHERE facet_name IS NOT NULL) as facets,
-  MIN(depth) AS depth
-FROM lineage
-GROUP BY
-  run_uuid, created_at, updated_at, started_at, ended_at,
-  state, job_uuid, job_version_uuid, namespace_name, job_name
-""")
+          SELECT
+            io.run_uuid, io.namespace_name, io.job_name, io.state, io.created_at, io.updated_at,
+            io.started_at, io.ended_at, io.job_uuid, io.job_version_uuid, io.input_version_uuid,
+            io.input_dataset_uuid, io.output_version_uuid, io.output_dataset_uuid,
+            io.input_dataset_namespace, io.input_dataset_name, io.input_dataset_version,
+            io.input_dataset_version_uuid, io.output_dataset_namespace, io.output_dataset_name,
+            io.output_dataset_version, io.output_dataset_version_uuid, io.uuid, io.parent_run_uuid,
+            l.depth + 1 AS depth
+          FROM run_lineage_denormalized io
+          JOIN lineage_graph l
+            ON (io.input_version_uuid = l.output_version_uuid OR io.output_version_uuid = l.input_version_uuid)
+           AND io.run_uuid != l.run_uuid
+          WHERE l.depth < :depth
+            AND (:minDate::date IS NULL OR io.run_date >= :minDate::date)
+            AND (:maxDate::date IS NULL OR io.run_date <= :maxDate::date)
+        ),
+        lineage_nodes AS (
+          SELECT DISTINCT ON (run_uuid) * FROM lineage_graph ORDER BY run_uuid, depth ASC
+        )
+      SELECT
+        l.run_uuid AS uuid,
+        l.created_at,
+        l.updated_at,
+        l.started_at,
+        l.ended_at,
+        l.state,
+        l.job_uuid,
+        l.job_version_uuid,
+        l.namespace_name,
+        l.job_name,
+        COALESCE(ARRAY_AGG(DISTINCT l.input_dataset_uuid) FILTER (WHERE l.input_dataset_uuid IS NOT NULL), Array[]::uuid[]) AS input_uuids,
+        COALESCE(ARRAY_AGG(DISTINCT l.output_dataset_uuid) FILTER (WHERE l.output_dataset_uuid IS NOT NULL), Array[]::uuid[]) AS output_uuids,
+        JSON_AGG(DISTINCT jsonb_build_object('namespace', l.input_dataset_namespace,
+                    'name', l.input_dataset_name,
+                    'version', l.input_dataset_version,
+                    'dataset_version_uuid', l.input_dataset_version_uuid)) FILTER (WHERE l.input_dataset_name IS NOT NULL) AS input_versions,
+        JSON_AGG(DISTINCT jsonb_build_object('namespace', l.output_dataset_namespace,
+                                                            'name', l.output_dataset_name,
+                                                            'version', l.output_dataset_version,
+                                                            'dataset_version_uuid', l.output_dataset_version_uuid
+                                                            )) FILTER (WHERE l.output_dataset_name IS NOT NULL) AS output_versions,
+        COALESCE(Array_AGG(distinct l.uuid) FILTER (WHERE l.uuid IS NOT NULL), Array[]::uuid[]) as child_run_id,
+        COALESCE(Array_AGG(distinct l.parent_run_uuid) FILTER (WHERE l.parent_run_uuid IS NOT NULL), Array[]::uuid[]) as parent_run_id,
+        JSON_AGG(DISTINCT jsonb_build_object(rf.name, rf.facet)) FILTER (WHERE rf.name IS NOT NULL) as facets,
+        MIN(l.depth) AS depth
+      FROM lineage_nodes l
+      LEFT JOIN run_facets rf ON rf.run_uuid = l.run_uuid
+        AND rf.name IN (<includeFacets>)
+      GROUP BY
+        l.run_uuid, l.created_at, l.updated_at, l.started_at, l.ended_at,
+        l.state, l.job_uuid, l.job_version_uuid, l.namespace_name, l.job_name
+      """)
   Set<RunData> getRunLineageWithFacets(
       @BindList("runIds") Set<UUID> runIds,
       @Bind("depth") int depth,
@@ -465,69 +464,69 @@ GROUP BY
    */
   @SqlQuery(
       """
-     WITH RECURSIVE
-      lineage AS (
-        SELECT
-          r.run_uuid, r.namespace_name, r.job_name, r.state, r.created_at, r.updated_at,
-          r.started_at, r.ended_at, r.job_uuid, r.job_version_uuid, r.input_version_uuid,
-          r.input_dataset_uuid, r.output_version_uuid, r.output_dataset_uuid,
-          r.input_dataset_namespace, r.input_dataset_name, r.input_dataset_version,
-          r.input_dataset_version_uuid, r.output_dataset_namespace, r.output_dataset_name,
-          r.output_dataset_version, r.output_dataset_version_uuid, r.uuid, r.parent_run_uuid,
-          0 AS depth
-        FROM run_parent_lineage_denormalized r
-        WHERE r.run_uuid IN (<runIds>)
-          AND (:minDate::date IS NULL OR r.run_date >= :minDate::date)
-          AND (:maxDate::date IS NULL OR r.run_date <= :maxDate::date)
+          WITH RECURSIVE
+           lineage AS (
+             SELECT
+               r.run_uuid, r.namespace_name, r.job_name, r.state, r.created_at, r.updated_at,
+               r.started_at, r.ended_at, r.job_uuid, r.job_version_uuid, r.input_version_uuid,
+               r.input_dataset_uuid, r.output_version_uuid, r.output_dataset_uuid,
+               r.input_dataset_namespace, r.input_dataset_name, r.input_dataset_version,
+               r.input_dataset_version_uuid, r.output_dataset_namespace, r.output_dataset_name,
+               r.output_dataset_version, r.output_dataset_version_uuid, r.uuid, r.parent_run_uuid,
+               0 AS depth
+             FROM run_parent_lineage_denormalized r
+             WHERE r.run_uuid IN (<runIds>)
+               AND (:minDate::date IS NULL OR r.run_date >= :minDate::date)
+               AND (:maxDate::date IS NULL OR r.run_date <= :maxDate::date)
 
-        UNION ALL
+             UNION ALL
 
-        SELECT
-          io.run_uuid, io.namespace_name, io.job_name, io.state, io.created_at, io.updated_at,
-          io.started_at, io.ended_at, io.job_uuid, io.job_version_uuid, io.input_version_uuid,
-          io.input_dataset_uuid, io.output_version_uuid, io.output_dataset_uuid,
-          io.input_dataset_namespace, io.input_dataset_name, io.input_dataset_version,
-          io.input_dataset_version_uuid, io.output_dataset_namespace, io.output_dataset_name,
-          io.output_dataset_version, io.output_dataset_version_uuid, io.uuid, io.parent_run_uuid,
-          l.depth + 1 AS depth
-        FROM run_parent_lineage_denormalized io
-        JOIN lineage l
-          ON (io.input_version_uuid = l.output_version_uuid OR io.output_version_uuid = l.input_version_uuid)
-         AND io.run_uuid != l.run_uuid
-        WHERE l.depth < :depth
-          AND (:minDate::date IS NULL OR io.run_date >= :minDate::date)
-          AND (:maxDate::date IS NULL OR io.run_date <= :maxDate::date)
-      )
-    SELECT
-      run_uuid AS uuid, -- Returns parent run UUID for aggregation (groups all child runs)
-      created_at,
-      updated_at,
-      started_at,
-      ended_at,
-      state,
-      job_uuid,
-      job_version_uuid,
-      namespace_name,
-      job_name,
-      COALESCE(ARRAY_AGG(DISTINCT input_dataset_uuid) FILTER (WHERE input_dataset_uuid IS NOT NULL), Array[]::uuid[]) AS input_uuids,
-      COALESCE(ARRAY_AGG(DISTINCT output_dataset_uuid) FILTER (WHERE output_dataset_uuid IS NOT NULL), Array[]::uuid[]) AS output_uuids,
-	  JSON_AGG(DISTINCT jsonb_build_object('namespace', input_dataset_namespace,
-              'name', input_dataset_name,
-              'version', input_dataset_version,
-              'dataset_version_uuid', input_dataset_version_uuid)) FILTER (WHERE input_dataset_name IS NOT NULL) AS input_versions,
-	  JSON_AGG(DISTINCT jsonb_build_object('namespace', output_dataset_namespace,
-                                                      'name', output_dataset_name,
-                                                      'version', output_dataset_version,
-                                                      'dataset_version_uuid', output_dataset_version_uuid
-                                                      )) FILTER (WHERE output_dataset_name IS NOT NULL) AS output_versions,
-	COALESCE(Array_AGG(distinct uuid), Array[]::uuid[]) as child_run_id,
-  COALESCE(Array_AGG(distinct parent_run_uuid), Array[]::uuid[]) as parent_run_id,
-      MIN(depth) AS depth
-    FROM lineage
-    GROUP BY
-      run_uuid, created_at, updated_at, started_at, ended_at,
-      state, job_uuid, job_version_uuid, namespace_name, job_name
-    """)
+             SELECT
+               io.run_uuid, io.namespace_name, io.job_name, io.state, io.created_at, io.updated_at,
+               io.started_at, io.ended_at, io.job_uuid, io.job_version_uuid, io.input_version_uuid,
+               io.input_dataset_uuid, io.output_version_uuid, io.output_dataset_uuid,
+               io.input_dataset_namespace, io.input_dataset_name, io.input_dataset_version,
+               io.input_dataset_version_uuid, io.output_dataset_namespace, io.output_dataset_name,
+               io.output_dataset_version, io.output_dataset_version_uuid, io.uuid, io.parent_run_uuid,
+               l.depth + 1 AS depth
+             FROM run_parent_lineage_denormalized io
+             JOIN lineage l
+               ON (io.input_version_uuid = l.output_version_uuid OR io.output_version_uuid = l.input_version_uuid)
+              AND io.run_uuid != l.run_uuid
+             WHERE l.depth < :depth
+               AND (:minDate::date IS NULL OR io.run_date >= :minDate::date)
+               AND (:maxDate::date IS NULL OR io.run_date <= :maxDate::date)
+           )
+         SELECT
+           run_uuid AS uuid, -- Returns parent run UUID for aggregation (groups all child runs)
+           created_at,
+           updated_at,
+           started_at,
+           ended_at,
+           state,
+           job_uuid,
+           job_version_uuid,
+           namespace_name,
+           job_name,
+           COALESCE(ARRAY_AGG(DISTINCT input_dataset_uuid) FILTER (WHERE input_dataset_uuid IS NOT NULL), Array[]::uuid[]) AS input_uuids,
+           COALESCE(ARRAY_AGG(DISTINCT output_dataset_uuid) FILTER (WHERE output_dataset_uuid IS NOT NULL), Array[]::uuid[]) AS output_uuids,
+        JSON_AGG(DISTINCT jsonb_build_object('namespace', input_dataset_namespace,
+                   'name', input_dataset_name,
+                   'version', input_dataset_version,
+                   'dataset_version_uuid', input_dataset_version_uuid)) FILTER (WHERE input_dataset_name IS NOT NULL) AS input_versions,
+        JSON_AGG(DISTINCT jsonb_build_object('namespace', output_dataset_namespace,
+                                                           'name', output_dataset_name,
+                                                           'version', output_dataset_version,
+                                                           'dataset_version_uuid', output_dataset_version_uuid
+                                                           )) FILTER (WHERE output_dataset_name IS NOT NULL) AS output_versions,
+      COALESCE(Array_AGG(distinct uuid), Array[]::uuid[]) as child_run_id,
+       COALESCE(Array_AGG(distinct parent_run_uuid), Array[]::uuid[]) as parent_run_id,
+           MIN(depth) AS depth
+         FROM lineage
+         GROUP BY
+           run_uuid, created_at, updated_at, started_at, ended_at,
+           state, job_uuid, job_version_uuid, namespace_name, job_name
+         """)
   Set<RunData> getParentRunLineage(
       @BindList(value = "runIds", onEmpty = BindList.EmptyHandling.NULL_STRING) Set<UUID> runIds,
       @Bind("depth") int depth,
@@ -542,78 +541,75 @@ GROUP BY
    */
   @SqlQuery(
       """
-     WITH RECURSIVE
-      lineage AS (
-        SELECT
-          r.run_uuid, r.namespace_name, r.job_name, r.state, r.created_at, r.updated_at,
-          r.started_at, r.ended_at, r.job_uuid, r.job_version_uuid, r.input_version_uuid,
-          r.input_dataset_uuid, r.output_version_uuid, r.output_dataset_uuid,
-          r.input_dataset_namespace, r.input_dataset_name, r.input_dataset_version,
-          r.input_dataset_version_uuid, r.output_dataset_namespace, r.output_dataset_name,
-          r.output_dataset_version, r.output_dataset_version_uuid, r.uuid, r.parent_run_uuid,
-          rf.name as facet_name,
-          rf.facet as facet_data,
-          0 AS depth
-        FROM run_parent_lineage_denormalized r
-    LEFT JOIN run_facets rf ON (rf.run_uuid = r.uuid OR rf.run_uuid = r.run_uuid)  -- Join facets from actual run AND parent run
-      AND rf.name IN (<includeFacets>)
-    WHERE r.run_uuid IN (<runIds>)
-      AND (:minDate::date IS NULL OR r.run_date >= :minDate::date)
-      AND (:maxDate::date IS NULL OR r.run_date <= :maxDate::date)
+       WITH RECURSIVE
+        lineage_graph AS (
+          SELECT
+            r.run_uuid, r.namespace_name, r.job_name, r.state, r.created_at, r.updated_at,
+            r.started_at, r.ended_at, r.job_uuid, r.job_version_uuid, r.input_version_uuid,
+            r.input_dataset_uuid, r.output_version_uuid, r.output_dataset_uuid,
+            r.input_dataset_namespace, r.input_dataset_name, r.input_dataset_version,
+            r.input_dataset_version_uuid, r.output_dataset_namespace, r.output_dataset_name,
+            r.output_dataset_version, r.output_dataset_version_uuid, r.uuid, r.parent_run_uuid,
+            0 AS depth
+          FROM run_parent_lineage_denormalized r
+          WHERE r.run_uuid IN (<runIds>)
+            AND (:minDate::date IS NULL OR r.run_date >= :minDate::date)
+            AND (:maxDate::date IS NULL OR r.run_date <= :maxDate::date)
 
-        UNION ALL
+          UNION ALL
 
-        SELECT
-          io.run_uuid, io.namespace_name, io.job_name, io.state, io.created_at, io.updated_at,
-          io.started_at, io.ended_at, io.job_uuid, io.job_version_uuid, io.input_version_uuid,
-          io.input_dataset_uuid, io.output_version_uuid, io.output_dataset_uuid,
-          io.input_dataset_namespace, io.input_dataset_name, io.input_dataset_version,
-          io.input_dataset_version_uuid, io.output_dataset_namespace, io.output_dataset_name,
-          io.output_dataset_version, io.output_dataset_version_uuid, io.uuid, io.parent_run_uuid,
-          rf.name as facet_name,
-          rf.facet as facet_data,
-          l.depth + 1 AS depth
-        FROM run_parent_lineage_denormalized io
-        LEFT JOIN run_facets rf ON (rf.run_uuid = io.uuid OR rf.run_uuid = io.run_uuid)  -- Join facets from actual run AND parent run
-          AND rf.name IN (<includeFacets>)
-        JOIN lineage l
-          ON (io.input_version_uuid = l.output_version_uuid OR io.output_version_uuid = l.input_version_uuid)
-         AND io.run_uuid != l.run_uuid
-        WHERE l.depth < :depth
-          AND (:minDate::date IS NULL OR io.run_date >= :minDate::date)
-          AND (:maxDate::date IS NULL OR io.run_date <= :maxDate::date)
-      )
-    SELECT
-      run_uuid AS uuid, -- Returns parent run UUID for aggregation (groups all child runs with their facets)
-      created_at,
-      updated_at,
-      started_at,
-      ended_at,
-      state,
-      job_uuid,
-      job_version_uuid,
-      namespace_name,
-      job_name,
-      COALESCE(ARRAY_AGG(DISTINCT input_dataset_uuid) FILTER (WHERE input_dataset_uuid IS NOT NULL), Array[]::uuid[]) AS input_uuids,
-      COALESCE(ARRAY_AGG(DISTINCT output_dataset_uuid) FILTER (WHERE output_dataset_uuid IS NOT NULL), Array[]::uuid[]) AS output_uuids,
-	  JSON_AGG(DISTINCT jsonb_build_object('namespace', input_dataset_namespace,
-              'name', input_dataset_name,
-              'version', input_dataset_version,
-              'dataset_version_uuid', input_dataset_version_uuid)) FILTER (WHERE input_dataset_name IS NOT NULL) AS input_versions,
-	  JSON_AGG(DISTINCT jsonb_build_object('namespace', output_dataset_namespace,
-                                                      'name', output_dataset_name,
-                                                      'version', output_dataset_version,
-                                                      'dataset_version_uuid', output_dataset_version_uuid
-                                                      )) FILTER (WHERE output_dataset_name IS NOT NULL) AS output_versions,
-	COALESCE(Array_AGG(distinct uuid), Array[]::uuid[]) as child_run_id,
-  COALESCE(Array_AGG(distinct parent_run_uuid), Array[]::uuid[]) as parent_run_id,
-  JSON_AGG(DISTINCT jsonb_build_object(facet_name, facet_data)) FILTER (WHERE facet_name IS NOT NULL) as facets,
-      MIN(depth) AS depth
-    FROM lineage
-    GROUP BY
-      run_uuid, created_at, updated_at, started_at, ended_at,
-      state, job_uuid, job_version_uuid, namespace_name, job_name
-    """)
+          SELECT
+            io.run_uuid, io.namespace_name, io.job_name, io.state, io.created_at, io.updated_at,
+            io.started_at, io.ended_at, io.job_uuid, io.job_version_uuid, io.input_version_uuid,
+            io.input_dataset_uuid, io.output_version_uuid, io.output_dataset_uuid,
+            io.input_dataset_namespace, io.input_dataset_name, io.input_dataset_version,
+            io.input_dataset_version_uuid, io.output_dataset_namespace, io.output_dataset_name,
+            io.output_dataset_version, io.output_dataset_version_uuid, io.uuid, io.parent_run_uuid,
+            l.depth + 1 AS depth
+          FROM run_parent_lineage_denormalized io
+          JOIN lineage_graph l
+            ON (io.input_version_uuid = l.output_version_uuid OR io.output_version_uuid = l.input_version_uuid)
+           AND io.run_uuid != l.run_uuid
+          WHERE l.depth < :depth
+            AND (:minDate::date IS NULL OR io.run_date >= :minDate::date)
+            AND (:maxDate::date IS NULL OR io.run_date <= :maxDate::date)
+        ),
+        lineage_nodes AS (
+          SELECT DISTINCT ON (run_uuid) * FROM lineage_graph ORDER BY run_uuid, depth ASC
+        )
+      SELECT
+        l.run_uuid AS uuid,
+        l.created_at,
+        l.updated_at,
+        l.started_at,
+        l.ended_at,
+        l.state,
+        l.job_uuid,
+        l.job_version_uuid,
+        l.namespace_name,
+        l.job_name,
+        COALESCE(ARRAY_AGG(DISTINCT l.input_dataset_uuid) FILTER (WHERE l.input_dataset_uuid IS NOT NULL), Array[]::uuid[]) AS input_uuids,
+        COALESCE(ARRAY_AGG(DISTINCT l.output_dataset_uuid) FILTER (WHERE l.output_dataset_uuid IS NOT NULL), Array[]::uuid[]) AS output_uuids,
+        JSON_AGG(DISTINCT jsonb_build_object('namespace', l.input_dataset_namespace,
+                   'name', l.input_dataset_name,
+                   'version', l.input_dataset_version,
+                   'dataset_version_uuid', l.input_dataset_version_uuid)) FILTER (WHERE l.input_dataset_name IS NOT NULL) AS input_versions,
+        JSON_AGG(DISTINCT jsonb_build_object('namespace', l.output_dataset_namespace,
+                                                           'name', l.output_dataset_name,
+                                                           'version', l.output_dataset_version,
+                                                           'dataset_version_uuid', l.output_dataset_version_uuid
+                                                           )) FILTER (WHERE l.output_dataset_name IS NOT NULL) AS output_versions,
+        COALESCE(Array_AGG(distinct l.uuid), Array[]::uuid[]) as child_run_id,
+        COALESCE(Array_AGG(distinct l.parent_run_uuid), Array[]::uuid[]) as parent_run_id,
+        JSON_AGG(DISTINCT jsonb_build_object(rf.name, rf.facet)) FILTER (WHERE rf.name IS NOT NULL) as facets,
+        MIN(l.depth) AS depth
+      FROM lineage_nodes l
+      LEFT JOIN run_facets rf ON (rf.run_uuid = l.uuid OR rf.run_uuid = l.run_uuid)
+        AND rf.name IN (<includeFacets>)
+      GROUP BY
+        l.run_uuid, l.created_at, l.updated_at, l.started_at, l.ended_at,
+        l.state, l.job_uuid, l.job_version_uuid, l.namespace_name, l.job_name
+      """)
   Set<RunData> getParentRunLineageWithFacets(
       @BindList(value = "runIds", onEmpty = BindList.EmptyHandling.NULL_STRING) Set<UUID> runIds,
       @Bind("depth") int depth,
@@ -623,35 +619,35 @@ GROUP BY
 
   @SqlQuery(
       """
-      WITH selected_dataset_versions AS (
-          SELECT dv.*
-          FROM dataset_versions dv
-          WHERE dv.uuid IN (<versions>)
-      ), selected_dataset_version_facets AS (
-          SELECT dv.uuid, dv.dataset_name, dv.namespace_name, df.run_uuid, df.lineage_event_time, df.facet
-          FROM selected_dataset_versions dv
-          LEFT JOIN dataset_facets_view df ON df.dataset_version_uuid = dv.uuid
-      )
-      SELECT dv.uuid,d.type, d.name, d.physical_name, d.namespace_name, d.source_name, d.description, dv.lifecycle_state,
-          dv.created_at, dv.uuid AS current_version_uuid, dv.version, dv.dataset_schema_version_uuid, dv.fields, dv.run_uuid AS createdByRunUuid,
-		  rp.parent_run_uuid as createdByParentRunUuid,
-          sv.schema_location, t.tags, f.facets
-      FROM selected_dataset_versions dv
-      LEFT JOIN datasets_view d ON d.uuid = dv.dataset_uuid
-      LEFT JOIN stream_versions AS sv ON sv.dataset_version_uuid = dv.uuid
-	  LEFT JOIN runs AS rp ON rp.uuid = dv.run_uuid
-      LEFT JOIN (
-          SELECT ARRAY_AGG(t.name) AS tags, m.dataset_uuid
-          FROM tags AS t
-                   INNER JOIN datasets_tag_mapping AS m ON m.tag_uuid = t.uuid
-          GROUP BY m.dataset_uuid
-      ) t ON t.dataset_uuid = dv.dataset_uuid
-      LEFT JOIN (
-          SELECT dvf.uuid AS dataset_uuid, JSONB_AGG(dvf.facet ORDER BY dvf.lineage_event_time ASC) AS facets
-          FROM selected_dataset_version_facets dvf
-          WHERE dvf.run_uuid = dvf.run_uuid
-          GROUP BY dvf.uuid
-      ) f ON f.dataset_uuid = dv.uuid""")
+         WITH selected_dataset_versions AS (
+             SELECT dv.*
+             FROM dataset_versions dv
+             WHERE dv.uuid IN (<versions>)
+         ), selected_dataset_version_facets AS (
+             SELECT dv.uuid, dv.dataset_name, dv.namespace_name, df.run_uuid, df.lineage_event_time, df.facet
+             FROM selected_dataset_versions dv
+             LEFT JOIN dataset_facets_view df ON df.dataset_version_uuid = dv.uuid
+         )
+         SELECT dv.uuid,d.type, d.name, d.physical_name, d.namespace_name, d.source_name, d.description, dv.lifecycle_state,
+             dv.created_at, dv.uuid AS current_version_uuid, dv.version, dv.dataset_schema_version_uuid, dv.fields, dv.run_uuid AS createdByRunUuid,
+       rp.parent_run_uuid as createdByParentRunUuid,
+             sv.schema_location, t.tags, f.facets
+         FROM selected_dataset_versions dv
+         LEFT JOIN datasets_view d ON d.uuid = dv.dataset_uuid
+         LEFT JOIN stream_versions AS sv ON sv.dataset_version_uuid = dv.uuid
+      LEFT JOIN runs AS rp ON rp.uuid = dv.run_uuid
+         LEFT JOIN (
+             SELECT ARRAY_AGG(t.name) AS tags, m.dataset_uuid
+             FROM tags AS t
+                      INNER JOIN datasets_tag_mapping AS m ON m.tag_uuid = t.uuid
+             GROUP BY m.dataset_uuid
+         ) t ON t.dataset_uuid = dv.dataset_uuid
+         LEFT JOIN (
+             SELECT dvf.uuid AS dataset_uuid, JSONB_AGG(dvf.facet ORDER BY dvf.lineage_event_time ASC) AS facets
+             FROM selected_dataset_version_facets dvf
+             WHERE dvf.run_uuid = dvf.run_uuid
+             GROUP BY dvf.uuid
+         ) f ON f.dataset_uuid = dv.uuid""")
   Set<DatasetVersionData> getDatasetVersionData(
       @BindList(value = "versions", onEmpty = BindList.EmptyHandling.NULL_STRING)
           Set<UUID> versions);

@@ -84,13 +84,27 @@ public class OpenLineageService extends DelegatingDaos.DelegatingOpenLineageDao 
             executor);
 
     CompletableFuture<Void> marquez =
-        CompletableFuture.runAsync(
-            withSentry(
-                withMdc(
-                    () -> {
-                      updateMarquezModel(event, mapper);
-                    })),
-            executor);
+        CompletableFuture.supplyAsync(
+                withSentry(
+                    withMdc(
+                        () -> {
+                          return updateMarquezModel(event, mapper);
+                        })),
+                executor)
+            .thenAccept(
+                (update) -> {
+                  if (update != null && update.getNamespace() != null) {
+                    try {
+                      denormalizedLineageService.populateDenormalizedEntitiesForNamespace(
+                          update.getNamespace().getUuid());
+                    } catch (Exception e) {
+                      log.error(
+                          "Failed to populate denormalized entities for namespace: {}",
+                          update.getNamespace().getUuid(),
+                          e);
+                    }
+                  }
+                });
 
     return CompletableFuture.allOf(marquez, openLineage);
   }
@@ -110,13 +124,27 @@ public class OpenLineageService extends DelegatingDaos.DelegatingOpenLineageDao 
             executor);
 
     CompletableFuture<Void> marquez =
-        CompletableFuture.runAsync(
-            withSentry(
-                withMdc(
-                    () -> {
-                      updateMarquezModel(event, mapper);
-                    })),
-            executor);
+        CompletableFuture.supplyAsync(
+                withSentry(
+                    withMdc(
+                        () -> {
+                          return updateMarquezModel(event, mapper);
+                        })),
+                executor)
+            .thenAccept(
+                (update) -> {
+                  if (update != null && update.getNamespace() != null) {
+                    try {
+                      denormalizedLineageService.populateDenormalizedEntitiesForNamespace(
+                          update.getNamespace().getUuid());
+                    } catch (Exception e) {
+                      log.error(
+                          "Failed to populate denormalized entities for namespace: {}",
+                          update.getNamespace().getUuid(),
+                          e);
+                    }
+                  }
+                });
 
     return CompletableFuture.allOf(marquez, openLineage);
   }
@@ -154,8 +182,25 @@ public class OpenLineageService extends DelegatingDaos.DelegatingOpenLineageDao 
                     buildJobInputUpdate(update).ifPresent(runService::notify);
                     buildRunTransition(update).ifPresent(runService::notify);
 
-                    // Trigger denormalized lineage population as the last step for completed runs
-                    if (event.getEventType().equalsIgnoreCase("COMPLETE")) {
+                    // Trigger denormalized entity population for ALL events to keep metadata
+                    // updated
+                    if (update.getNamespace() != null) {
+                      try {
+                        denormalizedLineageService.populateDenormalizedEntitiesForNamespace(
+                            update.getNamespace().getUuid());
+                      } catch (Exception e) {
+                        log.error(
+                            "Failed to populate denormalized entities for namespace: {}",
+                            update.getNamespace().getUuid(),
+                            e);
+                      }
+                    }
+
+                    // Trigger denormalized lineage population for terminal events
+                    String eventType = event.getEventType().toUpperCase();
+                    if (eventType.equals("COMPLETE")
+                        || eventType.equals("FAIL")
+                        || eventType.equals("ABORTED")) {
                       CompletableFuture.runAsync(
                           withSentry(
                               withMdc(

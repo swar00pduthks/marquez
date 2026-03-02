@@ -735,8 +735,9 @@ paths:
         - $ref: '#/components/parameters/namespace'
         - $ref: '#/components/parameters/limit'
         - $ref: '#/components/parameters/offset'
+        - $ref: '#/components/parameters/includeFacets'
       summary: List all datasets (V2)
-      description: Returns a list of datasets for a namespace using internal DB models.
+      description: Returns a list of datasets for a namespace using service models.
       tags:
         - Datasets V2
       responses:
@@ -747,7 +748,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/DatasetRow'
+                  $ref: '#/components/schemas/Dataset'
 
   /api/v2/namespaces/{namespace}/datasets/{dataset}:
     get:
@@ -755,8 +756,9 @@ paths:
       parameters:
         - $ref: '#/components/parameters/namespace'
         - $ref: '#/components/parameters/dataset'
+        - $ref: '#/components/parameters/includeFacets'
       summary: Retrieve a dataset (V2)
-      description: Returns a dataset using internal DB models.
+      description: Returns a dataset using service models.
       tags:
         - Datasets V2
       responses:
@@ -765,7 +767,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/DatasetRow'
+                $ref: '#/components/schemas/Dataset'
 
   /api/v2/namespaces/{namespace}/datasets/{dataset}/versions:
     get:
@@ -775,8 +777,9 @@ paths:
         - $ref: '#/components/parameters/dataset'
         - $ref: '#/components/parameters/limit'
         - $ref: '#/components/parameters/offset'
+        - $ref: '#/components/parameters/includeFacets'
       summary: List all versions for a dataset (V2)
-      description: Returns a list of versions for a dataset using internal DB models.
+      description: Returns a list of versions for a dataset using service models.
       tags:
         - Datasets V2
       responses:
@@ -787,7 +790,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/DatasetVersionRow'
+                  $ref: '#/components/schemas/DatasetVersion'
 
   /api/v2/namespaces/{namespace}/datasets/{dataset}/versions/{version}:
     get:
@@ -796,8 +799,9 @@ paths:
         - $ref: '#/components/parameters/namespace'
         - $ref: '#/components/parameters/dataset'
         - $ref: '#/components/parameters/version'
+        - $ref: '#/components/parameters/includeFacets'
       summary: Retrieve a version for a dataset (V2)
-      description: Returns a version for a dataset using internal DB models.
+      description: Returns a version for a dataset using service models.
       tags:
         - Datasets V2
       responses:
@@ -806,7 +810,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/DatasetVersionRow'
+                $ref: '#/components/schemas/DatasetVersion'
 
   /api/v2/namespaces/{namespace}/jobs:
     get:
@@ -815,8 +819,9 @@ paths:
         - $ref: '#/components/parameters/namespace'
         - $ref: '#/components/parameters/limit'
         - $ref: '#/components/parameters/offset'
+        - $ref: '#/components/parameters/includeFacets'
       summary: List all jobs (V2)
-      description: Returns a list of jobs for a namespace using internal DB models.
+      description: Returns a list of jobs for a namespace using service models.
       tags:
         - Jobs V2
       responses:
@@ -827,7 +832,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: '#/components/schemas/JobRow'
+                  $ref: '#/components/schemas/Job'
 
   /api/v2/namespaces/{namespace}/jobs/{job}:
     get:
@@ -835,8 +840,9 @@ paths:
       parameters:
         - $ref: '#/components/parameters/namespace'
         - $ref: '#/components/parameters/job'
+        - $ref: '#/components/parameters/includeFacets'
       summary: Retrieve a job (V2)
-      description: Returns a job using internal DB models.
+      description: Returns a job using service models.
       tags:
         - Jobs V2
       responses:
@@ -845,7 +851,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/JobRow'
+                $ref: '#/components/schemas/Job'
 
 components:
   parameters:

@@ -154,33 +154,34 @@ public interface JobVersionDao extends BaseDao {
    * @param namespaceName The namespace associated with the job version.
    * @return The {@link ExtendedJobVersionRow} object inserted into the {@code job_versions} table.
    */
-  // TODO: A JobVersionRow object should be immutable; replace with JobVersionDao.insertJobVersion()
+  // TODO: A JobVersionRow object should be immutable; replace with
+  // JobVersionDao.insertJobVersion()
   @SqlQuery(
       """
-    INSERT INTO job_versions (
-      uuid,
-      created_at,
-      updated_at,
-      job_uuid,
-      location,
-      version,
-      job_name,
-      namespace_uuid,
-      namespace_name
-    ) VALUES (
-      :jobVersionUuid,
-      :now,
-      :now,
-      :jobUuid,
-      :jobLocation,
-      :version,
-      :jobName,
-      :namespaceUuid,
-      :namespaceName)
-    ON CONFLICT(version) DO
-    UPDATE SET updated_at = EXCLUDED.updated_at
-    RETURNING *
-  """)
+        INSERT INTO job_versions (
+          uuid,
+          created_at,
+          updated_at,
+          job_uuid,
+          location,
+          version,
+          job_name,
+          namespace_uuid,
+          namespace_name
+        ) VALUES (
+          :jobVersionUuid,
+          :now,
+          :now,
+          :jobUuid,
+          :jobLocation,
+          :version,
+          :jobName,
+          :namespaceUuid,
+          :namespaceName)
+        ON CONFLICT(version) DO
+        UPDATE SET updated_at = EXCLUDED.updated_at
+        RETURNING *
+      """)
   ExtendedJobVersionRow upsertJobVersion(
       UUID jobVersionUuid,
       Instant now,
@@ -201,11 +202,11 @@ public interface JobVersionDao extends BaseDao {
    */
   @SqlUpdate(
       """
-    INSERT INTO job_versions_io_mapping (
-      job_version_uuid, dataset_uuid, io_type, job_uuid, job_symlink_target_uuid, is_current_job_version, made_current_at)
-    VALUES (:jobVersionUuid, :datasetUuid, :ioType, :jobUuid, :symlinkTargetJobUuid, TRUE, NOW())
-    ON CONFLICT (job_version_uuid, dataset_uuid, io_type, job_uuid) DO UPDATE SET is_current_job_version = TRUE
-  """)
+        INSERT INTO job_versions_io_mapping (
+          job_version_uuid, dataset_uuid, io_type, job_uuid, job_symlink_target_uuid, is_current_job_version, made_current_at)
+        VALUES (:jobVersionUuid, :datasetUuid, :ioType, :jobUuid, :symlinkTargetJobUuid, TRUE, NOW())
+        ON CONFLICT (job_version_uuid, dataset_uuid, io_type, job_uuid) DO UPDATE SET is_current_job_version = TRUE
+      """)
   void upsertCurrentInputOrOutputDatasetFor(
       UUID jobVersionUuid,
       UUID datasetUuid,
@@ -215,23 +216,23 @@ public interface JobVersionDao extends BaseDao {
 
   @SqlUpdate(
       """
-    UPDATE job_versions_io_mapping
-    SET is_current_job_version = FALSE
-    WHERE (job_uuid = :jobUuid OR job_symlink_target_uuid = :jobUuid)
-    AND job_version_uuid != :jobVersionUuid
-    AND io_type = :ioType
-    AND is_current_job_version = TRUE;
-  """)
+        UPDATE job_versions_io_mapping
+        SET is_current_job_version = FALSE
+        WHERE (job_uuid = :jobUuid OR job_symlink_target_uuid = :jobUuid)
+        AND job_version_uuid != :jobVersionUuid
+        AND io_type = :ioType
+        AND is_current_job_version = TRUE;
+      """)
   void markInputOrOutputDatasetAsPreviousFor(UUID jobVersionUuid, UUID jobUuid, IoType ioType);
 
   @SqlUpdate(
       """
-    UPDATE job_versions_io_mapping
-    SET is_current_job_version = FALSE
-    WHERE (job_uuid = :jobUuid OR job_symlink_target_uuid = :jobUuid)
-    AND io_type = :ioType
-    AND is_current_job_version = TRUE;
-  """)
+        UPDATE job_versions_io_mapping
+        SET is_current_job_version = FALSE
+        WHERE (job_uuid = :jobUuid OR job_symlink_target_uuid = :jobUuid)
+        AND io_type = :ioType
+        AND is_current_job_version = TRUE;
+      """)
   void markInputOrOutputDatasetAsPreviousFor(UUID jobUuid, IoType ioType);
 
   /**
@@ -296,21 +297,21 @@ public interface JobVersionDao extends BaseDao {
    */
   @SqlQuery(
       """
-    SELECT dataset_uuid
-    FROM job_versions_io_mapping
-    WHERE job_version_uuid = :jobVersionUuid
-    AND io_type = :ioType
-  """)
+        SELECT dataset_uuid
+        FROM job_versions_io_mapping
+        WHERE job_version_uuid = :jobVersionUuid
+        AND io_type = :ioType
+      """)
   List<UUID> findInputOrOutputDatasetsFor(UUID jobVersionUuid, IoType ioType);
 
   @SqlQuery(
       """
-    SELECT d.namespace_name, d.name, io.io_type
-    FROM job_versions_io_mapping io
-    INNER JOIN jobs_view j ON j.current_version_uuid = io.job_version_uuid
-    INNER JOIN datasets_view d on d.uuid = io.dataset_uuid
-    WHERE j.name = :jobName AND j.namespace_name=:jobNamespace
-  """)
+        SELECT d.namespace_name, d.name, io.io_type
+        FROM job_versions_io_mapping io
+        INNER JOIN jobs_view j ON j.current_version_uuid = io.job_version_uuid
+        INNER JOIN datasets_view d on d.uuid = io.dataset_uuid
+        WHERE j.name = :jobName AND j.namespace_name=:jobNamespace
+      """)
   List<JobDataset> findCurrentInputOutputDatasetsFor(String jobNamespace, String jobName);
 
   /**
@@ -325,11 +326,11 @@ public interface JobVersionDao extends BaseDao {
    */
   @SqlUpdate(
       """
-    UPDATE job_versions
-    SET updated_at = :updatedAt,
-      latest_run_uuid = :latestRunUuid
-    WHERE uuid = :jobVersionUuid
-  """)
+        UPDATE job_versions
+        SET updated_at = :updatedAt,
+          latest_run_uuid = :latestRunUuid
+        WHERE uuid = :jobVersionUuid
+      """)
   void updateLatestRunFor(UUID jobVersionUuid, Instant updatedAt, UUID latestRunUuid);
 
   /** Returns the unique ID of the latest {@link Run} for a given job version. */
@@ -353,10 +354,10 @@ public interface JobVersionDao extends BaseDao {
    */
   @SqlUpdate(
       """
-    UPDATE job_facets
-    SET job_version_uuid = :jobVersionUuid
-    WHERE run_uuid = :runUuid
-  """)
+        UPDATE job_facets
+        SET job_version_uuid = :jobVersionUuid
+        WHERE run_uuid = :runUuid
+      """)
   void linkJobFacetsToJobVersion(UUID runUuid, UUID jobVersionUuid);
 
   /**
@@ -506,7 +507,8 @@ public interface JobVersionDao extends BaseDao {
     // Link the job version to the run.
     createRunDao().updateJobVersion(jobRowRunDetails.runUuid, jobVersionRow.getUuid());
 
-    // Link the run to the job version; multiple run instances may be linked to a job version.
+    // Link the run to the job version; multiple run instances may be linked to a
+    // job version.
     jobVersionDao.updateLatestRunFor(
         jobVersionRow.getUuid(), transitionedAt, jobRowRunDetails.runUuid);
 
@@ -541,7 +543,8 @@ public interface JobVersionDao extends BaseDao {
   }
 
   default JobRowRunDetails loadJobRowRunDetails(JobRow jobRow, UUID runUuid) {
-    // Get the inputs and outputs dataset versions for the run associated with the job version.
+    // Get the inputs and outputs dataset versions for the run associated with the
+    // job version.
     final DatasetVersionDao datasetVersionDao = createDatasetVersionDao();
     final List<ExtendedDatasetVersionRow> jobVersionInputs =
         datasetVersionDao.findInputDatasetVersionsFor(runUuid);

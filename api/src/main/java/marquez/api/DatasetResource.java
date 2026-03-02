@@ -33,7 +33,6 @@ import lombok.Value;
 import lombok.extern.slf4j.Slf4j;
 import marquez.api.exceptions.DatasetNotFoundException;
 import marquez.api.exceptions.DatasetVersionNotFoundException;
-import marquez.api.models.ResultsPage;
 import marquez.common.models.DatasetName;
 import marquez.common.models.FieldName;
 import marquez.common.models.NamespaceName;
@@ -83,12 +82,13 @@ public class DatasetResource extends BaseResource {
   @Produces(MediaType.APPLICATION_JSON)
   public Response getDataset(
       @PathParam("namespace") NamespaceName namespaceName,
-      @PathParam("dataset") DatasetName datasetName) {
+      @PathParam("dataset") DatasetName datasetName,
+      @QueryParam("includeFacets") java.util.Set<String> includeFacets) {
     throwIfNotExists(namespaceName);
 
     Dataset dataset =
         datasetService
-            .findWithTags(namespaceName.getValue(), datasetName.getValue())
+            .findWithTags(namespaceName.getValue(), datasetName.getValue(), includeFacets)
             .orElseThrow(() -> new DatasetNotFoundException(datasetName));
     columnLineageService.enrichWithColumnLineage(Arrays.asList(dataset));
     return Response.ok(dataset).build();
@@ -103,13 +103,14 @@ public class DatasetResource extends BaseResource {
   public Response getVersion(
       @PathParam("namespace") NamespaceName namespaceName,
       @PathParam("dataset") DatasetName datasetName,
-      @PathParam("version") Version version) {
+      @PathParam("version") Version version,
+      @QueryParam("includeFacets") java.util.Set<String> includeFacets) {
     throwIfNotExists(namespaceName);
     throwIfNotExists(namespaceName, datasetName);
 
     final DatasetVersion datasetVersion =
         datasetVersionService
-            .findByWithRun(version.getValue())
+            .findByWithRun(version.getValue(), includeFacets)
             .orElseThrow(() -> new DatasetVersionNotFoundException(version));
     return Response.ok(datasetVersion).build();
   }
@@ -124,7 +125,8 @@ public class DatasetResource extends BaseResource {
       @PathParam("namespace") NamespaceName namespaceName,
       @PathParam("dataset") DatasetName datasetName,
       @QueryParam("limit") @DefaultValue("100") int limit,
-      @QueryParam("offset") @DefaultValue("0") int offset) {
+      @QueryParam("offset") @DefaultValue("0") int offset,
+      @QueryParam("includeFacets") java.util.Set<String> includeFacets) {
     throwIfNotExists(namespaceName);
     throwIfNotExists(namespaceName, datasetName);
     checkArgument(limit >= 0, "limit must be >= 0");
@@ -132,7 +134,7 @@ public class DatasetResource extends BaseResource {
 
     final List<DatasetVersion> datasetVersions =
         datasetVersionService.findAllWithRun(
-            namespaceName.getValue(), datasetName.getValue(), limit, offset);
+            namespaceName.getValue(), datasetName.getValue(), limit, offset, includeFacets);
 
     final int totalCount =
         datasetVersionService.countDatasetVersions(
@@ -148,14 +150,15 @@ public class DatasetResource extends BaseResource {
   public Response list(
       @PathParam("namespace") NamespaceName namespaceName,
       @QueryParam("limit") @DefaultValue("100") @Min(value = 0) int limit,
-      @QueryParam("offset") @DefaultValue("0") @Min(value = 0) int offset) {
+      @QueryParam("offset") @DefaultValue("0") @Min(value = 0) int offset,
+      @QueryParam("includeFacets") java.util.Set<String> includeFacets) {
     throwIfNotExists(namespaceName);
 
     final List<Dataset> datasets =
-        datasetService.findAllWithTags(namespaceName.getValue(), limit, offset);
+        datasetService.findAllWithTags(namespaceName.getValue(), limit, offset, includeFacets);
     columnLineageService.enrichWithColumnLineage(datasets);
-    final int totalCount = datasetService.countFor(namespaceName.getValue());
-    return Response.ok(new ResultsPage<>("datasets", datasets, totalCount)).build();
+    final int totalCount = datasetService.countDatasets(namespaceName.getValue());
+    return Response.ok(new Datasets(datasets, totalCount)).build();
   }
 
   @Timed
@@ -305,6 +308,16 @@ public class DatasetResource extends BaseResource {
     @NonNull
     @JsonProperty("versions")
     List<DatasetVersion> value;
+
+    @JsonProperty("totalCount")
+    int totalCount;
+  }
+
+  @Value
+  static class Datasets {
+    @NonNull
+    @JsonProperty("datasets")
+    List<Dataset> value;
 
     @JsonProperty("totalCount")
     int totalCount;

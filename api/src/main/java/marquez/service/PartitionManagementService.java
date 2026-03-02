@@ -17,6 +17,16 @@ import org.slf4j.LoggerFactory;
  * creating new partitions and cleaning up old ones.
  */
 public class PartitionManagementService {
+  /**
+   * Ensures that a partition exists for the given namespace. Currently a no-op for extensibility.
+   *
+   * @param namespaceUuid the UUID of the namespace
+   */
+  public void ensureNamespacePartitionExists(java.util.UUID namespaceUuid) {
+    // No-op: Namespace partitioning not implemented yet, but method exists for future use.
+    log.debug("Ensured (no-op) partition exists for namespace: {}", namespaceUuid);
+  }
+
   private static final Logger log = LoggerFactory.getLogger(PartitionManagementService.class);
 
   private final Jdbi jdbi;
