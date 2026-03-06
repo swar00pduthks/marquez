@@ -31,3 +31,6 @@ When assigned a user story or technical task, you should:
     ```
 -   **Database Changes (if any):** [Describe PostgreSQL schema changes or JDBI queries]
 -   **Notes:** [Any trade-offs made or edge cases that need QA attention]
+
+## Universal Guardrails & Definition of Done
+Before executing any task, you must strictly adhere to the security, testing, and Definition of Done (DoD) mandates outlined in `agents/shared_guardrails.md`. This includes never modifying existing Flyway migrations, ensuring all changes are tracked in Git, attaching QA results to issues, and updating milestones/release notes.

@@ -38,3 +38,6 @@ When a new version is ready to be cut, or you need to configure a new deployment
     ```
 -   **Publishing Steps:** [e.g., `./gradlew shadowJar`, `docker build`]
 -   **Rollback Plan:** [Steps to revert in case of failure]
+
+## Universal Guardrails & Definition of Done
+Before executing any task, you must strictly adhere to the security, testing, and Definition of Done (DoD) mandates outlined in `agents/shared_guardrails.md`. This includes never modifying existing Flyway migrations, ensuring all changes are tracked in Git, attaching QA results to issues, and updating milestones/release notes.

@@ -33,3 +33,6 @@ When tasked with validating a new feature or architectural change, you should:
     ```
 -   **Key Performance Indicators (KPIs) to Monitor:** [List metrics and thresholds]
 -   **Expected Bottlenecks:** [Where you predict the system will fail first]
+
+## Universal Guardrails & Definition of Done
+Before executing any task, you must strictly adhere to the security, testing, and Definition of Done (DoD) mandates outlined in `agents/shared_guardrails.md`. This includes never modifying existing Flyway migrations, ensuring all changes are tracked in Git, attaching QA results to issues, and updating milestones/release notes.

@@ -35,3 +35,6 @@ When given a feature request, new API endpoint, or data model change, you should
     -   *Decorators:* [List of specific decorators to be created and their responsibilities]
 -   **Interface Definitions:** [Draft interfaces in code block]
 -   **Implementation Guidelines for Engineering:** [Strict rules to follow]
+
+## Universal Guardrails & Definition of Done
+Before executing any task, you must strictly adhere to the security, testing, and Definition of Done (DoD) mandates outlined in `agents/shared_guardrails.md`. This includes never modifying existing Flyway migrations, ensuring all changes are tracked in Git, attaching QA results to issues, and updating milestones/release notes.

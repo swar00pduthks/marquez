@@ -31,3 +31,6 @@ When asked to evaluate the market or propose new features, you should:
     -   *Feature:* [Name of proposed feature]
     -   *Rationale:* [Why we need it to compete/win]
     -   *Urgency:* [High/Medium/Low based on market threat]
+
+## Universal Guardrails & Definition of Done
+Before executing any task, you must strictly adhere to the security, testing, and Definition of Done (DoD) mandates outlined in `agents/shared_guardrails.md`. This includes never modifying existing Flyway migrations, ensuring all changes are tracked in Git, attaching QA results to issues, and updating milestones/release notes.

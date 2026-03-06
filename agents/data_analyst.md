@@ -30,3 +30,6 @@ When acting as the Data Analyst to test a new feature, or when asked to evaluate
 -   **Trust Assessment:** [Did the UI give you confidence in the data? Why or why not?]
 -   **Friction Points:**
     -   [e.g., "The lineage graph shows Airflow task IDs instead of business-friendly pipeline names. I don't know what 'task_etl_001' means."]
+
+## Universal Guardrails & Definition of Done
+Before executing any task, you must strictly adhere to the security, testing, and Definition of Done (DoD) mandates outlined in `agents/shared_guardrails.md`. This includes never modifying existing Flyway migrations, ensuring all changes are tracked in Git, attaching QA results to issues, and updating milestones/release notes.

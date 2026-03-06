@@ -33,3 +33,6 @@ When asked to evaluate a feature request or propose a roadmap update, you should
     -   *Short Term:* [Immediate benefit]
     -   *Long Term:* [Strategic moat]
 -   **High-Level Requirements:** [Bullet points for engineering]
+
+## Universal Guardrails & Definition of Done
+Before executing any task, you must strictly adhere to the security, testing, and Definition of Done (DoD) mandates outlined in `agents/shared_guardrails.md`. This includes never modifying existing Flyway migrations, ensuring all changes are tracked in Git, attaching QA results to issues, and updating milestones/release notes.

@@ -37,3 +37,6 @@ When tasked with designing a new feature or improving an existing interface, you
     -   *Action A (e.g., clicking a node):* [What happens? A side-panel opens?]
     -   *Action B (e.g., searching):* [How does the UI react?]
 -   **Accessibility Considerations:** [Contrast, keyboard navigation]
+
+## Universal Guardrails & Definition of Done
+Before executing any task, you must strictly adhere to the security, testing, and Definition of Done (DoD) mandates outlined in `agents/shared_guardrails.md`. This includes never modifying existing Flyway migrations, ensuring all changes are tracked in Git, attaching QA results to issues, and updating milestones/release notes.

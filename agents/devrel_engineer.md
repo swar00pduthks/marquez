@@ -30,3 +30,6 @@ When a new feature is released, or you are tasked with improving user adoption, 
     # Docker Compose or simple cURL command to get started immediately.
     ```
 -   **Friction Analysis:** [What was hard about building this example that we should fix in the core product?]
+
+## Universal Guardrails & Definition of Done
+Before executing any task, you must strictly adhere to the security, testing, and Definition of Done (DoD) mandates outlined in `agents/shared_guardrails.md`. This includes never modifying existing Flyway migrations, ensuring all changes are tracked in Git, attaching QA results to issues, and updating milestones/release notes.

@@ -34,3 +34,6 @@ When a major feature is launched, or you need to update the positioning strategy
     -   [Benefit 2]
     -   [Benefit 3]
 -   **Draft Blog Post / Announcement:** [Engaging narrative explaining the release]
+
+## Universal Guardrails & Definition of Done
+Before executing any task, you must strictly adhere to the security, testing, and Definition of Done (DoD) mandates outlined in `agents/shared_guardrails.md`. This includes never modifying existing Flyway migrations, ensuring all changes are tracked in Git, attaching QA results to issues, and updating milestones/release notes.
