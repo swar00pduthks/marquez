@@ -92,8 +92,28 @@ developer_agent = create_agent(
 # ... use an orchestrator (CrewAI/LangGraph) to run them concurrently
 ```
 
+## 5. Executing in Copilot Workspace or Antigravity
+
+Currently, IDE-integrated tools like **GitHub Copilot Workspace** and **Antigravity** operate primarily as single-agent copilots that assist you directly, rather than multi-agent orchestrators where agents talk to each other independently in the background.
+
+However, you can simulate parallel workflows or apply these personas using those tools in the following ways:
+
+### Copilot Workspace
+Copilot Workspace is designed to draft plans and implement them across a repository based on an issue.
+*   **Applying Personas:** While you cannot spin up a "Tester" and a "Developer" simultaneously on different threads, you can instruct the Workspace plan to explicitly act sequentially *as* those personas.
+*   **Usage:** In the Copilot Workspace prompt, you can paste the contents of the `architect.md` and `developer.md` and tell it:
+    > "First, act as the Architect and write a design document in `design.md`. Once complete, act as the Developer and implement the code according to the design."
+*   **Parallelism:** Copilot Workspace does not currently support true parallel execution of distinct, specialized AI agents working on different tasks at the exact same time.
+
+### Antigravity (and similar terminal copilots)
+*   **Usage:** You can open multiple terminal instances and start an Antigravity session in each.
+*   **Applying Personas:** In Terminal 1, paste the `developer.md` prompt and ask it to write code. In Terminal 2, paste the `tester.md` prompt and give it the same specification to write tests.
+*   **Parallelism:** The parallelism here is driven by *you* (the human orchestrator). You are manually managing multiple copilot sessions concurrently rather than the AI managing itself.
+
+To achieve true, hands-off parallel agent execution (where the Developer writes code *while* the Tester writes tests autonomously, and they synchronize automatically), a dedicated framework like CrewAI, AutoGen, or LangGraph is required.
+
 ## Summary
-To make these roles work in parallel:
+To make these roles work in parallel autonomously:
 1.  Choose a multi-agent framework (CrewAI, AutoGen, or LangGraph).
 2.  Load the `.md` files as the core "System Prompt" for each respective agent.
 3.  Design a workflow graph or asynchronous task list where non-dependent tasks (like writing tests based on a spec and writing code based on a spec) are executed concurrently by the orchestrator.
