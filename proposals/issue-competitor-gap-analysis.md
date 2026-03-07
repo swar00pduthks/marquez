@@ -28,7 +28,7 @@ While Marquez has a world-class backend for capturing OpenLineage events, when c
 To support these new features and ensure Marquez feels like a top-tier enterprise application, we must redesign the UI architecture. It cannot just be a lineage graph anymore.
 
 ### UX Epic 1: The Multi-Tenant Control Plane
-*   **The Problem:** At "multi-tenant scale" (millions of tenants), a single flat UI will break.
+*   **The Problem:** At "multi-tenant scale" (handling millions of events across workspaces), a single flat UI will break.
 *   **The Design:**
     *   Introduce a global "Workspace / Tenant Switcher" in the top navigation, similar to AWS or Slack.
     *   Implement high-performance virtualization in the UI grids/tables so scrolling through 50,000 datasets is instantaneous.

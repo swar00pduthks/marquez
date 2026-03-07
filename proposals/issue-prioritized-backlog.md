@@ -19,7 +19,7 @@
 
 ### Issue 2: Enterprise Multi-Tenant Control Plane (UI)
 *   **Reference:** Competitive Gap Analysis
-*   **Description:** Redesign the top-level UI to support millions of tenants seamlessly.
+*   **Description:** Redesign the top-level UI to support millions of events across multiple tenants seamlessly.
 *   **Acceptance Criteria:**
     *   Implement "Workspace/Tenant Switcher" dropdown in the global header.
     *   Ensure dataset tables use virtualized lists for instantaneous scrolling.
@@ -62,7 +62,7 @@
 *   **Description:** Build ML models (as dynamically loadable Agent Skills) to predict job ETAs and calculate the blast radius of Data Quality failures.
 *   **Acceptance Criteria:**
     *   Provide LangChain Tool definition for `predict_job_eta`.
-    *   Predictions are appended to the lineage graph using custom OpenLineage facets.
+    *   Dynamic predictions (like shifting ETAs) are stored natively in Marquez for a specific run, rather than appended as static custom OpenLineage facets.
 *   **Assignee:** Data Scientist
 
 ---
