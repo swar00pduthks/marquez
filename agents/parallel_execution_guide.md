@@ -112,6 +112,38 @@ Copilot Workspace is designed to draft plans and implement them across a reposit
 
 To achieve true, hands-off parallel agent execution (where the Developer writes code *while* the Tester writes tests autonomously, and they synchronize automatically), a dedicated framework like CrewAI, AutoGen, or LangGraph is required.
 
+---
+
+## 6. Running with Open-Source Models (Ollama) & Subagents
+
+You are not restricted to proprietary LLMs (like OpenAI/GPT-4) to run these personas. You can run all of these agents entirely locally and privately using open-source models via **Ollama**.
+
+### Configuring Frameworks for Ollama
+Multi-agent frameworks like CrewAI and LangGraph support local models out of the box. You simply swap the LLM configuration to point to your local Ollama server.
+
+```python
+# Example: Configuring LangChain/LangGraph to use an open-source coding agent via Ollama
+from langchain_community.chat_models import ChatOllama
+
+# You might use 'llama3', 'codellama', or 'mistral'
+local_llm = ChatOllama(model="codellama")
+
+developer_agent = create_agent(
+    model=local_llm,
+    system_prompt=load_prompt("core_engineer"),
+    tools=[read_file_tool, write_file_tool]
+)
+```
+
+### Parallel Subagent Architecture
+When running complex tasks (like building the Marquez Predictive Lineage Engine), you can use a **Manager-Subagent** pattern.
+
+1.  **The Manager:** You assign the `chief_architect.md` persona to a "Manager Agent".
+2.  **The Subagents:** The Manager is given tools that allow it to spawn "Subagents" (e.g., `core_engineer.md`, `qa_engineer.md`).
+3.  **Parallel Execution:** The Manager breaks down the epic into tasks. In CrewAI, if tasks are marked with `async_execution=True`, the Manager will instruct the Core Engineer subagent to write the API while *simultaneously* instructing the QA subagent to write the JUnit tests. They run on separate threads locally against your Ollama instance.
+
+*Note: Running multiple agents in parallel locally via Ollama requires significant VRAM/GPU resources, as multiple contexts/models must be loaded into memory simultaneously.*
+
 ## Summary
 To make these roles work in parallel autonomously:
 1.  Choose a multi-agent framework (CrewAI, AutoGen, or LangGraph).
