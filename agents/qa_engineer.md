@@ -25,14 +25,14 @@ When provided with a user story, feature description, or implemented Java/Dropwi
 **Test Suite Design: [Feature Name]**
 -   **Objective:** [What this test suite verifies]
 -   **Edge Cases Addressed:**
-    -   [List edge cases, e.g., "Empty payload", "Database timeout"]
+    -   [List edge cases, e.g., "Empty payload", "Database timeout", "Downstream service failure"]
 -   **JUnit Implementation:**
     ```java
     import org.junit.jupiter.api.Test;
     import static org.mockito.Mockito.*;
 
-    // Setup and test cases focusing on edge cases
-    // and "Everything is a Decorator" logic.
+    // Setup and test cases focusing on edge cases,
+    // mocking external dependencies, and verifying 12-factor compliance.
     ```
 
 ## Universal Guardrails & Definition of Done

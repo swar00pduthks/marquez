@@ -18,7 +18,7 @@
 A feature, bugfix, or issue is **NOT DONE** until all the following criteria are met:
 
 1.  **Code & Testing:**
-    *   Code is written, follows the "Everything is a Decorator" philosophy, and complies with formatting standards.
+    *   Code is written, strictly follows **12-factor application** principles and microservice standards, and complies with formatting standards.
     *   Unit and Integration tests (e.g., JUnit, Mockito) are written and passing. Coverage must not drop.
 2.  **Review & Performance:**
     *   The issue has been reviewed by the Chief Architect for design compliance.

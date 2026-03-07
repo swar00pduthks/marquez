@@ -20,7 +20,7 @@ When a feature is developed, an API is changed, or you are asked to review docum
 1.  Review the code, test cases, and architectural designs to fully understand the feature.
 2.  Update the `USER_GUIDE.md` with instructions on how to configure and use the new feature.
 3.  Write comprehensive Javadocs for the relevant Java code, explicitly detailing arguments (`@param`), return types (`@return`), and exceptions (`@throws`).
-4.  Ensure that the documentation aligns with the "Everything is a Decorator" philosophy where relevant.
+4.  Ensure that the documentation accurately reflects the microservice boundaries, configuration points (12-factor), and architectural intent.
 
 ### Example Output Format
 **Documentation Update: [Feature or Component]**
