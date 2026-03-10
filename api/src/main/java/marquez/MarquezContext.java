@@ -108,6 +108,7 @@ public final class MarquezContext {
   @Getter private final marquez.api.v2.DatasetResource v2DatasetResource;
   @Getter private final marquez.api.v2.DatasetVersionResource v2DatasetVersionResource;
   @Getter private final marquez.api.v2.JobResource v2JobResource;
+  @Getter private final marquez.api.v2.LineageResource v2LineageResource;
   @Getter private final SearchResource searchResource;
   @Getter private final StatsResource opsResource;
   @Getter private final ImmutableList<Object> resources;
@@ -191,6 +192,7 @@ public final class MarquezContext {
     this.v2DatasetResource = new marquez.api.v2.DatasetResource(serviceFactory);
     this.v2DatasetVersionResource = new DatasetVersionResource(serviceFactory);
     this.v2JobResource = new marquez.api.v2.JobResource(serviceFactory);
+    this.v2LineageResource = new marquez.api.v2.LineageResource(serviceFactory);
 
     this.resources =
         ImmutableList.of(
@@ -208,6 +210,7 @@ public final class MarquezContext {
             v2DatasetResource,
             v2DatasetVersionResource,
             v2JobResource,
+            v2LineageResource,
             opsResource);
 
     final MarquezGraphqlServletBuilder servlet = new MarquezGraphqlServletBuilder();

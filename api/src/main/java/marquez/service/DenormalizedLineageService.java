@@ -270,16 +270,28 @@ public class DenormalizedLineageService {
             uuid, type, created_at, updated_at, namespace_uuid, name,
             description, current_version_uuid, tags,
             namespace_name, simple_name, parent_job_uuid, parent_job_name,
-            current_location, current_inputs
+          current_location, current_inputs, input_uuids, output_uuids
         )
         SELECT
             j.uuid, j.type, j.created_at, j.updated_at, j.namespace_uuid, j.name,
             j.description, j.current_version_uuid,
             (SELECT ARRAY_AGG(t.name) FROM tags t INNER JOIN jobs_tag_mapping m ON m.tag_uuid = t.uuid WHERE m.job_uuid = j.uuid),
             j.namespace_name, j.simple_name, j.parent_job_uuid, p.name,
-            j.current_location, j.current_inputs
+          j.current_location, j.current_inputs,
+          COALESCE(job_io.inputs, ARRAY[]::uuid[]),
+          COALESCE(job_io.outputs, ARRAY[]::uuid[])
         FROM jobs j
         LEFT JOIN jobs p ON j.parent_job_uuid = p.uuid
+        LEFT JOIN LATERAL (
+          SELECT
+            ARRAY_AGG(DISTINCT io.dataset_uuid)
+              FILTER (WHERE io.io_type = 'INPUT' AND io.dataset_uuid IS NOT NULL) AS inputs,
+            ARRAY_AGG(DISTINCT io.dataset_uuid)
+              FILTER (WHERE io.io_type = 'OUTPUT' AND io.dataset_uuid IS NOT NULL) AS outputs
+          FROM job_versions_io_mapping io
+          WHERE io.job_uuid = j.uuid
+            AND io.is_current_job_version = TRUE
+        ) job_io ON TRUE
         WHERE j.namespace_uuid = :namespaceUuid
         ON CONFLICT (uuid, namespace_uuid) DO UPDATE SET
             updated_at = EXCLUDED.updated_at,
@@ -291,7 +303,9 @@ public class DenormalizedLineageService {
             parent_job_uuid = EXCLUDED.parent_job_uuid,
             parent_job_name = EXCLUDED.parent_job_name,
             current_location = EXCLUDED.current_location,
-            current_inputs = EXCLUDED.current_inputs
+            current_inputs = EXCLUDED.current_inputs,
+            input_uuids = EXCLUDED.input_uuids,
+            output_uuids = EXCLUDED.output_uuids
         WHERE
             job_denormalized.current_version_uuid IS DISTINCT FROM EXCLUDED.current_version_uuid
             OR job_denormalized.tags IS DISTINCT FROM EXCLUDED.tags
@@ -312,16 +326,28 @@ public class DenormalizedLineageService {
             uuid, type, created_at, updated_at, namespace_uuid, name,
             description, current_version_uuid, tags,
             namespace_name, simple_name, parent_job_uuid, parent_job_name,
-            current_location, current_inputs
+          current_location, current_inputs, input_uuids, output_uuids
         )
         SELECT
             j.uuid, j.type, j.created_at, j.updated_at, j.namespace_uuid, j.name,
             j.description, j.current_version_uuid,
             (SELECT ARRAY_AGG(t.name) FROM tags t INNER JOIN jobs_tag_mapping m ON m.tag_uuid = t.uuid WHERE m.job_uuid = j.uuid),
             j.namespace_name, j.simple_name, j.parent_job_uuid, p.name,
-            j.current_location, j.current_inputs
+          j.current_location, j.current_inputs,
+          COALESCE(job_io.inputs, ARRAY[]::uuid[]),
+          COALESCE(job_io.outputs, ARRAY[]::uuid[])
         FROM jobs j
         LEFT JOIN jobs p ON j.parent_job_uuid = p.uuid
+        LEFT JOIN LATERAL (
+          SELECT
+            ARRAY_AGG(DISTINCT io.dataset_uuid)
+              FILTER (WHERE io.io_type = 'INPUT' AND io.dataset_uuid IS NOT NULL) AS inputs,
+            ARRAY_AGG(DISTINCT io.dataset_uuid)
+              FILTER (WHERE io.io_type = 'OUTPUT' AND io.dataset_uuid IS NOT NULL) AS outputs
+          FROM job_versions_io_mapping io
+          WHERE io.job_uuid = j.uuid
+            AND io.is_current_job_version = TRUE
+        ) job_io ON TRUE
         WHERE j.uuid = :jobUuid AND j.namespace_uuid = :namespaceUuid
         ON CONFLICT (uuid, namespace_uuid) DO UPDATE SET
             updated_at = EXCLUDED.updated_at,
@@ -333,7 +359,9 @@ public class DenormalizedLineageService {
             parent_job_uuid = EXCLUDED.parent_job_uuid,
             parent_job_name = EXCLUDED.parent_job_name,
             current_location = EXCLUDED.current_location,
-            current_inputs = EXCLUDED.current_inputs
+            current_inputs = EXCLUDED.current_inputs,
+            input_uuids = EXCLUDED.input_uuids,
+            output_uuids = EXCLUDED.output_uuids
         WHERE
             job_denormalized.current_version_uuid IS DISTINCT FROM EXCLUDED.current_version_uuid
             OR job_denormalized.tags IS DISTINCT FROM EXCLUDED.tags

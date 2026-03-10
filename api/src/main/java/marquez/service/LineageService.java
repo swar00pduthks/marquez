@@ -190,6 +190,110 @@ public class LineageService extends DelegatingLineageDao {
     }
   }
 
+  public Lineage lineageV2(NodeId nodeId, int depth, boolean aggregateToParentRun) {
+    return lineageV2(nodeId, depth, aggregateToParentRun, null);
+  }
+
+  public Lineage lineageV2(
+      NodeId nodeId, int depth, boolean aggregateToParentRun, Set<String> includeFacets) {
+    log.debug(
+        "Attempting to get V2 lineage for node '{}' with depth '{}'", nodeId.getValue(), depth);
+
+    if (nodeId.isRunType() || nodeId.isDatasetVersionType()) {
+      return lineage(nodeId, depth, aggregateToParentRun, includeFacets);
+    }
+
+    Optional<UUID> optionalUUID = getJobUuidV2(nodeId);
+    if (optionalUUID.isEmpty()) {
+      log.warn(
+          "Failed to get job associated with node '{}' for V2 lineage, returning empty graph...",
+          nodeId.getValue());
+      return new Lineage(ImmutableSortedSet.of());
+    }
+
+    UUID job = optionalUUID.get();
+    Set<UUID> seedRunIds;
+    if (nodeId.isJobType()) {
+      JobId jobId = nodeId.asJobId();
+      seedRunIds =
+          getLatestRunUuidsForJobV2(jobId.getNamespace().getValue(), jobId.getName().getValue());
+    } else if (nodeId.isDatasetType()) {
+      DatasetId datasetId = nodeId.asDatasetId();
+      seedRunIds =
+          getSeedRunUuidsForDatasetV2(
+              datasetId.getNamespace().getValue(), datasetId.getName().getValue());
+    } else {
+      seedRunIds = Set.of();
+    }
+
+    LineageDao.RunDateRange dateRange = seedRunIds.isEmpty() ? null : getRunDateRange(seedRunIds);
+    String minDate =
+        dateRange != null && dateRange.minDate() != null ? dateRange.minDate().toString() : null;
+    String maxDate =
+        dateRange != null && dateRange.maxDate() != null ? dateRange.maxDate().toString() : null;
+
+    Set<JobData> jobData = getLineageV2(Collections.singleton(job), depth, minDate, maxDate);
+    if (jobData.isEmpty()) {
+      log.warn(
+          "Failed to get V2 lineage for job '{}' associated with node '{}', returning empty graph...",
+          job,
+          nodeId.getValue());
+      return new Lineage(ImmutableSortedSet.of());
+    }
+
+    for (JobData j : jobData) {
+      Optional<Run> run = runDao.findRunByUuid(j.getCurrentRunUuid());
+      run.ifPresent(j::setLatestRun);
+    }
+
+    Set<UUID> datasetIds =
+        jobData.stream()
+            .flatMap(jd -> Stream.concat(jd.getInputUuids().stream(), jd.getOutputUuids().stream()))
+            .collect(Collectors.toSet());
+    Set<DatasetData> datasets = new HashSet<>();
+    if (!datasetIds.isEmpty()) {
+      datasets.addAll(this.getDatasetDataV2(datasetIds));
+      if (datasets.isEmpty()) {
+        datasets.addAll(this.getDatasetData(datasetIds));
+      }
+    }
+
+    if (nodeId.isDatasetType()) {
+      DatasetId datasetId = nodeId.asDatasetId();
+      DatasetData datasetData =
+          this.getDatasetDataV2(
+              datasetId.getNamespace().getValue(), datasetId.getName().getValue());
+
+      if (!datasetIds.contains(datasetData.getUuid())) {
+        log.warn(
+            "Found V2 jobs {} which no longer share lineage with dataset '{}' - returning empty graph",
+            jobData.stream().map(JobData::getId).toList(),
+            nodeId.getValue());
+        return new Lineage(ImmutableSortedSet.of());
+      }
+    }
+
+    return toLineage(jobData, datasets);
+  }
+
+  private Optional<UUID> getJobUuidV2(NodeId nodeId) {
+    if (nodeId.isJobType()) {
+      JobId jobId = nodeId.asJobId();
+      return jobDao
+          .findJobByNameAsRow(jobId.getNamespace().getValue(), jobId.getName().getValue())
+          .map(JobRow::getUuid);
+    } else if (nodeId.isDatasetType()) {
+      DatasetId datasetId = nodeId.asDatasetId();
+      return getJobFromInputOrOutputV2(
+          datasetId.getName().getValue(), datasetId.getNamespace().getValue());
+    } else if (nodeId.isRunType()) {
+      RunId runId = nodeId.asRunId();
+      return Optional.of(runId.getValue());
+    }
+    throw new NodeIdNotFoundException(
+        String.format("Node '%s' must be of type dataset, job, or run!", nodeId.getValue()));
+  }
+
   private Lineage toLineageWithOrphanDataset(@NonNull DatasetId datasetId) {
     final DatasetData datasetData =
         getDatasetData(datasetId.getNamespace().getValue(), datasetId.getName().getValue());
