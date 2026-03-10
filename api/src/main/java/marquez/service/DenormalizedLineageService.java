@@ -25,7 +25,10 @@ public class DenormalizedLineageService {
   /**
    * Populates denormalized dataset, dataset version, and job tables for a given namespace or all.
    * This should be called asynchronously after relevant dataset/job changes.
+   *
+   * @deprecated Use populateDenormalizedEntitiesForEvent with specific entity UUIDs instead.
    */
+  @Deprecated
   public void populateDenormalizedEntitiesForNamespace(UUID namespaceUuid) {
     try {
       log.debug("Populating denormalized tables for namespace: {}", namespaceUuid);
@@ -35,15 +38,57 @@ public class DenormalizedLineageService {
             ensureNamespacePartitionExists(handle, namespaceUuid);
 
             // Step 2: Idempotent upsert each denormalized table
-            upsertDatasetDenormalized(handle, namespaceUuid);
-            upsertDatasetVersionDenormalized(handle, namespaceUuid);
-            upsertJobDenormalized(handle, namespaceUuid);
+            upsertDatasetDenormalizedByNamespace(handle, namespaceUuid);
+            upsertDatasetVersionDenormalizedByNamespace(handle, namespaceUuid);
+            upsertJobDenormalizedByNamespace(handle, namespaceUuid);
           });
       log.debug(
           "Successfully populated denormalized dataset, dataset version, and job tables for namespace {}",
           namespaceUuid);
     } catch (Exception e) {
       log.error("Failed to populate denormalized tables for namespace: {}", namespaceUuid, e);
+      throw e;
+    }
+  }
+
+  /**
+   * Populates denormalized tables for specific entities affected by an event. This incrementally
+   * updates only the changed job and datasets, not the entire namespace.
+   */
+  public void populateDenormalizedEntitiesForEvent(
+      UUID namespaceUuid, UUID jobUuid, java.util.List<UUID> datasetUuids) {
+    try {
+      log.debug(
+          "Populating denormalized tables for job: {}, datasets: {} in namespace: {}",
+          jobUuid,
+          datasetUuids,
+          namespaceUuid);
+      jdbi.useTransaction(
+          handle -> {
+            // Step 1: Ensure partition exists for this namespace
+            ensureNamespacePartitionExists(handle, namespaceUuid);
+
+            // Step 2: Incrementally upsert only the affected entities
+            if (jobUuid != null) {
+              upsertJobDenormalized(handle, jobUuid, namespaceUuid);
+            }
+            if (datasetUuids != null && !datasetUuids.isEmpty()) {
+              for (UUID datasetUuid : datasetUuids) {
+                upsertDatasetDenormalized(handle, datasetUuid, namespaceUuid);
+                upsertDatasetVersionDenormalized(handle, datasetUuid, namespaceUuid);
+              }
+            }
+          });
+      log.debug(
+          "Successfully populated denormalized tables for specific entities in namespace {}",
+          namespaceUuid);
+    } catch (Exception e) {
+      log.error(
+          "Failed to populate denormalized tables for namespace: {}, job: {}, datasets: {}",
+          namespaceUuid,
+          jobUuid,
+          datasetUuids,
+          e);
       throw e;
     }
   }
@@ -63,20 +108,26 @@ public class DenormalizedLineageService {
   /**
    * Upserts denormalized dataset entities for a given namespace. This uses a conditional update to
    * avoid unnecessary writes if data hasn't changed.
+   *
+   * @deprecated Use event-specific upsert methods for incremental updates
    */
-  private void upsertDatasetDenormalized(org.jdbi.v3.core.Handle handle, UUID namespaceUuid) {
+  @Deprecated
+  private void upsertDatasetDenormalizedByNamespace(
+      org.jdbi.v3.core.Handle handle, UUID namespaceUuid) {
     log.debug("Upserting dataset_denormalized for namespace: {}", namespaceUuid);
     String sql =
         """
         INSERT INTO dataset_denormalized (
             uuid, type, created_at, updated_at, namespace_uuid, source_uuid, name,
-            physical_name, description, current_version_uuid, tags, schema_location, lifecycle_state
+            physical_name, description, current_version_uuid, tags, schema_location, lifecycle_state,
+          namespace_name, source_name, last_modified_at, is_deleted
         )
         SELECT
             d.uuid, d.type, d.created_at, d.updated_at, d.namespace_uuid, d.source_uuid,
             d.name, d.physical_name, d.description, d.current_version_uuid,
             (SELECT ARRAY_AGG(t.name) FROM tags t INNER JOIN datasets_tag_mapping m ON m.tag_uuid = t.uuid WHERE m.dataset_uuid = d.uuid),
-            sv.schema_location, dv.lifecycle_state
+            sv.schema_location, dv.lifecycle_state,
+            d.namespace_name, d.source_name, d.last_modified_at, d.is_deleted
         FROM datasets d
         LEFT JOIN dataset_versions dv ON d.current_version_uuid = dv.uuid
         LEFT JOIN stream_versions sv ON sv.dataset_version_uuid = dv.uuid
@@ -87,7 +138,11 @@ public class DenormalizedLineageService {
             tags = EXCLUDED.tags,
             schema_location = EXCLUDED.schema_location,
             lifecycle_state = EXCLUDED.lifecycle_state,
-            description = EXCLUDED.description
+            description = EXCLUDED.description,
+            namespace_name = EXCLUDED.namespace_name,
+            source_name = EXCLUDED.source_name,
+            last_modified_at = EXCLUDED.last_modified_at,
+            is_deleted = EXCLUDED.is_deleted
         WHERE
             dataset_denormalized.current_version_uuid IS DISTINCT FROM EXCLUDED.current_version_uuid
             OR dataset_denormalized.schema_location IS DISTINCT FROM EXCLUDED.schema_location
@@ -98,10 +153,61 @@ public class DenormalizedLineageService {
   }
 
   /**
+   * Upserts a specific dataset into the denormalized table. Uses ON CONFLICT to only update if data
+   * has changed (incremental).
+   */
+  private void upsertDatasetDenormalized(
+      org.jdbi.v3.core.Handle handle, UUID datasetUuid, UUID namespaceUuid) {
+    log.debug("Upserting dataset_denormalized for dataset: {}", datasetUuid);
+    String sql =
+        """
+        INSERT INTO dataset_denormalized (
+            uuid, type, created_at, updated_at, namespace_uuid, source_uuid, name,
+            physical_name, description, current_version_uuid, tags, schema_location, lifecycle_state,
+          namespace_name, source_name, last_modified_at, is_deleted
+        )
+        SELECT
+            d.uuid, d.type, d.created_at, d.updated_at, d.namespace_uuid, d.source_uuid,
+            d.name, d.physical_name, d.description, d.current_version_uuid,
+            (SELECT ARRAY_AGG(t.name) FROM tags t INNER JOIN datasets_tag_mapping m ON m.tag_uuid = t.uuid WHERE m.dataset_uuid = d.uuid),
+            sv.schema_location, dv.lifecycle_state,
+            d.namespace_name, d.source_name, d.last_modified_at, d.is_deleted
+        FROM datasets d
+        LEFT JOIN dataset_versions dv ON d.current_version_uuid = dv.uuid
+        LEFT JOIN stream_versions sv ON sv.dataset_version_uuid = dv.uuid
+        WHERE d.uuid = :datasetUuid AND d.namespace_uuid = :namespaceUuid
+        ON CONFLICT (uuid, namespace_uuid) DO UPDATE SET
+            updated_at = EXCLUDED.updated_at,
+            current_version_uuid = EXCLUDED.current_version_uuid,
+            tags = EXCLUDED.tags,
+            schema_location = EXCLUDED.schema_location,
+            lifecycle_state = EXCLUDED.lifecycle_state,
+            description = EXCLUDED.description,
+            namespace_name = EXCLUDED.namespace_name,
+            source_name = EXCLUDED.source_name,
+            last_modified_at = EXCLUDED.last_modified_at,
+            is_deleted = EXCLUDED.is_deleted
+        WHERE
+            dataset_denormalized.current_version_uuid IS DISTINCT FROM EXCLUDED.current_version_uuid
+            OR dataset_denormalized.schema_location IS DISTINCT FROM EXCLUDED.schema_location
+            OR dataset_denormalized.lifecycle_state IS DISTINCT FROM EXCLUDED.lifecycle_state
+            OR dataset_denormalized.tags IS DISTINCT FROM EXCLUDED.tags
+        """;
+    handle
+        .createUpdate(sql)
+        .bind("datasetUuid", datasetUuid)
+        .bind("namespaceUuid", namespaceUuid)
+        .execute();
+  }
+
+  /**
    * Upserts denormalized dataset version entities. Additive history: uses DO NOTHING on conflict to
    * avoid duplicate work for existing versions.
+   *
+   * @deprecated Use event-specific upsert methods for incremental updates
    */
-  private void upsertDatasetVersionDenormalized(
+  @Deprecated
+  private void upsertDatasetVersionDenormalizedByNamespace(
       org.jdbi.v3.core.Handle handle, UUID namespaceUuid) {
     log.debug("Upserting dataset_version_denormalized for namespace: {}", namespaceUuid);
     String sql =
@@ -121,31 +227,122 @@ public class DenormalizedLineageService {
     handle.createUpdate(sql).bind("namespaceUuid", namespaceUuid).execute();
   }
 
-  /** Upserts denormalized job entities. */
-  private void upsertJobDenormalized(org.jdbi.v3.core.Handle handle, UUID namespaceUuid) {
+  /**
+   * Upserts dataset versions for a specific dataset into the denormalized table. Uses DO NOTHING on
+   * conflict since versions are immutable.
+   */
+  private void upsertDatasetVersionDenormalized(
+      org.jdbi.v3.core.Handle handle, UUID datasetUuid, UUID namespaceUuid) {
+    log.debug("Upserting dataset_version_denormalized for dataset: {}", datasetUuid);
+    String sql =
+        """
+        INSERT INTO dataset_version_denormalized (
+            uuid, dataset_uuid, namespace_uuid, version, created_at, fields, schema_location, lifecycle_state
+        )
+        SELECT
+            dv.uuid, dv.dataset_uuid, d.namespace_uuid, dv.version, dv.created_at, dv.fields,
+            sv.schema_location, dv.lifecycle_state
+        FROM dataset_versions dv
+        INNER JOIN datasets d ON d.uuid = dv.dataset_uuid
+        LEFT JOIN stream_versions sv ON sv.dataset_version_uuid = dv.uuid
+        WHERE dv.dataset_uuid = :datasetUuid AND d.namespace_uuid = :namespaceUuid
+        ON CONFLICT (uuid, namespace_uuid) DO NOTHING
+        """;
+    handle
+        .createUpdate(sql)
+        .bind("datasetUuid", datasetUuid)
+        .bind("namespaceUuid", namespaceUuid)
+        .execute();
+  }
+
+  /**
+   * Upserts denormalized job entities.
+   *
+   * @deprecated Use event-specific upsert methods for incremental updates
+   */
+  @Deprecated
+  private void upsertJobDenormalizedByNamespace(
+      org.jdbi.v3.core.Handle handle, UUID namespaceUuid) {
     log.debug("Upserting job_denormalized for namespace: {}", namespaceUuid);
     String sql =
         """
         INSERT INTO job_denormalized (
             uuid, type, created_at, updated_at, namespace_uuid, name,
-            description, current_version_uuid, tags
+            description, current_version_uuid, tags,
+            namespace_name, simple_name, parent_job_uuid, parent_job_name,
+            current_location, current_inputs
         )
         SELECT
             j.uuid, j.type, j.created_at, j.updated_at, j.namespace_uuid, j.name,
             j.description, j.current_version_uuid,
-            (SELECT ARRAY_AGG(t.name) FROM tags t INNER JOIN jobs_tag_mapping m ON m.tag_uuid = t.uuid WHERE m.job_uuid = j.uuid)
+            (SELECT ARRAY_AGG(t.name) FROM tags t INNER JOIN jobs_tag_mapping m ON m.tag_uuid = t.uuid WHERE m.job_uuid = j.uuid),
+            j.namespace_name, j.simple_name, j.parent_job_uuid, p.name,
+            j.current_location, j.current_inputs
         FROM jobs j
+        LEFT JOIN jobs p ON j.parent_job_uuid = p.uuid
         WHERE j.namespace_uuid = :namespaceUuid
         ON CONFLICT (uuid, namespace_uuid) DO UPDATE SET
             updated_at = EXCLUDED.updated_at,
             current_version_uuid = EXCLUDED.current_version_uuid,
             tags = EXCLUDED.tags,
-            description = EXCLUDED.description
+            description = EXCLUDED.description,
+            namespace_name = EXCLUDED.namespace_name,
+            simple_name = EXCLUDED.simple_name,
+            parent_job_uuid = EXCLUDED.parent_job_uuid,
+            parent_job_name = EXCLUDED.parent_job_name,
+            current_location = EXCLUDED.current_location,
+            current_inputs = EXCLUDED.current_inputs
         WHERE
             job_denormalized.current_version_uuid IS DISTINCT FROM EXCLUDED.current_version_uuid
             OR job_denormalized.tags IS DISTINCT FROM EXCLUDED.tags
         """;
     handle.createUpdate(sql).bind("namespaceUuid", namespaceUuid).execute();
+  }
+
+  /**
+   * Upserts a specific job into the denormalized table. Uses ON CONFLICT to only update if data has
+   * changed (incremental).
+   */
+  private void upsertJobDenormalized(
+      org.jdbi.v3.core.Handle handle, UUID jobUuid, UUID namespaceUuid) {
+    log.debug("Upserting job_denormalized for job: {}", jobUuid);
+    String sql =
+        """
+        INSERT INTO job_denormalized (
+            uuid, type, created_at, updated_at, namespace_uuid, name,
+            description, current_version_uuid, tags,
+            namespace_name, simple_name, parent_job_uuid, parent_job_name,
+            current_location, current_inputs
+        )
+        SELECT
+            j.uuid, j.type, j.created_at, j.updated_at, j.namespace_uuid, j.name,
+            j.description, j.current_version_uuid,
+            (SELECT ARRAY_AGG(t.name) FROM tags t INNER JOIN jobs_tag_mapping m ON m.tag_uuid = t.uuid WHERE m.job_uuid = j.uuid),
+            j.namespace_name, j.simple_name, j.parent_job_uuid, p.name,
+            j.current_location, j.current_inputs
+        FROM jobs j
+        LEFT JOIN jobs p ON j.parent_job_uuid = p.uuid
+        WHERE j.uuid = :jobUuid AND j.namespace_uuid = :namespaceUuid
+        ON CONFLICT (uuid, namespace_uuid) DO UPDATE SET
+            updated_at = EXCLUDED.updated_at,
+            current_version_uuid = EXCLUDED.current_version_uuid,
+            tags = EXCLUDED.tags,
+            description = EXCLUDED.description,
+            namespace_name = EXCLUDED.namespace_name,
+            simple_name = EXCLUDED.simple_name,
+            parent_job_uuid = EXCLUDED.parent_job_uuid,
+            parent_job_name = EXCLUDED.parent_job_name,
+            current_location = EXCLUDED.current_location,
+            current_inputs = EXCLUDED.current_inputs
+        WHERE
+            job_denormalized.current_version_uuid IS DISTINCT FROM EXCLUDED.current_version_uuid
+            OR job_denormalized.tags IS DISTINCT FROM EXCLUDED.tags
+        """;
+    handle
+        .createUpdate(sql)
+        .bind("jobUuid", jobUuid)
+        .bind("namespaceUuid", namespaceUuid)
+        .execute();
   }
 
   /** Bulk populate all denormalized tables for all namespaces. Useful for initial migration. */
