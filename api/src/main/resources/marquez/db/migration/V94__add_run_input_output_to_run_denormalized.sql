@@ -36,4 +36,4 @@ FROM (
   LEFT JOIN dataset_versions dv ON dv.run_uuid = r.uuid
   GROUP BY r.uuid
 ) run_io
-WHERE rd.run_uuid = run_io.run_uuid;
+WHERE rd.uuid = run_io.run_uuid;

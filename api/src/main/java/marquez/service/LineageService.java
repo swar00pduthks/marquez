@@ -199,6 +199,10 @@ public class LineageService extends DelegatingLineageDao {
     log.debug(
         "Attempting to get V2 lineage for node '{}' with depth '{}'", nodeId.getValue(), depth);
 
+    if (nodeId.isRunType() || nodeId.isDatasetVersionType()) {
+      return lineage(nodeId, depth, aggregateToParentRun, includeFacets);
+    }
+
     Optional<UUID> optionalUUID = getJobUuidV2(nodeId);
     if (optionalUUID.isEmpty()) {
       log.warn(
@@ -284,7 +288,7 @@ public class LineageService extends DelegatingLineageDao {
           datasetId.getName().getValue(), datasetId.getNamespace().getValue());
     } else if (nodeId.isRunType()) {
       RunId runId = nodeId.asRunId();
-      return runDao.findRunByUuidAsRow(runId.getValue()).map(r -> r.getJobUuid());
+      return Optional.of(runId.getValue());
     }
     throw new NodeIdNotFoundException(
         String.format("Node '%s' must be of type dataset, job, or run!", nodeId.getValue()));
