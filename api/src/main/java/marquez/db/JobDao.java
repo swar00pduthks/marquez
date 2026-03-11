@@ -588,36 +588,59 @@ public interface JobDao extends BaseDao {
   // --- v2 Denormalized Table Methods (placed at end for standards) ---
   @SqlQuery(
       """
-      WITH facets_t AS
-          (SELECT jf.run_uuid,
-                  jf.facet,
-                  jf."name",
-                  jf.lineage_event_time,
-                  rank() OVER (PARTITION BY jf.run_uuid, "name"
-                               ORDER BY lineage_event_time DESC) AS r
-          FROM job_facets_view AS jf
+      WITH job_denorm_page AS (
+          SELECT j.uuid,
+              j.type,
+              j.created_at,
+              j.updated_at,
+              j.namespace_uuid,
+              j.name,
+              j.description,
+              j.current_version_uuid,
+              j.tags,
+              j.namespace_name,
+              j.simple_name,
+              j.parent_job_uuid,
+              j.parent_job_name,
+              j.current_location,
+              j.current_inputs
+          FROM job_denormalized j
+          WHERE j.namespace_uuid = :namespaceUuid
+          ORDER BY j.updated_at DESC
+          LIMIT :limit
+          OFFSET :offset
+      ),
+      facets_temp AS (
+          SELECT
+              jf.job_uuid,
+              JSON_AGG(jf.facet ORDER BY jf.lineage_event_time ASC) AS facets
+          FROM job_facets AS jf
+          INNER JOIN job_versions jv ON jv.latest_run_uuid = jf.run_uuid
+          INNER JOIN job_denorm_page j2 ON j2.current_version_uuid = jv.uuid
           WHERE jf.facet IS NOT NULL
-             <facetFilter>
-             AND jf.job_uuid IN
-               (SELECT UUID
-                FROM job_denormalized
-                WHERE namespace_uuid = :namespaceUuid
-                ORDER BY name
-                LIMIT :limit
-                OFFSET :offset))
-      SELECT j.*,
-          JSONB_AGG(f.facet) AS facets
-      FROM job_denormalized j
-      LEFT JOIN (
-          SELECT run_uuid, facet
-          FROM facets_t
-          WHERE r = 1
-      ) f ON f.run_uuid = j.current_run_uuid
-      WHERE j.namespace_uuid = :namespaceUuid
-      GROUP BY j.uuid, j.type, j.created_at, j.updated_at, j.namespace_uuid, j.namespace_name, j.name, j.description, j.current_location, j.current_inputs, j.symlink_target_uuid, j.parent_job_uuid_string, j.current_run_uuid, j.current_version_uuid, j.is_hidden, j.tags
-      ORDER BY j.name
-      LIMIT :limit
-      OFFSET :offset
+              <facetFilter>
+          GROUP BY jf.job_uuid
+      )
+      SELECT
+          j.uuid,
+          j.type,
+          j.created_at,
+          j.updated_at,
+          j.namespace_uuid,
+          j.name,
+          j.description,
+          j.current_version_uuid,
+          COALESCE(j.tags, ARRAY[]::VARCHAR[]) AS tags,
+          f.facets,
+          j.namespace_name,
+          j.simple_name,
+          j.parent_job_uuid,
+          j.parent_job_name,
+          j.current_location,
+          j.current_inputs
+      FROM job_denorm_page j
+      LEFT OUTER JOIN facets_temp f ON f.job_uuid = j.uuid
+      ORDER BY j.updated_at DESC
       """)
   List<Job> findAllJobsV2(
       @org.jdbi.v3.sqlobject.customizer.Bind("namespaceUuid") UUID namespaceUuid,
@@ -640,13 +663,39 @@ public interface JobDao extends BaseDao {
 
   @SqlQuery(
       """
-      SELECT j.*,
-          JSONB_AGG(jf.facet ORDER BY jf.lineage_event_time ASC) AS facets
+      WITH facets_temp AS (
+          SELECT
+              jf.job_uuid,
+              JSON_AGG(jf.facet ORDER BY jf.lineage_event_time ASC) AS facets
+          FROM job_facets AS jf
+          INNER JOIN job_versions jv ON jv.latest_run_uuid = jf.run_uuid
+          INNER JOIN job_denormalized j2 ON j2.current_version_uuid = jv.uuid
+          WHERE j2.namespace_uuid = :namespaceUuid
+              AND j2.name = :jobName
+              AND jf.facet IS NOT NULL
+              <facetFilter>
+          GROUP BY jf.job_uuid
+      )
+      SELECT
+          j.uuid,
+          j.type,
+          j.created_at,
+          j.updated_at,
+          j.namespace_uuid,
+          j.name,
+          j.description,
+          j.current_version_uuid,
+          COALESCE(j.tags, ARRAY[]::VARCHAR[]) AS tags,
+          f.facets,
+          j.namespace_name,
+          j.simple_name,
+          j.parent_job_uuid,
+          j.parent_job_name,
+          j.current_location,
+          j.current_inputs
       FROM job_denormalized j
-      LEFT JOIN job_facets_view jf ON jf.run_uuid = j.current_run_uuid
-          <facetFilter>
+      LEFT OUTER JOIN facets_temp f ON f.job_uuid = j.uuid
       WHERE j.namespace_uuid = :namespaceUuid AND j.name = :jobName
-      GROUP BY j.uuid, j.type, j.created_at, j.updated_at, j.namespace_uuid, j.namespace_name, j.name, j.description, j.current_location, j.current_inputs, j.symlink_target_uuid, j.parent_job_uuid_string, j.current_run_uuid, j.current_version_uuid, j.is_hidden, j.tags
       """)
   Optional<Job> findJobByNameV2(
       @org.jdbi.v3.sqlobject.customizer.Bind("namespaceUuid") UUID namespaceUuid,

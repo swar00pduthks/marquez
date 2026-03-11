@@ -20,7 +20,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import marquez.api.JdbiUtils;
 import marquez.common.models.DatasetId;
 import marquez.common.models.DatasetName;
@@ -38,6 +40,7 @@ import marquez.db.LineageTestUtils.DatasetConsumerJob;
 import marquez.db.LineageTestUtils.JobLineage;
 import marquez.db.OpenLineageDao;
 import marquez.db.RunDao;
+import marquez.db.models.DatasetRow;
 import marquez.db.models.UpdateLineageRow;
 import marquez.jdbi.MarquezJdbiExternalPostgresExtension;
 import marquez.service.LineageService.UpstreamRunLineage;
@@ -1098,5 +1101,100 @@ public class LineageServiceTest {
 
     // The lineage should aggregate to parent run with filtered facets
     // This is the critical test case that prevents PostgreSQL 256MB JSONB limit errors
+  }
+
+  @Test
+  public void testLineageV2ForJob() {
+    String jobName = "v2LineageJob";
+    String inputDatasetName = "v2InputDataset";
+    String outputDatasetName = "v2OutputDataset";
+    Dataset inputDataset = new Dataset(NAMESPACE, inputDatasetName, newDatasetFacet());
+    Dataset outputDataset = new Dataset(NAMESPACE, outputDatasetName, newDatasetFacet());
+
+    UpdateLineageRow run =
+        LineageTestUtils.createLineageRow(
+            openLineageDao,
+            jobName,
+            "COMPLETE",
+            jobFacet,
+            Arrays.asList(inputDataset),
+            Arrays.asList(outputDataset));
+
+    denormalizedLineageService.populateDenormalizedEntitiesForEvent(
+        run.getNamespace().getUuid(),
+        run.getJob().getUuid(),
+        Stream.concat(
+                run.getInputs().orElse(List.of()).stream(),
+                run.getOutputs().orElse(List.of()).stream())
+            .map(UpdateLineageRow.DatasetRecord::getDatasetRow)
+            .map(DatasetRow::getUuid)
+            .distinct()
+            .collect(Collectors.toList()));
+    denormalizedLineageService.populateLineageForRun(run.getRun().getUuid());
+
+    String persistedJobName = run.getJob().getName();
+    String persistedNamespace = run.getJob().getNamespaceName();
+
+    Lineage lineage =
+        waitForLineageV2(
+            NodeId.of(new NamespaceName(persistedNamespace), new JobName(persistedJobName)), 2, 2);
+
+    assertThat(lineage.getGraph()).isNotEmpty();
+    assertThat(lineage.getGraph())
+        .anyMatch(
+            node ->
+                node.getType().equals(NodeType.JOB)
+                    && node.getId().asJobId().getName().getValue().equals(persistedJobName));
+    assertThat(lineage.getGraph())
+        .anyMatch(
+            node ->
+                node.getType().equals(NodeType.DATASET)
+                    && node.getId().asDatasetId().getName().getValue().equals(inputDatasetName));
+    assertThat(lineage.getGraph())
+        .anyMatch(
+            node ->
+                node.getType().equals(NodeType.DATASET)
+                    && node.getId().asDatasetId().getName().getValue().equals(outputDatasetName));
+  }
+
+  @Test
+  public void testLineageV2ReturnsEmptyGraphForDatasetWithoutDenormalizedAssociation() {
+    DatasetId datasetId =
+        new DatasetId(new NamespaceName(NAMESPACE), new DatasetName("v2OrphanDataset"));
+
+    Lineage lineage = lineageService.lineageV2(NodeId.of(datasetId), 2, false);
+
+    assertThat(lineage.getGraph()).isEmpty();
+  }
+
+  private Lineage waitForLineageV2(NodeId nodeId, int depth, int expectedDatasetCount) {
+    AssertionError lastAssertion = null;
+    long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+
+    while (System.nanoTime() < deadline) {
+      Lineage lineage = lineageService.lineageV2(nodeId, depth, false);
+      try {
+        assertThat(lineage.getGraph())
+            .filteredOn(node -> node.getType().equals(NodeType.DATASET))
+            .hasSizeGreaterThanOrEqualTo(expectedDatasetCount);
+        return lineage;
+      } catch (AssertionError error) {
+        lastAssertion = error;
+      }
+
+      try {
+        Thread.sleep(50L);
+      } catch (InterruptedException interrupted) {
+        Thread.currentThread().interrupt();
+        throw new AssertionError(
+            "Interrupted while waiting for V2 denormalized lineage", interrupted);
+      }
+    }
+
+    if (lastAssertion != null) {
+      throw lastAssertion;
+    }
+
+    return lineageService.lineageV2(nodeId, depth, false);
   }
 }

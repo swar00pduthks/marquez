@@ -651,4 +651,205 @@ public interface LineageDao {
   Set<DatasetVersionData> getDatasetVersionData(
       @BindList(value = "versions", onEmpty = BindList.EmptyHandling.NULL_STRING)
           Set<UUID> versions);
+
+  @SqlQuery(
+      """
+      WITH RECURSIVE
+        job_io AS (
+          SELECT
+            j.uuid AS job_uuid,
+            COALESCE(
+              ARRAY_AGG(DISTINCT rl.input_dataset_uuid)
+                FILTER (WHERE rl.input_dataset_uuid IS NOT NULL),
+              ARRAY[]::uuid[]) AS inputs,
+            COALESCE(
+              ARRAY_AGG(DISTINCT rl.output_dataset_uuid)
+                FILTER (WHERE rl.output_dataset_uuid IS NOT NULL),
+              ARRAY[]::uuid[]) AS outputs
+          FROM job_denormalized j
+          LEFT JOIN run_lineage_denormalized rl
+            ON rl.job_uuid = j.uuid
+           AND (:minDate::date IS NULL OR rl.run_date >= :minDate::date)
+           AND (:maxDate::date IS NULL OR rl.run_date <= :maxDate::date)
+          GROUP BY j.uuid
+        ),
+        lineage AS (
+          SELECT
+            io.job_uuid,
+            io.inputs,
+            io.outputs,
+            0 AS depth,
+            ARRAY[io.job_uuid]::uuid[] AS path
+          FROM job_io io
+          WHERE io.job_uuid IN (<jobIds>)
+
+          UNION ALL
+
+          SELECT
+            io.job_uuid,
+            io.inputs,
+            io.outputs,
+            l.depth + 1,
+            l.path || io.job_uuid
+          FROM lineage l
+          JOIN job_io io
+            ON io.job_uuid != l.job_uuid
+           AND array_cat(io.inputs, io.outputs) && array_cat(l.inputs, l.outputs)
+          WHERE l.depth < :depth
+            AND NOT io.job_uuid = ANY(l.path)
+        ),
+        selected_jobs AS (
+          SELECT DISTINCT job_uuid FROM lineage
+          UNION
+          SELECT unnest(ARRAY[<jobIds>]::uuid[])
+        )
+      SELECT
+        j.uuid,
+        j.type,
+        j.name,
+        j.simple_name,
+        j.parent_job_name,
+        j.parent_job_uuid,
+        jv.latest_run_uuid AS current_run_uuid,
+        j.created_at,
+        j.updated_at,
+        j.namespace_name,
+        COALESCE(io.inputs, ARRAY[]::uuid[]) AS input_uuids,
+        COALESCE(io.outputs, ARRAY[]::uuid[]) AS output_uuids,
+        j.current_location,
+        j.description
+      FROM selected_jobs sj
+      INNER JOIN job_denormalized j ON j.uuid = sj.job_uuid
+      LEFT JOIN job_versions jv ON jv.uuid = j.current_version_uuid
+      LEFT JOIN LATERAL (
+        SELECT
+          ARRAY_AGG(DISTINCT rl.input_dataset_uuid)
+            FILTER (WHERE rl.input_dataset_uuid IS NOT NULL) AS inputs,
+          ARRAY_AGG(DISTINCT rl.output_dataset_uuid)
+            FILTER (WHERE rl.output_dataset_uuid IS NOT NULL) AS outputs
+        FROM run_lineage_denormalized rl
+        WHERE rl.job_uuid = j.uuid
+          AND (:minDate::date IS NULL OR rl.run_date >= :minDate::date)
+          AND (:maxDate::date IS NULL OR rl.run_date <= :maxDate::date)
+      ) io ON TRUE
+      """)
+  Set<JobData> getLineageV2(
+      @BindList Set<UUID> jobIds,
+      @Bind("depth") int depth,
+      @Bind("minDate") String minDate,
+      @Bind("maxDate") String maxDate);
+
+  @SqlQuery(
+      """
+      SELECT DISTINCT jv.latest_run_uuid
+      FROM job_denormalized j
+      INNER JOIN job_versions jv ON jv.uuid = j.current_version_uuid
+      WHERE j.namespace_name = :namespaceName
+      AND j.name = :jobName
+      AND jv.latest_run_uuid IS NOT NULL
+      """)
+  Set<UUID> getLatestRunUuidsForJobV2(
+      @Bind("namespaceName") String namespaceName, @Bind("jobName") String jobName);
+
+  @SqlQuery(
+      """
+      SELECT DISTINCT dv.run_uuid
+      FROM dataset_denormalized d
+      INNER JOIN dataset_versions dv ON dv.dataset_uuid = d.uuid
+      WHERE d.namespace_name = :namespaceName
+      AND d.name = :datasetName
+      AND dv.run_uuid IS NOT NULL
+      """)
+  Set<UUID> getSeedRunUuidsForDatasetV2(
+      @Bind("namespaceName") String namespaceName, @Bind("datasetName") String datasetName);
+
+  @SqlQuery(
+      """
+      SELECT j.uuid
+      FROM job_denormalized j
+      INNER JOIN dataset_denormalized d
+        ON d.uuid = ANY(COALESCE(j.input_uuids, ARRAY[]::uuid[]))
+        OR d.uuid = ANY(COALESCE(j.output_uuids, ARRAY[]::uuid[]))
+      WHERE d.namespace_name = :namespaceName
+      AND d.name = :datasetName
+      ORDER BY j.updated_at DESC
+      LIMIT 1
+      """)
+  Optional<UUID> getJobFromInputOrOutputV2(
+      @Bind("datasetName") String datasetName, @Bind("namespaceName") String namespaceName);
+
+  @SqlQuery(
+      """
+      SELECT
+        j.uuid,
+        j.type,
+        j.name,
+        j.simple_name,
+        j.parent_job_name,
+        j.parent_job_uuid,
+        jv.latest_run_uuid AS current_run_uuid,
+        j.created_at,
+        j.updated_at,
+        j.namespace_name,
+        COALESCE(j.input_uuids, ARRAY[]::uuid[]) AS input_uuids,
+        COALESCE(j.output_uuids, ARRAY[]::uuid[]) AS output_uuids,
+        j.current_location,
+        j.description
+      FROM job_denormalized j
+      LEFT JOIN job_versions jv ON jv.uuid = j.current_version_uuid
+      WHERE j.uuid IN (<jobUuids>)
+      """)
+  Set<JobData> getJobDataV2(
+      @BindList(value = "jobUuids", onEmpty = BindList.EmptyHandling.NULL_STRING)
+          Set<UUID> jobUuids);
+
+  @SqlQuery(
+      """
+      SELECT
+        d.uuid,
+        d.type,
+        d.name,
+        d.physical_name,
+        d.created_at,
+        d.updated_at,
+        d.namespace_name,
+        d.source_name,
+        dvd.fields,
+        d.last_modified_at,
+        d.description,
+        d.lifecycle_state
+      FROM dataset_denormalized d
+      LEFT JOIN dataset_version_denormalized dvd
+      ON d.current_version_uuid = dvd.uuid
+      AND d.namespace_uuid = dvd.namespace_uuid
+      WHERE d.uuid IN (<dsUuids>)
+      """)
+  Set<DatasetData> getDatasetDataV2(
+      @BindList(value = "dsUuids", onEmpty = BindList.EmptyHandling.NULL_STRING) Set<UUID> dsUuids);
+
+  @SqlQuery(
+      """
+      SELECT
+        d.uuid,
+        d.type,
+        d.name,
+        d.physical_name,
+        d.created_at,
+        d.updated_at,
+        d.namespace_name,
+        d.source_name,
+        dvd.fields,
+        d.last_modified_at,
+        d.description,
+        d.lifecycle_state
+      FROM dataset_denormalized d
+      LEFT JOIN dataset_version_denormalized dvd
+      ON d.current_version_uuid = dvd.uuid
+      AND d.namespace_uuid = dvd.namespace_uuid
+      WHERE d.namespace_name = :namespaceName
+      AND d.name = :datasetName
+      LIMIT 1
+      """)
+  DatasetData getDatasetDataV2(
+      @Bind("namespaceName") String namespaceName, @Bind("datasetName") String datasetName);
 }

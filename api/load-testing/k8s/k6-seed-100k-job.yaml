@@ -1,0 +1,32 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: k6-seed-100k
+  namespace: marquez
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: k6
+        image: grafana/k6:0.52.0
+        env:
+        - name: MARQUEZ_URL
+          value: http://marquez-baseline
+        - name: TARGET_EVENTS
+          value: "100000"
+        - name: SEED_VUS
+          value: "40"
+        - name: MAX_DURATION
+          value: 2h
+        - name: HTTP_TIMEOUT
+          value: 30s
+        command: ["k6", "run", "/scripts/spark-lineage-seed.js"]
+        volumeMounts:
+        - name: scripts
+          mountPath: /scripts
+      volumes:
+      - name: scripts
+        configMap:
+          name: k6-seed-scripts
