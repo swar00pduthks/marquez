@@ -95,8 +95,25 @@ public class OpenLineageService extends DelegatingDaos.DelegatingOpenLineageDao 
                 (update) -> {
                   if (update != null && update.getNamespace() != null) {
                     try {
-                      denormalizedLineageService.populateDenormalizedEntitiesForNamespace(
-                          update.getNamespace().getUuid());
+                      // Extract specific entity UUIDs from the event
+                      UUID jobUuid = update.getJob() != null ? update.getJob().getUuid() : null;
+                      java.util.List<UUID> datasetUuids = new java.util.ArrayList<>();
+                      if (update.getInputs() != null && update.getInputs().isPresent()) {
+                        update
+                            .getInputs()
+                            .get()
+                            .forEach(ds -> datasetUuids.add(ds.getDatasetRow().getUuid()));
+                      }
+                      if (update.getOutputs() != null && update.getOutputs().isPresent()) {
+                        update
+                            .getOutputs()
+                            .get()
+                            .forEach(ds -> datasetUuids.add(ds.getDatasetRow().getUuid()));
+                      }
+
+                      // Incrementally update only affected entities (not entire namespace)
+                      denormalizedLineageService.populateDenormalizedEntitiesForEvent(
+                          update.getNamespace().getUuid(), jobUuid, datasetUuids);
                     } catch (Exception e) {
                       log.error(
                           "Failed to populate denormalized entities for namespace: {}",
@@ -135,8 +152,25 @@ public class OpenLineageService extends DelegatingDaos.DelegatingOpenLineageDao 
                 (update) -> {
                   if (update != null && update.getNamespace() != null) {
                     try {
-                      denormalizedLineageService.populateDenormalizedEntitiesForNamespace(
-                          update.getNamespace().getUuid());
+                      // Extract specific entity UUIDs from the event
+                      UUID jobUuid = update.getJob() != null ? update.getJob().getUuid() : null;
+                      java.util.List<UUID> datasetUuids = new java.util.ArrayList<>();
+                      if (update.getInputs() != null && update.getInputs().isPresent()) {
+                        update
+                            .getInputs()
+                            .get()
+                            .forEach(ds -> datasetUuids.add(ds.getDatasetRow().getUuid()));
+                      }
+                      if (update.getOutputs() != null && update.getOutputs().isPresent()) {
+                        update
+                            .getOutputs()
+                            .get()
+                            .forEach(ds -> datasetUuids.add(ds.getDatasetRow().getUuid()));
+                      }
+
+                      // Incrementally update only affected entities (not entire namespace)
+                      denormalizedLineageService.populateDenormalizedEntitiesForEvent(
+                          update.getNamespace().getUuid(), jobUuid, datasetUuids);
                     } catch (Exception e) {
                       log.error(
                           "Failed to populate denormalized entities for namespace: {}",
@@ -186,8 +220,25 @@ public class OpenLineageService extends DelegatingDaos.DelegatingOpenLineageDao 
                     // updated
                     if (update.getNamespace() != null) {
                       try {
-                        denormalizedLineageService.populateDenormalizedEntitiesForNamespace(
-                            update.getNamespace().getUuid());
+                        // Extract specific entity UUIDs from the event
+                        UUID jobUuid = update.getJob() != null ? update.getJob().getUuid() : null;
+                        java.util.List<UUID> datasetUuids = new java.util.ArrayList<>();
+                        if (update.getInputs() != null && update.getInputs().isPresent()) {
+                          update
+                              .getInputs()
+                              .get()
+                              .forEach(ds -> datasetUuids.add(ds.getDatasetRow().getUuid()));
+                        }
+                        if (update.getOutputs() != null && update.getOutputs().isPresent()) {
+                          update
+                              .getOutputs()
+                              .get()
+                              .forEach(ds -> datasetUuids.add(ds.getDatasetRow().getUuid()));
+                        }
+
+                        // Incrementally update only affected entities (not entire namespace)
+                        denormalizedLineageService.populateDenormalizedEntitiesForEvent(
+                            update.getNamespace().getUuid(), jobUuid, datasetUuids);
                       } catch (Exception e) {
                         log.error(
                             "Failed to populate denormalized entities for namespace: {}",

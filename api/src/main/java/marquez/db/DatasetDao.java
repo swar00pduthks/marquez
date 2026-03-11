@@ -522,16 +522,34 @@ public interface DatasetDao extends BaseDao {
                 ORDER BY name
                 LIMIT :limit
                 OFFSET :offset))
-      SELECT d.*,
-          JSONB_AGG(f.facet) AS facets
+      SELECT d.uuid,
+          d.type,
+          d.created_at,
+          d.updated_at,
+          d.last_modified_at,
+          d.is_deleted,
+          d.namespace_uuid,
+          d.source_uuid,
+          d.name,
+          d.physical_name,
+          d.description,
+          d.current_version_uuid,
+          d.tags,
+          d.schema_location,
+          d.lifecycle_state,
+          dvd.fields,
+          JSONB_AGG(f.facet) AS facets,
+          d.namespace_name,
+          d.source_name
       FROM dataset_denormalized d
+      LEFT JOIN dataset_version_denormalized dvd ON d.current_version_uuid = dvd.uuid AND d.namespace_uuid = dvd.namespace_uuid
       LEFT JOIN (
           SELECT dataset_version_uuid, facet
           FROM facets_t
           WHERE r = 1
       ) f ON f.dataset_version_uuid = d.current_version_uuid
       WHERE d.namespace_uuid = :namespaceUuid
-      GROUP BY d.uuid, d.type, d.created_at, d.updated_at, d.namespace_uuid, d.namespace_name, d.source_uuid, d.source_name, d.name, d.physical_name, d.description, d.is_deleted, d.current_version_uuid, d.last_modified_at, d.tags, d.fields, d.lifecycle_state, d.schema_location
+      GROUP BY d.uuid, d.type, d.created_at, d.updated_at, d.last_modified_at, d.is_deleted, d.namespace_uuid, d.source_uuid, d.name, d.physical_name, d.description, d.current_version_uuid, d.tags, d.lifecycle_state, d.schema_location, dvd.fields, d.namespace_name, d.source_name
       ORDER BY d.name
       LIMIT :limit
       OFFSET :offset
@@ -557,14 +575,32 @@ public interface DatasetDao extends BaseDao {
 
   @SqlQuery(
       """
-      SELECT d.*,
-          JSONB_AGG(df.facet ORDER BY df.lineage_event_time ASC) AS facets
+      SELECT d.uuid,
+          d.type,
+          d.created_at,
+          d.updated_at,
+          d.last_modified_at,
+          d.is_deleted,
+          d.namespace_uuid,
+          d.source_uuid,
+          d.name,
+          d.physical_name,
+          d.description,
+          d.current_version_uuid,
+          d.tags,
+          d.schema_location,
+          d.lifecycle_state,
+          dvd.fields,
+          JSONB_AGG(df.facet ORDER BY df.lineage_event_time ASC) AS facets,
+          d.namespace_name,
+          d.source_name
       FROM dataset_denormalized d
+      LEFT JOIN dataset_version_denormalized dvd ON d.current_version_uuid = dvd.uuid AND d.namespace_uuid = dvd.namespace_uuid
       LEFT JOIN dataset_facets df ON df.dataset_version_uuid = d.current_version_uuid
           AND (df.type ILIKE 'dataset' OR df.type ILIKE 'unknown' OR df.type ILIKE 'input')
           <facetFilter>
       WHERE d.namespace_uuid = :namespaceUuid AND d.name = :datasetName
-      GROUP BY d.uuid, d.type, d.created_at, d.updated_at, d.namespace_uuid, d.namespace_name, d.source_uuid, d.source_name, d.name, d.physical_name, d.description, d.is_deleted, d.current_version_uuid, d.last_modified_at, d.tags, d.fields, d.lifecycle_state, d.schema_location
+      GROUP BY d.uuid, d.type, d.created_at, d.updated_at, d.last_modified_at, d.is_deleted, d.namespace_uuid, d.source_uuid, d.name, d.physical_name, d.description, d.current_version_uuid, d.tags, d.lifecycle_state, d.schema_location, dvd.fields, d.namespace_name, d.source_name
       """)
   Optional<Dataset> findDatasetByNameV2(
       @org.jdbi.v3.sqlobject.customizer.Bind("namespaceUuid") UUID namespaceUuid,

@@ -239,6 +239,17 @@ public abstract class BaseIntegrationTest {
     return http2.sendAsync(request, BodyHandlers.ofString());
   }
 
+  protected CompletableFuture<HttpResponse<String>> fetchLineageV2(String nodeId, int depth) {
+    HttpRequest request =
+        HttpRequest.newBuilder()
+            .uri(URI.create(baseUrl + "/api/v2/lineage?nodeId=" + nodeId + "&depth=" + depth))
+            .header("Content-Type", "application/json")
+            .GET()
+            .build();
+
+    return http2.sendAsync(request, BodyHandlers.ofString());
+  }
+
   protected void createSource(String sourceName) {
     final SourceMeta sourceMeta =
         SourceMeta.builder()

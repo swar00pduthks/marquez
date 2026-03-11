@@ -13,6 +13,12 @@ public class JdbiUtils {
     jdbi.inTransaction(
         handle -> {
           handle.execute("DELETE FROM lineage_events");
+          // Clear denormalized lineage/entity tables as part of global test cleanup.
+          handle.execute("DELETE FROM run_parent_lineage_denormalized");
+          handle.execute("DELETE FROM run_lineage_denormalized");
+          handle.execute("DELETE FROM dataset_version_denormalized");
+          handle.execute("DELETE FROM dataset_denormalized");
+          handle.execute("DELETE FROM job_denormalized");
           handle.execute("DELETE FROM runs_input_mapping");
           handle.execute("DELETE FROM dataset_versions_field_mapping");
           handle.execute("DELETE FROM dataset_schema_versions_field_mapping");
@@ -32,6 +38,7 @@ public class JdbiUtils {
           handle.execute("DELETE FROM run_args");
           handle.execute("DELETE FROM job_versions_io_mapping");
           handle.execute("DELETE FROM job_versions");
+          handle.execute("DELETE FROM jobs_tag_mapping");
           handle.execute("DELETE FROM jobs_fqn");
           handle.execute("DELETE FROM jobs");
           handle.execute("DELETE FROM dataset_fields_tag_mapping");

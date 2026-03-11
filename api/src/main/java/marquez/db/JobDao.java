@@ -605,7 +605,7 @@ public interface JobDao extends BaseDao {
                 ORDER BY name
                 LIMIT :limit
                 OFFSET :offset))
-      SELECT j.*,
+      SELECT j.uuid, j.type, j.created_at, j.updated_at, j.namespace_uuid, j.name, j.description, j.current_version_uuid, COALESCE(j.tags, ARRAY[]::VARCHAR[]) AS tags, j.namespace_name, j.simple_name, j.parent_job_uuid, j.parent_job_name, j.current_location, j.current_inputs,
           JSONB_AGG(f.facet) AS facets
       FROM job_denormalized j
       LEFT JOIN (
@@ -614,7 +614,7 @@ public interface JobDao extends BaseDao {
           WHERE r = 1
       ) f ON f.run_uuid = j.current_run_uuid
       WHERE j.namespace_uuid = :namespaceUuid
-      GROUP BY j.uuid, j.type, j.created_at, j.updated_at, j.namespace_uuid, j.namespace_name, j.name, j.description, j.current_location, j.current_inputs, j.symlink_target_uuid, j.parent_job_uuid_string, j.current_run_uuid, j.current_version_uuid, j.is_hidden, j.tags
+      GROUP BY j.uuid, j.type, j.created_at, j.updated_at, j.namespace_uuid, j.name, j.description, j.current_version_uuid, j.tags, j.namespace_name, j.simple_name, j.parent_job_uuid, j.parent_job_name, j.current_location, j.current_inputs
       ORDER BY j.name
       LIMIT :limit
       OFFSET :offset
@@ -640,13 +640,13 @@ public interface JobDao extends BaseDao {
 
   @SqlQuery(
       """
-      SELECT j.*,
+      SELECT j.uuid, j.type, j.created_at, j.updated_at, j.namespace_uuid, j.name, j.description, j.current_version_uuid, COALESCE(j.tags, ARRAY[]::VARCHAR[]) AS tags, j.namespace_name, j.simple_name, j.parent_job_uuid, j.parent_job_name, j.current_location, j.current_inputs,
           JSONB_AGG(jf.facet ORDER BY jf.lineage_event_time ASC) AS facets
       FROM job_denormalized j
       LEFT JOIN job_facets_view jf ON jf.run_uuid = j.current_run_uuid
           <facetFilter>
       WHERE j.namespace_uuid = :namespaceUuid AND j.name = :jobName
-      GROUP BY j.uuid, j.type, j.created_at, j.updated_at, j.namespace_uuid, j.namespace_name, j.name, j.description, j.current_location, j.current_inputs, j.symlink_target_uuid, j.parent_job_uuid_string, j.current_run_uuid, j.current_version_uuid, j.is_hidden, j.tags
+      GROUP BY j.uuid, j.type, j.created_at, j.updated_at, j.namespace_uuid, j.name, j.description, j.current_version_uuid, j.tags, j.namespace_name, j.simple_name, j.parent_job_uuid, j.parent_job_name, j.current_location, j.current_inputs
       """)
   Optional<Job> findJobByNameV2(
       @org.jdbi.v3.sqlobject.customizer.Bind("namespaceUuid") UUID namespaceUuid,

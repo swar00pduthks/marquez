@@ -24,6 +24,9 @@ data:
       adminConnectors:
       - type: http
         port: ${MARQUEZ_ADMIN_PORT}
+      gzip:
+        enabled: true
+        minimumEntitySize: 256 bytes
 
     ### DATABASE CONFIG ###
 

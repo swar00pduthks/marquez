@@ -10,8 +10,8 @@ info:
     name: Apache 2.0
     url: http://www.apache.org/licenses/LICENSE-2.0.html
 servers:
-  - url: http://localhost:5000
-    description: Local API server
+  - url: /
+    description: Current API server
 paths:
   /api/v1/namespaces/{namespace}:
     parameters:
@@ -598,6 +598,25 @@ paths:
         - Lineage
       summary: Get a lineage graph
       description: Returns a lineage graph for the specified node. Optionally aggregate child runs to parent and filter facets to prevent large response sizes.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LineageGraph'
+
+  /api/v2/lineage:
+    get:
+      operationId: getLineageV2
+      parameters:
+        - $ref: '#/components/parameters/nodeId'
+        - $ref: '#/components/parameters/depth'
+        - $ref: '#/components/parameters/aggregateToParentRun'
+      tags:
+        - Lineage
+      summary: Get a denormalized lineage graph
+      description: Returns a lineage graph for the specified node using the V2 denormalized read path.
       responses:
         '200':
           description: OK

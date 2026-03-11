@@ -59,3 +59,7 @@ marquez-api-deployment.yaml
 
 # Terraform
 terraform/
+
+# agent
+agents/
+.github/skills/
