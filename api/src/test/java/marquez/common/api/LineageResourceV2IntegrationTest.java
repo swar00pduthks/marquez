@@ -9,12 +9,17 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -210,6 +215,84 @@ public class LineageResourceV2IntegrationTest extends BaseIntegrationTest {
     assertThat(graph.findValuesAsText("id")).contains(nodeId);
   }
 
+  @Test
+  public void testApp_v1AndV2_lineageParityForAllSupportedNodeTypes() throws Exception {
+    String jobName = "v1_v2_parity_job";
+    String inputDataset = "v1_v2_parity_input_dataset";
+    String outputDataset = "v1_v2_parity_output_dataset";
+    UUID runId = UUID.randomUUID();
+
+    HttpResponse<String> ingestionResponse =
+        sendLineage(buildCompleteEvent(runId, jobName, inputDataset, outputDataset)).join();
+    assertThat(ingestionResponse.statusCode()).isEqualTo(201);
+
+    populateDenormalized(runId);
+
+    Optional<UUID> datasetVersionUuid =
+        MarquezApp.getJdbiInstanceForTesting()
+            .withHandle(
+                handle ->
+                    handle
+                        .createQuery(
+                            """
+                            SELECT uuid
+                            FROM dataset_versions
+                            WHERE run_uuid = :runUuid
+                              AND namespace_name = :namespaceName
+                              AND dataset_name = :datasetName
+                            ORDER BY created_at DESC
+                            LIMIT 1
+                            """)
+                        .bind("runUuid", runId)
+                        .bind("namespaceName", NAMESPACE_NAME)
+                        .bind("datasetName", outputDataset)
+                        .mapTo(UUID.class)
+                        .findOne());
+
+    assertThat(datasetVersionUuid).isPresent();
+
+    assertLineageParity("job:" + NAMESPACE_NAME + ":" + jobName, 2, false, "");
+    assertLineageParity("dataset:" + NAMESPACE_NAME + ":" + outputDataset, 2, false, "");
+    assertLineageParity("run:" + runId, 2, false, "");
+    assertLineageParity(
+        "dataset:" + NAMESPACE_NAME + ":" + outputDataset + "#" + datasetVersionUuid.get(),
+        2,
+        false,
+        "");
+  }
+
+  @Test
+  public void testApp_v1AndV2_parentRunLineageParity() throws Exception {
+    UUID parentRunId = UUID.randomUUID();
+    UUID childRunId = UUID.randomUUID();
+    String parentJob = "v1_v2_parent_job";
+    String childJob = "v1_v2_child_job";
+    String sharedDataset = "v1_v2_parent_output";
+    String childOutput = "v1_v2_child_output";
+
+    assertThat(
+            sendLineage(buildCompleteEvent(parentRunId, parentJob, "seed_input", sharedDataset))
+                .join()
+                .statusCode())
+        .isEqualTo(201);
+    assertThat(
+            sendLineage(buildCompleteEvent(childRunId, childJob, sharedDataset, childOutput))
+                .join()
+                .statusCode())
+        .isEqualTo(201);
+
+    MarquezApp.getJdbiInstanceForTesting()
+        .useHandle(
+            handle ->
+                handle.execute(
+                    "UPDATE runs SET parent_run_uuid = ? WHERE uuid = ?", parentRunId, childRunId));
+
+    populateDenormalized(childRunId);
+    populateDenormalized(parentRunId);
+
+    assertLineageParity("run:" + parentRunId, 2, true, "");
+  }
+
   private void populateDenormalized(UUID runId) {
     Jdbi jdbi = MarquezApp.getJdbiInstanceForTesting();
     PartitionManagementService partitionManagementService =
@@ -282,6 +365,66 @@ public class LineageResourceV2IntegrationTest extends BaseIntegrationTest {
     URI uri = new URI(baseUrl.toString() + query);
     HttpRequest request = HttpRequest.newBuilder().uri(uri).GET().build();
     return http2.send(request, HttpResponse.BodyHandlers.ofString());
+  }
+
+  private HttpResponse<String> fetchLineageV1WithParams(
+      String nodeId, int depth, boolean aggregateToParentRun, String includeFacet)
+      throws Exception {
+    String encodedNodeId = URLEncoder.encode(nodeId, StandardCharsets.UTF_8);
+    StringBuilder query =
+        new StringBuilder(
+            "/api/v1/lineage?nodeId="
+                + encodedNodeId
+                + "&depth="
+                + depth
+                + "&aggregateToParentRun="
+                + aggregateToParentRun);
+    if (includeFacet != null && !includeFacet.isBlank()) {
+      query
+          .append("&includeFacets=")
+          .append(URLEncoder.encode(includeFacet, StandardCharsets.UTF_8));
+    }
+
+    URI uri = new URI(baseUrl.toString() + query);
+    HttpRequest request = HttpRequest.newBuilder().uri(uri).GET().build();
+    return http2.send(request, HttpResponse.BodyHandlers.ofString());
+  }
+
+  private void assertLineageParity(
+      String nodeId, int depth, boolean aggregateToParentRun, String includeFacet)
+      throws Exception {
+    HttpResponse<String> v1Response =
+        fetchLineageV1WithParams(nodeId, depth, aggregateToParentRun, includeFacet);
+    HttpResponse<String> v2Response =
+        fetchLineageV2WithParams(nodeId, depth, aggregateToParentRun, includeFacet);
+
+    assertThat(v1Response.statusCode()).isEqualTo(200);
+    assertThat(v2Response.statusCode()).isEqualTo(200);
+    assertThat(normalizeJson(mapper.readTree(v2Response.body())))
+        .isEqualTo(normalizeJson(mapper.readTree(v1Response.body())));
+  }
+
+  private JsonNode normalizeJson(JsonNode node) {
+    if (node == null || node.isNull() || node.isValueNode()) {
+      return node;
+    }
+
+    if (node.isArray()) {
+      ArrayNode normalizedArray = mapper.createArrayNode();
+      List<JsonNode> normalizedChildren = new ArrayList<>();
+      node.forEach(child -> normalizedChildren.add(normalizeJson(child)));
+      normalizedChildren.sort(Comparator.comparing(JsonNode::toString));
+      normalizedChildren.forEach(normalizedArray::add);
+      return normalizedArray;
+    }
+
+    ObjectNode normalizedObject = mapper.createObjectNode();
+    List<String> fieldNames = new ArrayList<>();
+    node.fieldNames().forEachRemaining(fieldNames::add);
+    fieldNames.sort(String::compareTo);
+    fieldNames.forEach(
+        fieldName -> normalizedObject.set(fieldName, normalizeJson(node.get(fieldName))));
+    return normalizedObject;
   }
 
   private Set<String> graphNodeIds(String body) throws Exception {

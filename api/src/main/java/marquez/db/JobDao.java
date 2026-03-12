@@ -606,15 +606,17 @@ public interface JobDao extends BaseDao {
                 LIMIT :limit
                 OFFSET :offset))
       SELECT j.uuid, j.type, j.created_at, j.updated_at, j.namespace_uuid, j.name, j.description, j.current_version_uuid, COALESCE(j.tags, ARRAY[]::VARCHAR[]) AS tags, j.namespace_name, j.simple_name, j.parent_job_uuid, j.parent_job_name, j.current_location, j.current_inputs,
+          jv.latest_run_uuid AS current_run_uuid,
           JSONB_AGG(f.facet) AS facets
       FROM job_denormalized j
+        LEFT JOIN job_versions jv ON jv.uuid = j.current_version_uuid
       LEFT JOIN (
           SELECT run_uuid, facet
           FROM facets_t
           WHERE r = 1
-      ) f ON f.run_uuid = j.current_run_uuid
+        ) f ON f.run_uuid = jv.latest_run_uuid
       WHERE j.namespace_uuid = :namespaceUuid
-      GROUP BY j.uuid, j.type, j.created_at, j.updated_at, j.namespace_uuid, j.name, j.description, j.current_version_uuid, j.tags, j.namespace_name, j.simple_name, j.parent_job_uuid, j.parent_job_name, j.current_location, j.current_inputs
+        GROUP BY j.uuid, j.type, j.created_at, j.updated_at, j.namespace_uuid, j.name, j.description, j.current_version_uuid, j.tags, j.namespace_name, j.simple_name, j.parent_job_uuid, j.parent_job_name, j.current_location, j.current_inputs, jv.latest_run_uuid
       ORDER BY j.name
       LIMIT :limit
       OFFSET :offset
@@ -641,12 +643,14 @@ public interface JobDao extends BaseDao {
   @SqlQuery(
       """
       SELECT j.uuid, j.type, j.created_at, j.updated_at, j.namespace_uuid, j.name, j.description, j.current_version_uuid, COALESCE(j.tags, ARRAY[]::VARCHAR[]) AS tags, j.namespace_name, j.simple_name, j.parent_job_uuid, j.parent_job_name, j.current_location, j.current_inputs,
+          jv.latest_run_uuid AS current_run_uuid,
           JSONB_AGG(jf.facet ORDER BY jf.lineage_event_time ASC) AS facets
       FROM job_denormalized j
-      LEFT JOIN job_facets_view jf ON jf.run_uuid = j.current_run_uuid
+        LEFT JOIN job_versions jv ON jv.uuid = j.current_version_uuid
+        LEFT JOIN job_facets_view jf ON jf.run_uuid = jv.latest_run_uuid
           <facetFilter>
       WHERE j.namespace_uuid = :namespaceUuid AND j.name = :jobName
-      GROUP BY j.uuid, j.type, j.created_at, j.updated_at, j.namespace_uuid, j.name, j.description, j.current_version_uuid, j.tags, j.namespace_name, j.simple_name, j.parent_job_uuid, j.parent_job_name, j.current_location, j.current_inputs
+        GROUP BY j.uuid, j.type, j.created_at, j.updated_at, j.namespace_uuid, j.name, j.description, j.current_version_uuid, j.tags, j.namespace_name, j.simple_name, j.parent_job_uuid, j.parent_job_name, j.current_location, j.current_inputs, jv.latest_run_uuid
       """)
   Optional<Job> findJobByNameV2(
       @org.jdbi.v3.sqlobject.customizer.Bind("namespaceUuid") UUID namespaceUuid,

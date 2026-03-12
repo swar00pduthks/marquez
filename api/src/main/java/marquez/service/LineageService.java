@@ -206,9 +206,9 @@ public class LineageService extends DelegatingLineageDao {
     Optional<UUID> optionalUUID = getJobUuidV2(nodeId);
     if (optionalUUID.isEmpty()) {
       log.warn(
-          "Failed to get job associated with node '{}' for V2 lineage, returning empty graph...",
+          "Failed to get job associated with node '{}' for V2 lineage, returning orphan graph...",
           nodeId.getValue());
-      return new Lineage(ImmutableSortedSet.of());
+      return toLineageWithOrphanDataset(nodeId.asDatasetId());
     }
 
     UUID job = optionalUUID.get();
@@ -217,13 +217,12 @@ public class LineageService extends DelegatingLineageDao {
       JobId jobId = nodeId.asJobId();
       seedRunIds =
           getLatestRunUuidsForJobV2(jobId.getNamespace().getValue(), jobId.getName().getValue());
-    } else if (nodeId.isDatasetType()) {
+    } else {
+      // dataset node: find seed runs via dataset denorm
       DatasetId datasetId = nodeId.asDatasetId();
       seedRunIds =
           getSeedRunUuidsForDatasetV2(
               datasetId.getNamespace().getValue(), datasetId.getName().getValue());
-    } else {
-      seedRunIds = Set.of();
     }
 
     LineageDao.RunDateRange dateRange = seedRunIds.isEmpty() ? null : getRunDateRange(seedRunIds);
@@ -235,10 +234,10 @@ public class LineageService extends DelegatingLineageDao {
     Set<JobData> jobData = getLineageV2(Collections.singleton(job), depth, minDate, maxDate);
     if (jobData.isEmpty()) {
       log.warn(
-          "Failed to get V2 lineage for job '{}' associated with node '{}', returning empty graph...",
+          "Failed to get V2 lineage for job '{}' associated with node '{}', returning orphan graph...",
           job,
           nodeId.getValue());
-      return new Lineage(ImmutableSortedSet.of());
+      return toLineageWithOrphanDataset(nodeId.asDatasetId());
     }
 
     for (JobData j : jobData) {
@@ -264,12 +263,12 @@ public class LineageService extends DelegatingLineageDao {
           this.getDatasetDataV2(
               datasetId.getNamespace().getValue(), datasetId.getName().getValue());
 
-      if (!datasetIds.contains(datasetData.getUuid())) {
+      if (datasetData == null || !datasetIds.contains(datasetData.getUuid())) {
         log.warn(
-            "Found V2 jobs {} which no longer share lineage with dataset '{}' - returning empty graph",
+            "Found V2 jobs {} which no longer share lineage with dataset '{}' - discarding",
             jobData.stream().map(JobData::getId).toList(),
             nodeId.getValue());
-        return new Lineage(ImmutableSortedSet.of());
+        return toLineageWithOrphanDataset(nodeId.asDatasetId());
       }
     }
 
@@ -286,17 +285,19 @@ public class LineageService extends DelegatingLineageDao {
       DatasetId datasetId = nodeId.asDatasetId();
       return getJobFromInputOrOutputV2(
           datasetId.getName().getValue(), datasetId.getNamespace().getValue());
-    } else if (nodeId.isRunType()) {
-      RunId runId = nodeId.asRunId();
-      return Optional.of(runId.getValue());
     }
     throw new NodeIdNotFoundException(
-        String.format("Node '%s' must be of type dataset, job, or run!", nodeId.getValue()));
+        String.format(
+            "Node '%s' must be of type dataset or job for V2 job-centric lineage!",
+            nodeId.getValue()));
   }
 
   private Lineage toLineageWithOrphanDataset(@NonNull DatasetId datasetId) {
     final DatasetData datasetData =
         getDatasetData(datasetId.getNamespace().getValue(), datasetId.getName().getValue());
+    if (datasetData == null) {
+      return new Lineage(ImmutableSortedSet.of());
+    }
     return new Lineage(
         ImmutableSortedSet.of(
             Node.dataset().data(datasetData).id(NodeId.of(datasetData.getId())).build()));

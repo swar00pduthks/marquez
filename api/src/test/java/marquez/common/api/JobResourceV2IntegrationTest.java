@@ -170,8 +170,7 @@ public class JobResourceV2IntegrationTest extends BaseIntegrationTest {
     // V2 should return jobs ordered by name
     assertThat(jobs).isNotEmpty();
     for (int i = 1; i < jobs.size(); i++) {
-      assertThat(jobs.get(i - 1).getName().compareTo(jobs.get(i).getName()))
-          .isLessThanOrEqualTo(0);
+      assertThat(jobs.get(i - 1).getName().compareTo(jobs.get(i).getName())).isLessThanOrEqualTo(0);
     }
   }
 }
