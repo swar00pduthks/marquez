@@ -78,6 +78,28 @@ In `v1`, column lineage relies heavily on intermediate tables like `column_linea
 
 This graph-native approach allows users to perform recursive Cypher graph traversals (`-[:DERIVED_FROM*]-`) on individual columns. A single query can trace a BI dashboard column back to the exact source database column in milliseconds.
 
+**Mapping Auxiliary and Legacy Tables:**
+The `v1` schema contains roughly 35 tables. The graph migration dramatically simplifies this footprint by converting many auxiliary tables into native graph properties or relationships:
+
+* **Tables becoming standalone Nodes:**
+  * `tags` ➡️ `:Tag` Node (Properties: `name`, `description`).
+  * `owners` / `namespace_ownerships` ➡️ `:Owner` Node linked via `(:Namespace)-[:OWNED_BY]->(:Owner)`.
+  * `dataset_schemas` / `dataset_schema_versions` ➡️ `:SchemaVersion` Node (Properties: `uuid`, `schema`). Linked via `(:DatasetVersion)-[:HAS_SCHEMA]->(:SchemaVersion)`.
+
+* **Tables becoming Edges (Relationships):**
+  * `dataset_fields_tag_mapping`, `datasets_tag_mapping`, `jobs_tag_mapping` ➡️ A unified `(:Node)-[:HAS_TAG]->(:Tag)` edge that can apply to any entity in the graph.
+  * `job_versions_io_mapping`, `runs_input_mapping` ➡️ Replaced natively by the `CONSUMES` and `PRODUCES` edges.
+  * `dataset_symlinks` ➡️ Natively modeled as `(:Dataset)-[:SYMLINK_TO {isPrimary: true/false}]->(:Dataset)`.
+
+* **Tables collapsed into Node Properties (`agtype` JSONB):**
+  * `run_args` ➡️ Nested inside the `:Run` node's `agtype` properties map (`{runArgs: {...}}`).
+  * `job_contexts` ➡️ Nested inside the `:JobVersion` node's properties.
+  * `dataset_facets`, `job_facets`, `run_facets` ➡️ Stored natively within their respective nodes' `agtype` properties.
+  * `lineage_events` ➡️ The raw events will be stored in an append-only JSON/NoSQL event store (e.g., raw table or blob storage) strictly for audit purposes, not traversed for lineage queries.
+
+* **Tables eliminated (No longer needed):**
+  * Denormalized query-performance tables (`dataset_denormalized`, `run_lineage_denormalized`, etc.) are completely eliminated because native graph index-free adjacency traversals provide the required performance out-of-the-box without needing complex triggers to maintain flattened pre-computations.
+
 **Handling Complex Properties:**
 Instead of scattering metadata across multiple tables, rich OpenLineage facets (e.g., Data Quality metrics, SLA predictions) will be stored directly inside the `agtype` properties map on their respective nodes (`:Run`, `:DatasetVersion`, `:JobVersion`). This enables powerful Cypher queries that can filter graph traversals based on JSON attributes seamlessly.
 
