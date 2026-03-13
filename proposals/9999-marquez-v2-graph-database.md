@@ -46,24 +46,33 @@ The new architecture must support:
 
 ### 1. Data Model Mapping (Relational to Graph)
 
-The core Marquez OpenLineage model translates cleanly to a property graph:
+The core Marquez OpenLineage model translates cleanly to a property graph. In PostgreSQL AGE, properties are stored natively as `agtype` (a superset of JSONB), allowing us to store arbitrary metadata, OpenLineage custom facets, and run arguments directly on the nodes without rigid schemas.
 
 **Nodes (Labels):**
+* `:Source` (Properties: `name`, `type`, `connectionUrl`, `description`)
 * `:Namespace` (Properties: `name`, `description`)
 * `:Job` (Properties: `name`, `type`, `description`)
+* `:JobVersion` (Properties: `uuid`, `version`, `location`, `latestRunUuid`)
 * `:Dataset` (Properties: `name`, `type`, `description`)
-* `:Run` (Properties: `uuid`, `state`, `startedAt`, `endedAt`)
-* `:DatasetVersion` (Properties: `uuid`, `schema`)
+* `:DatasetVersion` (Properties: `uuid`, `version`, `schema`)
+* `:DatasetField` (Properties: `name`, `type`, `description`)
+* `:Run` (Properties: `uuid`, `state`, `startedAt`, `endedAt`, `runArgs`, `nominalStartTime`, `nominalEndTime`)
+* `:RunState` (Properties: `state`, `transitionedAt`)
 
 **Edges (Relationships):**
+* `(:Source)-[:HAS_NAMESPACE]->(:Namespace)`
 * `(:Namespace)-[:HAS_JOB]->(:Job)`
+* `(:Job)-[:HAS_VERSION]->(:JobVersion)`
 * `(:Namespace)-[:HAS_DATASET]->(:Dataset)`
-* `(:Job)-[:CONSUMES]->(:Dataset)`
-* `(:Job)-[:PRODUCES]->(:Dataset)`
-* `(:Job)-[:HAS_RUN]->(:Run)`
+* `(:JobVersion)-[:HAS_RUN]->(:Run)`
+* `(:Run)-[:HAS_STATE]->(:RunState)`
 * `(:Run)-[:CONSUMES_VERSION]->(:DatasetVersion)`
 * `(:Run)-[:PRODUCES_VERSION]->(:DatasetVersion)`
 * `(:Dataset)-[:HAS_VERSION]->(:DatasetVersion)`
+* `(:DatasetVersion)-[:HAS_FIELD]->(:DatasetField)`
+
+**Handling Complex Properties:**
+Instead of scattering metadata across multiple tables, rich OpenLineage facets (e.g., Data Quality metrics, SLA predictions) will be stored directly inside the `agtype` properties map on their respective nodes (`:Run`, `:DatasetVersion`, `:JobVersion`). This enables powerful Cypher queries that can filter graph traversals based on JSON attributes seamlessly.
 
 ### 2. Scaling Strategy
 
