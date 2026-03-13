@@ -33,6 +33,14 @@ data:
       url: jdbc:postgresql://${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}
       user: ${POSTGRES_USER}
       password: ${POSTGRES_PASSWORD}
+      validationQuery: "/* Marquez Ping */ SELECT 1"
+      checkConnectionWhileIdle: true
+      checkConnectionOnBorrow: true
+      checkConnectionOnConnect: true
+      checkConnectionOnReturn: true
+      removeAbandoned: true
+      removeAbandonedTimeout: 60s
+      abandonWhenPercentageFull: 0
     # Enables retention policy configuration for database (default: disabled)
     {{- if .Values.marquez.dbRetention }}
     dbRetention:
