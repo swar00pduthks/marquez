@@ -71,6 +71,13 @@ The core Marquez OpenLineage model translates cleanly to a property graph. In Po
 * `(:Dataset)-[:HAS_VERSION]->(:DatasetVersion)`
 * `(:DatasetVersion)-[:HAS_FIELD]->(:DatasetField)`
 
+**Column Lineage (Dataset Fields):**
+In `v1`, column lineage relies heavily on intermediate tables like `column_lineage` to map input dataset fields to output dataset fields. In the `v2` graph:
+* `(:DatasetField)-[:DERIVED_FROM { transformationDescription: "...", transformationType: "..." }]->(:DatasetField)`
+* `(:Run)-[:APPLIES_TRANSFORMATION]->(:DatasetField)`
+
+This graph-native approach allows users to perform recursive Cypher graph traversals (`-[:DERIVED_FROM*]-`) on individual columns. A single query can trace a BI dashboard column back to the exact source database column in milliseconds.
+
 **Handling Complex Properties:**
 Instead of scattering metadata across multiple tables, rich OpenLineage facets (e.g., Data Quality metrics, SLA predictions) will be stored directly inside the `agtype` properties map on their respective nodes (`:Run`, `:DatasetVersion`, `:JobVersion`). This enables powerful Cypher queries that can filter graph traversals based on JSON attributes seamlessly.
 
