@@ -55,6 +55,14 @@ db:
   url: jdbc:postgresql://localhost:5432/marquez
   user: marquez
   password: marquez
+  validationQuery: "/* Marquez Ping */ SELECT 1"
+  checkConnectionWhileIdle: true
+  checkConnectionOnBorrow: true
+  checkConnectionOnConnect: true
+  checkConnectionOnReturn: true
+  removeAbandoned: true
+  removeAbandonedTimeout: 60s
+  abandonWhenPercentageFull: 0
 
 migrateOnStartup: true
 EOF
