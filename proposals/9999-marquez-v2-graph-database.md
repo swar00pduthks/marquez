@@ -131,20 +131,28 @@ To handle billions of runs and thousands of namespaces:
 2. **Time-Based Archiving / TTL:** For runs, we will implement time-to-live (TTL) or archive older Run nodes to cold storage, keeping only the "active" or recent lineage in the hot graph, as deep historical run graphs are rarely queried in real-time.
 3. **Pre-computed Lineage Facets:** Even in a graph, storing pre-computed aggregations (like `input_uuids` and `output_uuids`) as properties on the `Run` node will speed up API responses that don't require full graph traversal.
 
-### 6. Step-by-Step Execution Plan
+### 6. Migration and Backfill Strategy (Billions of Events)
+
+A critical question is: **"Will we have data in both tables, or once we switch to v2 all the data would be in agegraph? How would we backfill existing billions of data?"**
+
+This migration will utilize a **Zero-Downtime Dual-Write & Backfill** strategy:
+1. **Dual-Write (Transition Period):** During the transition, incoming OpenLineage events will be written to *both* the existing `v1` relational tables (like `runs`, `datasets`, `lineage_events`) AND the new `marquez_graph` in PostgreSQL AGE simultaneously. This ensures the legacy APIs keep working flawlessly while the V2 graph populates in real-time.
+2. **Bulk Backfill:** A background migration worker (e.g., an Airflow DAG or a dedicated Marquez migration script) will query the existing billions of rows in the `lineage_events` table in historical chunks (e.g., month by month) and bulk-insert them into the `marquez_graph` using optimized `UNWIND` Cypher statements.
+3. **Cutover & Deprecation:** Once the historical backfill catches up to the real-time dual-writes, we verify that the V2 Graph API returns identical results to the V1 Relational API. At this point, we perform a cutover: UI and clients are directed to the V2 endpoints. The V1 writes are disabled, and the massive relational tables (`dataset_denormalized`, `run_lineage_denormalized`, etc.) are truncated and dropped to reclaim disk space.
+
+### 7. Step-by-Step Execution Plan
 
 1. **Phase 1: Bootstrap `api-v2` Module**
-   - Create a new Gradle subproject `api-v2`.
-   - Setup Dropwizard (or Spring Boot, pending final architecture decision) configuration.
-   - Implement the database driver connection (Neo4j Driver or Postgres AGE JDBC wrapper).
+   - Create a new package `marquez.v2`.
+   - Implement the database driver connection (Postgres AGE JDBC wrapper).
 2. **Phase 2: Graph Data Access Layer (DAO)**
    - Implement `v2` DAOs using Cypher queries.
-   - Create a dual-write mechanism in the `v1` ingestion path to mirror incoming OpenLineage events to both the relational schema (for `v1` API) and the graph schema (for `v2` API).
-3. **Phase 3: `v2` Lineage API**
+   - Create a dual-write mechanism in the `v1` ingestion path to mirror incoming OpenLineage events to both the relational schema and the graph schema.
+3. **Phase 3: `v2` Lineage API & Backfilling**
    - Implement the `GET /api/v2/lineage` endpoint using pure graph traversal queries.
-   - Run extensive performance testing comparing `v1` (CTE) vs `v2` (Cypher) latency on graphs with billions of edges.
-4. **Phase 4: Migration Tooling**
-   - Build a background job to backfill historical data from the `v1` relational tables into the `v2` graph database.
+   - Execute the background bulk backfill of legacy data.
+4. **Phase 4: Cutover**
+   - Drop the legacy `v1` relational schema.
 
 ## Next Steps
 

@@ -80,11 +80,17 @@ public class OpenLineageResourceV2 {
 
         // V1 Compatibility: If aggregateToParentRun is requested, the Cypher traversal is updated
         // to collapse `(child:Run)-[:HAS_PARENT]->(parent:Run)` nodes dynamically during path evaluation.
-        // For Phase 1 bootstrap, we default to the unaggregated raw path.
+        String cypherMatch = "MATCH path = (a)-[*1..%d]-(b) WHERE a.name = $nodeId OR a.uuid = $nodeId ";
+
+        if (aggregateToParentRun != null && aggregateToParentRun) {
+            // Re-route paths through parents by filtering out pure child internal paths
+            // and returning paths that step up through HAS_PARENT edges.
+            cypherMatch += "AND NOT (b)<-[:HAS_PARENT]-(:Run) "; // Simplification for Cypher aggregation
+        }
+
         String query = String.format(
             "SELECT agtype_to_json(path) FROM cypher('marquez_graph', $$ " +
-            "MATCH path = (a)-[*1..%d]-(b) " +
-            "WHERE a.name = $nodeId OR a.uuid = $nodeId " +
+            cypherMatch +
             "RETURN path $$, cast(:params_json as agtype)) as (path agtype);", d
         );
 
@@ -177,6 +183,18 @@ public class OpenLineageResourceV2 {
             rsProps.put("state", eventType);
             graphDao.upsertNode(handle, GRAPH_NAME, "RunState", "uuid", rsProps);
             graphDao.upsertEdge(handle, GRAPH_NAME, "HAS_STATE", "Run", "uuid", runId, "RunState", "uuid", runStateUuid);
+
+            // aggregateToParentRun: Extract Parent Run Facet and create HAS_PARENT edge
+            if (event.getRun().getFacets() != null && event.getRun().getFacets().getParent() != null) {
+                String parentRunId = event.getRun().getFacets().getParent().getRun().getRunId().toString();
+                // Ensure parent node exists (stub if it doesn't) to draw the edge
+                Map<String, Object> pRunProps = new HashMap<>();
+                pRunProps.put("uuid", parentRunId);
+                graphDao.upsertNode(handle, GRAPH_NAME, "Run", "uuid", pRunProps);
+
+                // Link Child Run to Parent Run
+                graphDao.upsertEdge(handle, GRAPH_NAME, "HAS_PARENT", "Run", "uuid", runId, "Run", "uuid", parentRunId);
+            }
 
             // 4. Inputs (Datasets, DatasetVersions, and Fields)
             if (event.getInputs() != null) {
