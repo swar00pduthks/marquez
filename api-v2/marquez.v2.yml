@@ -1,0 +1,24 @@
+db:
+  driverClass: org.postgresql.Driver
+  user: marquez
+  password: ''
+  url: jdbc:postgresql://localhost:5432/marquez
+  # Required to execute Cypher queries natively on connection checkout
+  initializationQuery: "LOAD 'age'; SET search_path = ag_catalog, \"$user\", public;"
+  properties:
+    charSet: UTF-8
+  maxWaitForConnection: 1s
+  validationQuery: "/* MarquezAppV2 Health Check */ SELECT 1"
+  validationQueryTimeout: 3s
+  minSize: 8
+  maxSize: 32
+  checkConnectionWhileIdle: false
+  evictionInterval: 10s
+  minIdleTime: 1 minute
+server:
+  applicationConnectors:
+    - type: http
+      port: 8080
+  adminConnectors:
+    - type: http
+      port: 8081
