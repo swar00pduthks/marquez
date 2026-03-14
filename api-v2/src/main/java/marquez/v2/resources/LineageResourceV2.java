@@ -33,7 +33,6 @@ public class LineageResourceV2 {
     public Response getLineageGraph(@QueryParam("nodeId") String nodeId, @QueryParam("depth") Integer depth) {
         int d = depth == null ? 3 : depth;
 
-        // Safely serialize the parameter to JSON for AGE using Jackson
         String paramsJson;
         try {
             paramsJson = MAPPER.writeValueAsString(Collections.singletonMap("nodeId", nodeId));
@@ -41,21 +40,21 @@ public class LineageResourceV2 {
             return Response.status(Response.Status.BAD_REQUEST).entity("Invalid nodeId").build();
         }
 
-        // Use cast(:params_json as agtype) for PostgreSQL AGE parameterized querying.
-        // The top level keys of the JSON object become the cypher variables (e.g. $nodeId)
+        // Use agtype_to_json to serialize the path out of AGE directly, preventing JDBC mapping errors
         String query = String.format(
-            "SELECT * FROM cypher('marquez_graph', $$ " +
+            "SELECT agtype_to_json(path) FROM cypher('marquez_graph', $$ " +
             "MATCH path = (a)-[*1..%d]-(b) " +
             "WHERE a.name = $nodeId OR a.uuid = $nodeId " +
             "RETURN path $$, cast(:params_json as agtype)) as (path agtype);", d
         );
 
-        List<Map<String, Object>> result = jdbi.withHandle(handle ->
+        List<String> result = jdbi.withHandle(handle ->
             handle.createQuery(query)
                   .bind("params_json", paramsJson)
-                  .mapToMap().list()
+                  .mapTo(String.class)
+                  .list()
         );
 
-        return Response.ok(result).build();
+        return Response.ok(Map.of("graph", result)).build();
     }
 }

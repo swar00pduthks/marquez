@@ -38,16 +38,30 @@ public class MarquezAppV2 extends Application<MarquezConfigV2> {
 
         final Jdbi jdbi = factory.build(env, config.getDataSourceFactory(), "postgresql-age");
 
-        // Create the extension itself once at startup if not exists
-        jdbi.useHandle(handle -> {
-            handle.execute("CREATE EXTENSION IF NOT EXISTS age");
-        });
+        // Create the extension itself once at startup if not exists (Requires SUPERUSER, safe in custom docker images)
+        try {
+            jdbi.useHandle(handle -> {
+                handle.execute("CREATE EXTENSION IF NOT EXISTS age");
+            });
+        } catch (Exception e) {
+            // Log warning in production if user lacks SUPERUSER
+        }
 
         // Initialize DAO
-        marquez.v2.db.GraphDao graphDao = new marquez.v2.db.GraphDao(jdbi);
+        marquez.v2.db.GraphDao graphDao = new marquez.v2.db.GraphDao();
+        graphDao.initGraph(jdbi, "marquez_graph");
 
         // Register v2 Resources
-        env.jersey().register(new marquez.v2.resources.OpenLineageResourceV2(graphDao));
+        env.jersey().register(new marquez.v2.resources.OpenLineageResourceV2(jdbi, graphDao));
         env.jersey().register(new LineageResourceV2(jdbi));
+        env.jersey().register(new marquez.v2.resources.DatasetResourceV2(jdbi));
+
+        // Register Phase 2 Endpoint Stubs
+        env.jersey().register(new marquez.v2.resources.V2ResourceStubs.NamespaceResourceV2());
+        env.jersey().register(new marquez.v2.resources.V2ResourceStubs.JobResourceV2());
+        env.jersey().register(new marquez.v2.resources.V2ResourceStubs.RunResourceV2());
+        env.jersey().register(new marquez.v2.resources.V2ResourceStubs.TagResourceV2());
+        env.jersey().register(new marquez.v2.resources.V2ResourceStubs.SourceResourceV2());
+        env.jersey().register(new marquez.v2.resources.V2ResourceStubs.ColumnLineageResourceV2());
     }
 }

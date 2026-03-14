@@ -5,20 +5,16 @@
 
 package marquez.v2.db;
 
+import org.jdbi.v3.core.Handle;
 import org.jdbi.v3.core.Jdbi;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.Map;
 import java.util.HashMap;
 
 public class GraphDao {
-    private final Jdbi jdbi;
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
-    public GraphDao(Jdbi jdbi) {
-        this.jdbi = jdbi;
-    }
-
-    public void initGraph(String graphName) {
+    public void initGraph(Jdbi jdbi, String graphName) {
         jdbi.useHandle(handle -> {
             boolean exists = handle.createQuery("SELECT 1 FROM ag_graph WHERE name = :name")
                                    .bind("name", graphName)
@@ -26,15 +22,14 @@ public class GraphDao {
                                    .findFirst()
                                    .orElse(false);
             if (!exists) {
-                // graphName is a safe internal constant, but we still bind
-                handle.execute("SELECT create_graph(:name)", graphName);
+                handle.createUpdate("SELECT create_graph(:name)")
+                      .bind("name", graphName)
+                      .execute();
             }
         });
     }
 
-    public void upsertNode(String graphName, String label, String matchKey, Map<String, Object> properties) {
-        // AGE unpacks JSON parameters to top-level cypher variables.
-        // We structure our params map to have `matchValue` and `props`.
+    public void upsertNode(Handle handle, String graphName, String label, String matchKey, Map<String, Object> properties) {
         Map<String, Object> params = new HashMap<>();
         params.put("matchValue", properties.get(matchKey));
         params.put("props", properties);
@@ -46,9 +41,6 @@ public class GraphDao {
             throw new RuntimeException("Failed to serialize properties to JSON", e);
         }
 
-        // String interpolation ONLY for graphName, label, and matchKey which are controlled by us (static strings).
-        // Values and dynamic properties are passed via parameterized JSON cast to agtype.
-        // In AGE, the keys of the JSON object become top-level Cypher variables (e.g. $matchValue, $props).
         String query = String.format(
             "SELECT * FROM cypher('%s', $$ " +
             "MERGE (n:%s { %s: $matchValue }) " +
@@ -57,10 +49,12 @@ public class GraphDao {
             graphName, label, matchKey
         );
 
-        jdbi.useHandle(handle -> handle.execute(query, paramsJson));
+        handle.createUpdate(query)
+              .bind("params_json", paramsJson)
+              .execute();
     }
 
-    public void upsertEdge(String graphName, String edgeLabel,
+    public void upsertEdge(Handle handle, String graphName, String edgeLabel,
                            String fromLabel, String fromMatchKey, String fromMatchValue,
                            String toLabel, String toMatchKey, String toMatchValue) {
 
@@ -75,7 +69,6 @@ public class GraphDao {
             throw new RuntimeException("Failed to serialize properties to JSON", e);
         }
 
-        // String interpolation ONLY for static labels and keys.
         String query = String.format(
             "SELECT * FROM cypher('%s', $$ " +
             "MATCH (a:%s { %s: $fromVal }) " +
@@ -87,6 +80,9 @@ public class GraphDao {
             toLabel, toMatchKey,
             edgeLabel
         );
-        jdbi.useHandle(handle -> handle.execute(query, paramsJson));
+
+        handle.createUpdate(query)
+              .bind("params_json", paramsJson)
+              .execute();
     }
 }

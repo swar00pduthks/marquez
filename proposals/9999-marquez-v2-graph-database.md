@@ -103,14 +103,28 @@ The `v1` schema contains roughly 35 tables. The graph migration dramatically sim
 **Handling Complex Properties:**
 Instead of scattering metadata across multiple tables, rich OpenLineage facets (e.g., Data Quality metrics, SLA predictions) will be stored directly inside the `agtype` properties map on their respective nodes (`:Run`, `:DatasetVersion`, `:JobVersion`). This enables powerful Cypher queries that can filter graph traversals based on JSON attributes seamlessly.
 
-### 2. Scaling Strategy
+### 2. Backward Compatibility for V1 Endpoints
+
+A major concern during this migration is: **How will the existing `v1` REST endpoints (e.g., `GET /api/v1/namespaces/{namespace}/datasets`) be supported by the new `v2` graph architecture?**
+
+To maintain strict backwards compatibility without requiring clients to change their APIs:
+1. **Resource Controller Delegation:** The existing `v1` HTTP Resource classes (e.g., `DatasetResource.java`, `JobResource.java`) will remain untouched on the surface. However, their underlying service layer will be swapped out via dependency injection to utilize the new `GraphDao` instead of the legacy relational DAOs.
+2. **Cypher Translation:** For example, when a user calls the `v1` endpoint to list datasets in a namespace, the `v2` backend will execute a simple Cypher query: `MATCH (n:Namespace {name: $ns})-[:HAS_DATASET]->(d:Dataset) RETURN d` and serialize the result back into the exact same JSON format expected by `v1` clients.
+
+### 3. Testing Strategy (V1 vs V2)
+
+Can we run the exact same `v1` tests on the `v2` codebase?
+* **Database/DAO Unit Tests:** **No.** The existing `v1` tests rely heavily on inserting raw relational records using SQL `INSERT INTO ...` and verifying table constraints. Because the underlying storage mechanism is entirely different (Nodes/Edges instead of Tables), these low-level data access tests must be rewritten specifically for Cypher/AGE.
+* **API Integration Tests (Blackbox):** **Yes.** The end-to-end API tests (e.g., sending an HTTP OpenLineage payload and asserting the HTTP response of a `GET` request) will remain identical. This ensures that while the internal database engine changes completely, the external API contract remains 100% compliant with existing OpenLineage specifications.
+
+### 4. Scaling Strategy
 
 To handle billions of runs and thousands of namespaces:
 1. **Partitioning by Namespace:** In a native graph, we can use Namespace nodes as entry points to subgraph traversals, effectively partitioning the graph logically.
 2. **Time-Based Archiving / TTL:** For runs, we will implement time-to-live (TTL) or archive older Run nodes to cold storage, keeping only the "active" or recent lineage in the hot graph, as deep historical run graphs are rarely queried in real-time.
 3. **Pre-computed Lineage Facets:** Even in a graph, storing pre-computed aggregations (like `input_uuids` and `output_uuids`) as properties on the `Run` node will speed up API responses that don't require full graph traversal.
 
-### 3. Step-by-Step Execution Plan
+### 5. Step-by-Step Execution Plan
 
 1. **Phase 1: Bootstrap `api-v2` Module**
    - Create a new Gradle subproject `api-v2`.
