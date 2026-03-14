@@ -43,7 +43,11 @@ public class MarquezAppV2 extends Application<MarquezConfigV2> {
             handle.execute("CREATE EXTENSION IF NOT EXISTS age");
         });
 
+        // Initialize DAO
+        marquez.v2.db.GraphDao graphDao = new marquez.v2.db.GraphDao(jdbi);
+
         // Register v2 Resources
+        env.jersey().register(new marquez.v2.resources.OpenLineageResourceV2(graphDao));
         env.jersey().register(new LineageResourceV2(jdbi));
     }
 }
