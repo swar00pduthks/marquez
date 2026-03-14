@@ -18,24 +18,22 @@ import java.util.List;
 import java.util.Map;
 import java.util.Collections;
 
-@Path("/api/v2/lineage")
+@Path("/api/v2/column-lineage")
 @Produces(MediaType.APPLICATION_JSON)
-public class LineageResourceV2 {
-
+public class ColumnLineageResourceV2 {
     private final Jdbi jdbi;
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
-    public LineageResourceV2(Jdbi jdbi) {
+    public ColumnLineageResourceV2(Jdbi jdbi) {
         this.jdbi = jdbi;
     }
 
     @GET
-    public Response getLineageGraph(@QueryParam("nodeId") String nodeId, @QueryParam("depth") Integer depth) {
-        int d = depth == null ? 3 : depth;
+    public Response getLineage(@QueryParam("nodeId") String nodeId, @QueryParam("depth") Integer depth) {
+        int d = depth == null ? 10 : depth;
         if (d > 20) {
             d = 20; // Hard upper bound to prevent traversal DoS attacks
         }
-
         String paramsJson;
         try {
             paramsJson = MAPPER.writeValueAsString(Collections.singletonMap("nodeId", nodeId));
@@ -43,11 +41,11 @@ public class LineageResourceV2 {
             return Response.status(Response.Status.BAD_REQUEST).entity("Invalid nodeId").build();
         }
 
-        // Use agtype_to_json to serialize the path out of AGE directly, preventing JDBC mapping errors
+        // Follow the DERIVED_FROM edges to track column lineage across dataset fields
         String query = String.format(
             "SELECT agtype_to_json(path) FROM cypher('marquez_graph', $$ " +
-            "MATCH path = (a)-[*1..%d]-(b) " +
-            "WHERE a.name = $nodeId OR a.uuid = $nodeId " +
+            "MATCH path = (a:DatasetField)-[:DERIVED_FROM*1..%d]-(b:DatasetField) " +
+            "WHERE a.id = $nodeId " +
             "RETURN path $$, cast(:params_json as agtype)) as (path agtype);", d
         );
 
@@ -64,6 +62,6 @@ public class LineageResourceV2 {
                   .list()
         );
 
-        return Response.ok(Map.of("graph", result)).build();
+        return Response.ok(Map.of("lineage", result)).build();
     }
 }

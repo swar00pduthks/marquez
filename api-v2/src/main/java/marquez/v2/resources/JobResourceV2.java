@@ -19,19 +19,19 @@ import java.util.List;
 import java.util.Map;
 import java.util.HashMap;
 
-@Path("/api/v2/namespaces/{namespace}/datasets")
+@Path("/api/v2/namespaces/{namespace}/jobs")
 @Produces(MediaType.APPLICATION_JSON)
-public class DatasetResourceV2 {
+public class JobResourceV2 {
 
     private final Jdbi jdbi;
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
-    public DatasetResourceV2(Jdbi jdbi) {
+    public JobResourceV2(Jdbi jdbi) {
         this.jdbi = jdbi;
     }
 
     @GET
-    public Response listDatasets(@PathParam("namespace") String namespace, @QueryParam("limit") Integer limit) {
+    public Response listJobs(@PathParam("namespace") String namespace, @QueryParam("limit") Integer limit) {
         int l = limit == null ? 100 : limit;
 
         Map<String, Object> params = new HashMap<>();
@@ -45,12 +45,10 @@ public class DatasetResourceV2 {
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR).build();
         }
 
-        // This demonstrates to the user how exactly V1 endpoints are ported to V2.
-        // We use a simple Cypher match to replace complex relational joins.
         String query =
-            "SELECT agtype_to_json(d) FROM cypher('marquez_graph', $$ " +
-            "MATCH (n:Namespace {name: $ns})-[:HAS_DATASET]->(d:Dataset) " +
-            "RETURN properties(d) LIMIT $lim $$, cast(:params_json as agtype)) as (d agtype);";
+            "SELECT agtype_to_json(j) FROM cypher('marquez_graph', $$ " +
+            "MATCH (n:Namespace {name: $ns})-[:HAS_JOB]->(j:Job) " +
+            "RETURN properties(j) LIMIT $lim $$, cast(:params_json as agtype)) as (j agtype);";
 
         List<com.fasterxml.jackson.databind.JsonNode> result = jdbi.withHandle(handle ->
             handle.createQuery(query)
@@ -65,7 +63,6 @@ public class DatasetResourceV2 {
                   .list()
         );
 
-        // This would normally map to `marquez.api.models.DatasetsResponse` to fulfill exact V1 contract.
-        return Response.ok(Map.of("datasets", result)).build();
+        return Response.ok(Map.of("jobs", result)).build();
     }
 }

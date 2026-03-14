@@ -55,13 +55,13 @@ public class MarquezAppV2 extends Application<MarquezConfigV2> {
         env.jersey().register(new marquez.v2.resources.OpenLineageResourceV2(jdbi, graphDao));
         env.jersey().register(new LineageResourceV2(jdbi));
         env.jersey().register(new marquez.v2.resources.DatasetResourceV2(jdbi));
+        env.jersey().register(new marquez.v2.resources.NamespaceResourceV2(jdbi));
+        env.jersey().register(new marquez.v2.resources.JobResourceV2(jdbi));
 
-        // Register Phase 2 Endpoint Stubs
-        env.jersey().register(new marquez.v2.resources.V2ResourceStubs.NamespaceResourceV2());
-        env.jersey().register(new marquez.v2.resources.V2ResourceStubs.JobResourceV2());
-        env.jersey().register(new marquez.v2.resources.V2ResourceStubs.RunResourceV2());
-        env.jersey().register(new marquez.v2.resources.V2ResourceStubs.TagResourceV2());
-        env.jersey().register(new marquez.v2.resources.V2ResourceStubs.SourceResourceV2());
-        env.jersey().register(new marquez.v2.resources.V2ResourceStubs.ColumnLineageResourceV2());
+        // Register Phase 2 Concrete Endpoints
+        env.jersey().register(new marquez.v2.resources.RunResourceV2(jdbi));
+        env.jersey().register(new marquez.v2.resources.TagResourceV2(jdbi));
+        env.jersey().register(new marquez.v2.resources.SourceResourceV2(jdbi));
+        env.jersey().register(new marquez.v2.resources.ColumnLineageResourceV2(jdbi));
     }
 }
