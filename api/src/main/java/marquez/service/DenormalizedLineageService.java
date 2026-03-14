@@ -580,7 +580,7 @@ public class DenormalizedLineageService {
             input_dataset_version_uuid, output_dataset_namespace, output_dataset_name,
             output_dataset_version, output_dataset_version_uuid, uuid, parent_run_uuid, run_date
         )
-        SELECT
+        SELECT DISTINCT
             r.uuid AS run_uuid,
             r.namespace_name,
             r.job_name,
@@ -613,6 +613,7 @@ public class DenormalizedLineageService {
         LEFT JOIN dataset_versions dvin ON dvin.uuid = rim.dataset_version_uuid
         LEFT JOIN dataset_versions dvout ON dvout.run_uuid = r.uuid
         WHERE r.uuid = :runUuid
+        ON CONFLICT (run_uuid, input_version_uuid, output_version_uuid, run_date) DO NOTHING
         """;
 
     int insertedRows = handle.createUpdate(insertQuery).bind("runUuid", runUuid).execute();
@@ -666,6 +667,7 @@ public class DenormalizedLineageService {
         LEFT JOIN dataset_versions dvout ON dvout.run_uuid = r.uuid
         LEFT JOIN runs rp ON rp.uuid=r.parent_run_uuid
         WHERE r.parent_run_uuid = :runUuid
+        ON CONFLICT (run_uuid, input_version_uuid, output_version_uuid, run_date) DO NOTHING
         """;
 
     int insertedRows = handle.createUpdate(insertQuery).bind("runUuid", runUuid).execute();
@@ -838,6 +840,7 @@ public class DenormalizedLineageService {
                 LEFT JOIN runs_input_mapping rim ON rim.run_uuid = r.uuid
                 LEFT JOIN dataset_versions dvin ON dvin.uuid = rim.dataset_version_uuid
                 LEFT JOIN dataset_versions dvout ON dvout.run_uuid = r.uuid
+                ON CONFLICT (run_uuid, input_version_uuid, output_version_uuid, run_date) DO NOTHING
                 """;
 
             int runLineageRows = handle.createUpdate(bulkInsertRunLineage).execute();
@@ -887,6 +890,7 @@ public class DenormalizedLineageService {
                 LEFT JOIN dataset_versions dvout ON dvout.run_uuid = r.uuid
                 LEFT JOIN runs rp ON rp.uuid=r.parent_run_uuid
                 WHERE r.parent_run_uuid is not null
+                ON CONFLICT (run_uuid, input_version_uuid, output_version_uuid, run_date) DO NOTHING
                 """;
 
             int parentLineageRows = handle.createUpdate(bulkInsertParentLineage).execute();
