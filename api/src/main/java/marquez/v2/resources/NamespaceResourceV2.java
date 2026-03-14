@@ -44,22 +44,24 @@ public class NamespaceResourceV2 {
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR).build();
         }
 
+
         String query =
             "SELECT agtype_to_json(n) FROM cypher('marquez_graph', $$ " +
             "MATCH (n:Namespace) " +
             "RETURN properties(n) LIMIT $lim $$, cast(:params_json as agtype)) as (n agtype);";
 
-        List<com.fasterxml.jackson.databind.JsonNode> result = jdbi.withHandle(handle ->
-            handle.createQuery(query)
+        List<com.fasterxml.jackson.databind.JsonNode> result = jdbi.withHandle(handle -> {
+            handle.execute("LOAD 'age'; SET search_path = ag_catalog, \"$user\", public;");
+            return handle.createQuery(query)
                   .bind("params_json", paramsJson)
                   .map((rs, ctx) -> {
                       try {
-                          return MAPPER.readTree(rs.getString(1));
+                          return MAPPER.readTree(rs.getString(1)).get("props") != null ? MAPPER.readTree(rs.getString(1)).get("props") : MAPPER.readTree(rs.getString(1));
                       } catch (Exception e) {
                           return null;
                       }
                   })
-                  .list()
+                  .list(); }
         );
 
         return Response.ok(Map.of("namespaces", result)).build();
@@ -78,22 +80,24 @@ public class NamespaceResourceV2 {
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR).build();
         }
 
+
         String query =
             "SELECT agtype_to_json(n) FROM cypher('marquez_graph', $$ " +
             "MATCH (n:Namespace {name: $ns}) " +
             "RETURN properties(n) $$, cast(:params_json as agtype)) as (n agtype);";
 
-        List<com.fasterxml.jackson.databind.JsonNode> result = jdbi.withHandle(handle ->
-            handle.createQuery(query)
+        List<com.fasterxml.jackson.databind.JsonNode> result = jdbi.withHandle(handle -> {
+            handle.execute("LOAD 'age'; SET search_path = ag_catalog, \"$user\", public;");
+            return handle.createQuery(query)
                   .bind("params_json", paramsJson)
                   .map((rs, ctx) -> {
                       try {
-                          return MAPPER.readTree(rs.getString(1));
+                          return MAPPER.readTree(rs.getString(1)).get("props") != null ? MAPPER.readTree(rs.getString(1)).get("props") : MAPPER.readTree(rs.getString(1));
                       } catch (Exception e) {
                           return null;
                       }
                   })
-                  .list()
+                  .list(); }
         );
 
         if (result.isEmpty()) {

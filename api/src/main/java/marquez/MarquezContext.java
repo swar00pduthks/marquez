@@ -66,6 +66,7 @@ import org.jdbi.v3.core.Jdbi;
 
 @Getter
 public final class MarquezContext {
+  @Getter private final Jdbi jdbi;
   @Getter private final NamespaceDao namespaceDao;
   @Getter private final SourceDao sourceDao;
   @Getter private final DatasetDao datasetDao;
@@ -125,6 +126,7 @@ public final class MarquezContext {
       runTransitionListeners = new ArrayList<>();
     }
     this.searchConfig = searchConfig;
+    this.jdbi = jdbi;
 
     final BaseDao baseDao = jdbi.onDemand(NamespaceDao.class);
     this.namespaceDao = jdbi.onDemand(NamespaceDao.class);

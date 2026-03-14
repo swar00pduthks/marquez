@@ -16,6 +16,7 @@ public class GraphDao {
 
     public void initGraph(Jdbi jdbi, String graphName) {
         jdbi.useHandle(handle -> {
+            handle.execute("LOAD 'age'; SET search_path = ag_catalog, \"$user\", public;");
             boolean exists = handle.createQuery("SELECT 1 FROM ag_graph WHERE name = :name")
                                    .bind("name", graphName)
                                    .mapTo(Boolean.class)
@@ -41,6 +42,7 @@ public class GraphDao {
             throw new RuntimeException("Failed to serialize properties to JSON", e);
         }
 
+        handle.execute("LOAD 'age'; SET search_path = ag_catalog, \"$user\", public;");
         String query = String.format(
             "SELECT * FROM cypher('%s', $$ " +
             "MERGE (n:%s { %s: $matchValue }) " +
@@ -69,6 +71,7 @@ public class GraphDao {
             throw new RuntimeException("Failed to serialize properties to JSON", e);
         }
 
+        handle.execute("LOAD 'age'; SET search_path = ag_catalog, \"$user\", public;");
         String query = String.format(
             "SELECT * FROM cypher('%s', $$ " +
             "MATCH (a:%s { %s: $fromVal }) " +

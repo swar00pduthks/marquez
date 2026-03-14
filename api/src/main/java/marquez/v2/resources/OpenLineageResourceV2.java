@@ -6,9 +6,11 @@
 package marquez.v2.resources;
 
 import jakarta.ws.rs.Consumes;
+import jakarta.ws.rs.GET;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import org.jdbi.v3.core.Jdbi;
@@ -18,6 +20,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.List;
+import java.util.Collections;
 import java.util.UUID;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -25,7 +29,6 @@ import java.security.NoSuchAlgorithmException;
 
 @Path("/api/v2/lineage")
 @Produces(MediaType.APPLICATION_JSON)
-@Consumes(MediaType.APPLICATION_JSON)
 public class OpenLineageResourceV2 {
 
     private final Jdbi jdbi;
@@ -36,7 +39,6 @@ public class OpenLineageResourceV2 {
     public OpenLineageResourceV2(Jdbi jdbi, GraphDao graphDao) {
         this.jdbi = jdbi;
         this.graphDao = graphDao;
-        this.graphDao.initGraph(jdbi, GRAPH_NAME);
     }
 
     private String generateDeterministicUuid(String input) {
@@ -58,7 +60,53 @@ public class OpenLineageResourceV2 {
         }
     }
 
+    @GET
+    public Response getLineageGraph(
+        @QueryParam("nodeId") String nodeId,
+        @QueryParam("depth") Integer depth,
+        @QueryParam("aggregateToParentRun") Boolean aggregateToParentRun) {
+
+        int d = depth == null ? 3 : depth;
+        if (d > 20) {
+            d = 20; // Hard upper bound to prevent traversal DoS attacks
+        }
+
+        String paramsJson;
+        try {
+            paramsJson = MAPPER.writeValueAsString(Collections.singletonMap("nodeId", nodeId));
+        } catch (Exception e) {
+            return Response.status(Response.Status.BAD_REQUEST).entity("Invalid nodeId").build();
+        }
+
+        // V1 Compatibility: If aggregateToParentRun is requested, the Cypher traversal is updated
+        // to collapse `(child:Run)-[:HAS_PARENT]->(parent:Run)` nodes dynamically during path evaluation.
+        // For Phase 1 bootstrap, we default to the unaggregated raw path.
+        String query = String.format(
+            "SELECT agtype_to_json(path) FROM cypher('marquez_graph', $$ " +
+            "MATCH path = (a)-[*1..%d]-(b) " +
+            "WHERE a.name = $nodeId OR a.uuid = $nodeId " +
+            "RETURN path $$, cast(:params_json as agtype)) as (path agtype);", d
+        );
+
+        List<com.fasterxml.jackson.databind.JsonNode> result = jdbi.withHandle(handle -> {
+            handle.execute("LOAD 'age'; SET search_path = ag_catalog, \"$user\", public;");
+            return handle.createQuery(query)
+                  .bind("params_json", paramsJson)
+                  .map((rs, ctx) -> {
+                      try {
+                          return MAPPER.readTree(rs.getString(1)).get("props") != null ? MAPPER.readTree(rs.getString(1)).get("props") : MAPPER.readTree(rs.getString(1));
+                      } catch (Exception e) {
+                          return null;
+                      }
+                  })
+                  .list(); }
+        );
+
+        return Response.ok(Map.of("graph", result)).build();
+    }
+
     @POST
+    @Consumes(MediaType.APPLICATION_JSON)
     public Response createLineage(LineageEvent event) {
         if (event == null || event.getJob() == null || event.getRun() == null) {
             return Response.status(Response.Status.BAD_REQUEST).entity("Missing Job or Run in Lineage Event").build();
@@ -66,6 +114,7 @@ public class OpenLineageResourceV2 {
 
         // Execute the entire graph ingestion in a single transaction for atomicity and performance
         jdbi.useTransaction(handle -> {
+            handle.execute("LOAD 'age'; SET search_path = ag_catalog, \"$user\", public;");
 
             // 1. Source and Namespace
             String sourceName = "default";

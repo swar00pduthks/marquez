@@ -42,6 +42,7 @@ public class ColumnLineageResourceV2 {
         }
 
         // Follow the DERIVED_FROM edges to track column lineage across dataset fields
+
         String query = String.format(
             "SELECT agtype_to_json(path) FROM cypher('marquez_graph', $$ " +
             "MATCH path = (a:DatasetField)-[:DERIVED_FROM*1..%d]-(b:DatasetField) " +
@@ -49,17 +50,18 @@ public class ColumnLineageResourceV2 {
             "RETURN path $$, cast(:params_json as agtype)) as (path agtype);", d
         );
 
-        List<com.fasterxml.jackson.databind.JsonNode> result = jdbi.withHandle(handle ->
-            handle.createQuery(query)
+        List<com.fasterxml.jackson.databind.JsonNode> result = jdbi.withHandle(handle -> {
+            handle.execute("LOAD 'age'; SET search_path = ag_catalog, \"$user\", public;");
+            return handle.createQuery(query)
                   .bind("params_json", paramsJson)
                   .map((rs, ctx) -> {
                       try {
-                          return MAPPER.readTree(rs.getString(1));
+                          return MAPPER.readTree(rs.getString(1)).get("props") != null ? MAPPER.readTree(rs.getString(1)).get("props") : MAPPER.readTree(rs.getString(1));
                       } catch (Exception e) {
                           return null;
                       }
                   })
-                  .list()
+                  .list(); }
         );
 
         return Response.ok(Map.of("lineage", result)).build();

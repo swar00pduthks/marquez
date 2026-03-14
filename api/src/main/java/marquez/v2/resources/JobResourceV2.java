@@ -7,6 +7,7 @@ package marquez.v2.resources;
 
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.Path;
+import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.MediaType;
@@ -18,20 +19,23 @@ import java.util.List;
 import java.util.Map;
 import java.util.HashMap;
 
-@Path("/api/v2/jobs/runs")
+@Path("/api/v2/namespaces/{namespace}/jobs")
 @Produces(MediaType.APPLICATION_JSON)
-public class RunResourceV2 {
+public class JobResourceV2 {
+
     private final Jdbi jdbi;
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
-    public RunResourceV2(Jdbi jdbi) {
+    public JobResourceV2(Jdbi jdbi) {
         this.jdbi = jdbi;
     }
 
     @GET
-    public Response listRuns(@QueryParam("limit") Integer limit) {
+    public Response listJobs(@PathParam("namespace") String namespace, @QueryParam("limit") Integer limit) {
         int l = limit == null ? 100 : limit;
+
         Map<String, Object> params = new HashMap<>();
+        params.put("ns", namespace);
         params.put("lim", l);
 
         String paramsJson;
@@ -41,24 +45,26 @@ public class RunResourceV2 {
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR).build();
         }
 
-        String query =
-            "SELECT agtype_to_json(r) FROM cypher('marquez_graph', $$ " +
-            "MATCH (r:Run) " +
-            "RETURN properties(r) LIMIT $lim $$, cast(:params_json as agtype)) as (r agtype);";
 
-        List<com.fasterxml.jackson.databind.JsonNode> result = jdbi.withHandle(handle ->
-            handle.createQuery(query)
+        String query =
+            "SELECT agtype_to_json(j) FROM cypher('marquez_graph', $$ " +
+            "MATCH (n:Namespace {name: $ns})-[:HAS_JOB]->(j:Job) " +
+            "RETURN properties(j) LIMIT $lim $$, cast(:params_json as agtype)) as (j agtype);";
+
+        List<com.fasterxml.jackson.databind.JsonNode> result = jdbi.withHandle(handle -> {
+            handle.execute("LOAD 'age'; SET search_path = ag_catalog, \"$user\", public;");
+            return handle.createQuery(query)
                   .bind("params_json", paramsJson)
                   .map((rs, ctx) -> {
                       try {
-                          return MAPPER.readTree(rs.getString(1));
+                          return MAPPER.readTree(rs.getString(1)).get("props") != null ? MAPPER.readTree(rs.getString(1)).get("props") : MAPPER.readTree(rs.getString(1));
                       } catch (Exception e) {
                           return null;
                       }
                   })
-                  .list()
+                  .list(); }
         );
 
-        return Response.ok(Map.of("runs", result)).build();
+        return Response.ok(Map.of("jobs", result)).build();
     }
 }

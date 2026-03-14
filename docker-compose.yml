@@ -21,7 +21,9 @@ services:
     entrypoint: ["/opt/marquez/wait-for-it.sh", "db:${POSTGRES_PORT}", "--", "./entrypoint.sh"]
 
   db:
-    image: apache/age:release_PG14_1.5.0
+    build:
+      context: docker/postgres-age
+    image: marquez-postgres-age:latest
     container_name: marquez-db
     ports:
       - "${POSTGRES_PORT}:${POSTGRES_PORT}"

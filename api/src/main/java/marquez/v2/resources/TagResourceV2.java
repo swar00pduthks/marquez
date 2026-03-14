@@ -18,18 +18,18 @@ import java.util.List;
 import java.util.Map;
 import java.util.HashMap;
 
-@Path("/api/v2/sources")
+@Path("/api/v2/tags")
 @Produces(MediaType.APPLICATION_JSON)
-public class SourceResourceV2 {
+public class TagResourceV2 {
     private final Jdbi jdbi;
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
-    public SourceResourceV2(Jdbi jdbi) {
+    public TagResourceV2(Jdbi jdbi) {
         this.jdbi = jdbi;
     }
 
     @GET
-    public Response listSources(@QueryParam("limit") Integer limit) {
+    public Response listTags(@QueryParam("limit") Integer limit) {
         int l = limit == null ? 100 : limit;
         Map<String, Object> params = new HashMap<>();
         params.put("lim", l);
@@ -41,24 +41,26 @@ public class SourceResourceV2 {
             return Response.status(Response.Status.INTERNAL_SERVER_ERROR).build();
         }
 
-        String query =
-            "SELECT agtype_to_json(s) FROM cypher('marquez_graph', $$ " +
-            "MATCH (s:Source) " +
-            "RETURN properties(s) LIMIT $lim $$, cast(:params_json as agtype)) as (s agtype);";
 
-        List<com.fasterxml.jackson.databind.JsonNode> result = jdbi.withHandle(handle ->
-            handle.createQuery(query)
+        String query =
+            "SELECT agtype_to_json(t) FROM cypher('marquez_graph', $$ " +
+            "MATCH (t:Tag) " +
+            "RETURN properties(t) LIMIT $lim $$, cast(:params_json as agtype)) as (t agtype);";
+
+        List<com.fasterxml.jackson.databind.JsonNode> result = jdbi.withHandle(handle -> {
+            handle.execute("LOAD 'age'; SET search_path = ag_catalog, \"$user\", public;");
+            return handle.createQuery(query)
                   .bind("params_json", paramsJson)
                   .map((rs, ctx) -> {
                       try {
-                          return MAPPER.readTree(rs.getString(1));
+                          return MAPPER.readTree(rs.getString(1)).get("props") != null ? MAPPER.readTree(rs.getString(1)).get("props") : MAPPER.readTree(rs.getString(1));
                       } catch (Exception e) {
                           return null;
                       }
                   })
-                  .list()
+                  .list(); }
         );
 
-        return Response.ok(Map.of("sources", result)).build();
+        return Response.ok(Map.of("tags", result)).build();
     }
 }
