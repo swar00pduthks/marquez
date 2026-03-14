@@ -19,4 +19,8 @@ describe('getLineage function', () => {
     const actualParamString = spy.mock.lastCall[0].split('?')
     expect(actualParamString.pop()!.split('&')).toContain(`nodeId=${expectedNodeId}`)
   })
+
+  it('uses the v2 lineage endpoint', () => {
+    expect(spy.mock.lastCall[0]).toContain('/api/v2/lineage?')
+  })
 })

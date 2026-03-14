@@ -1,0 +1,234 @@
+name: Azure Load Test Orchestration
+
+on:
+  workflow_dispatch:
+    inputs:
+      start_infra:
+        description: Start AKS and PostgreSQL flexible server before test
+        required: true
+        default: true
+        type: boolean
+      deploy_new_image:
+        description: Build and deploy new image to AKS
+        required: true
+        default: true
+        type: boolean
+      run_load_test:
+        description: Run comprehensive k6 load test
+        required: true
+        default: true
+        type: boolean
+      stop_infra_after:
+        description: Stop AKS and PostgreSQL flexible server after test
+        required: true
+        default: true
+        type: boolean
+      image_tag:
+        description: Image tag (leave empty for git SHA)
+        required: false
+        type: string
+      min_existing_events:
+        description: Minimum expected lineage event count
+        required: false
+        default: "400000"
+        type: string
+      read_vus:
+        description: k6 read VUs
+        required: false
+        default: "60"
+        type: string
+      write_vus:
+        description: k6 write VUs
+        required: false
+        default: "20"
+        type: string
+      run_vus:
+        description: k6 run-lifecycle VUs
+        required: false
+        default: "10"
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: azure-load-test-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  orchestrate:
+    runs-on: ubuntu-latest
+    environment: azure-load-test
+    env:
+      RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+      AKS_NAME: ${{ vars.AZURE_AKS_NAME }}
+      ACR_NAME: ${{ vars.AZURE_ACR_NAME }}
+      POSTGRES_FLEX_NAME: ${{ vars.AZURE_POSTGRES_FLEX_NAME }}
+      K8S_NAMESPACE: ${{ vars.K8S_NAMESPACE || 'default' }}
+      HELM_RELEASE: ${{ vars.HELM_RELEASE || 'marquez' }}
+      IMAGE_REPOSITORY: ${{ vars.IMAGE_REPOSITORY || 'swar00pduth/marquez' }}
+      MARQUEZ_URL: ${{ vars.MARQUEZ_URL }}
+      PGHOST: ${{ secrets.PGHOST }}
+      PGPORT: ${{ secrets.PGPORT }}
+      PGDATABASE: ${{ secrets.PGDATABASE }}
+      PGUSER: ${{ secrets.PGUSER }}
+      PGPASSWORD: ${{ secrets.PGPASSWORD }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Validate required configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          for v in RESOURCE_GROUP AKS_NAME ACR_NAME POSTGRES_FLEX_NAME MARQUEZ_URL; do
+            if [ -z "${!v:-}" ]; then
+              echo "Missing required environment variable: $v"
+              exit 1
+            fi
+          done
+
+      - name: Start infra (AKS + PostgreSQL)
+        if: ${{ inputs.start_infra }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          az aks start --name "$AKS_NAME" --resource-group "$RESOURCE_GROUP"
+          az postgres flexible-server start --name "$POSTGRES_FLEX_NAME" --resource-group "$RESOURCE_GROUP"
+
+      - name: Wait for infra readiness
+        shell: bash
+        run: |
+          set -euo pipefail
+          for i in {1..60}; do
+            AKS_STATE=$(az aks show --name "$AKS_NAME" --resource-group "$RESOURCE_GROUP" --query "powerState.code" -o tsv || true)
+            PG_STATE=$(az postgres flexible-server show --name "$POSTGRES_FLEX_NAME" --resource-group "$RESOURCE_GROUP" --query "state" -o tsv || true)
+            echo "AKS=$AKS_STATE PG=$PG_STATE"
+            if [ "$AKS_STATE" = "Running" ] && [ "$PG_STATE" = "Ready" ]; then
+              exit 0
+            fi
+            sleep 20
+          done
+          echo "Infra did not become ready in time"
+          exit 1
+
+      - name: Build image in ACR
+        if: ${{ inputs.deploy_new_image }}
+        id: image
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ inputs.image_tag }}"
+          if [ -z "$TAG" ]; then
+            TAG="${GITHUB_SHA::12}"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          az acr build \
+            --registry "$ACR_NAME" \
+            --image "$IMAGE_REPOSITORY:$TAG" \
+            .
+
+      - name: Set default image tag when deploy is skipped
+        if: ${{ !inputs.deploy_new_image }}
+        id: image_default
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ inputs.image_tag }}"
+          if [ -z "$TAG" ]; then
+            TAG="${GITHUB_SHA::12}"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Configure kubectl context
+        shell: bash
+        run: |
+          set -euo pipefail
+          az aks get-credentials --name "$AKS_NAME" --resource-group "$RESOURCE_GROUP" --overwrite-existing
+          kubectl get nodes
+
+      - name: Deploy with Helm
+        if: ${{ inputs.deploy_new_image }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.image.outputs.tag || steps.image_default.outputs.tag }}"
+          helm upgrade --install "$HELM_RELEASE" ./chart \
+            --namespace "$K8S_NAMESPACE" \
+            --create-namespace \
+            -f chart/values-azure-baseline.yaml \
+            --set marquez.image.registry="$ACR_NAME.azurecr.io" \
+            --set marquez.image.repository="$IMAGE_REPOSITORY" \
+            --set marquez.image.tag="$TAG" \
+            --wait --timeout 15m
+
+      - name: Verify API health
+        shell: bash
+        run: |
+          set -euo pipefail
+          for i in {1..40}; do
+            if curl -sSf "$MARQUEZ_URL/api/v1/namespaces" >/dev/null; then
+              echo "API is reachable"
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "API health check failed"
+          exit 1
+
+      - name: Install k6
+        if: ${{ inputs.run_load_test }}
+        uses: grafana/setup-k6-action@v1
+
+      - name: Run comprehensive load test
+        if: ${{ inputs.run_load_test }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          MARQUEZ_URL="$MARQUEZ_URL" \
+          USE_EXISTING_DATA=true \
+          MIN_EXISTING_EVENTS="${{ inputs.min_existing_events }}" \
+          FAIL_IF_BELOW_MIN=true \
+          READ_VUS="${{ inputs.read_vus }}" \
+          WRITE_VUS="${{ inputs.write_vus }}" \
+          RUN_VUS="${{ inputs.run_vus }}" \
+          READ_DURATION=15m \
+          WRITE_DURATION=15m \
+          RUN_DURATION=15m \
+          k6 run api/load-testing/comprehensive-api-load-test.js
+
+      - name: Install PostgreSQL client
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Check latest Flyway migration version
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${PGHOST:-}" ] && [ -n "${PGDATABASE:-}" ] && [ -n "${PGUSER:-}" ] && [ -n "${PGPASSWORD:-}" ]; then
+            psql "host=$PGHOST port=${PGPORT:-5432} dbname=$PGDATABASE user=$PGUSER sslmode=require" -c \
+              "SELECT installed_rank, version, description, success, installed_on FROM flyway_schema_history ORDER BY installed_rank DESC LIMIT 1;"
+          else
+            echo "Skipping Flyway check because PG* secrets are not configured in the GitHub environment."
+          fi
+
+      - name: Stop infra (AKS + PostgreSQL)
+        if: ${{ always() && inputs.stop_infra_after }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          az aks stop --name "$AKS_NAME" --resource-group "$RESOURCE_GROUP"
+          az postgres flexible-server stop --name "$POSTGRES_FLEX_NAME" --resource-group "$RESOURCE_GROUP"

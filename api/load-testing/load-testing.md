@@ -90,5 +90,58 @@ export default function () {
    > **Note:** To learn how to run tests locally with `k6`, see [_Running k6_](https://k6.io/docs/getting-started/running-k6).
 
 ----
+
+## Seed Spark-Style Lineage at Scale (100K / 400K)
+
+Use `spark-lineage-seed.js` to generate high-volume parent/child run events that mimic Spark pipeline behavior.
+
+### Seed 100K events
+
+```bash
+MARQUEZ_URL=http://<api-host> \
+TARGET_EVENTS=100000 \
+SEED_VUS=40 \
+HTTP_TIMEOUT=30s \
+k6 run spark-lineage-seed.js
+```
+
+### Seed 400K events
+
+```bash
+MARQUEZ_URL=http://<api-host> \
+TARGET_EVENTS=400000 \
+SEED_VUS=60 \
+HTTP_TIMEOUT=30s \
+MAX_DURATION=4h \
+k6 run spark-lineage-seed.js
+```
+
+### Compare performance after each seed size
+
+Run `comprehensive-api-load-test.js` after each seed run and export summaries:
+
+```bash
+MARQUEZ_URL=http://<api-host> \
+USE_EXISTING_DATA=true \
+MIN_EXISTING_EVENTS=100000 \
+FAIL_IF_BELOW_MIN=true \
+SETUP_TIMEOUT=20m \
+HTTP_TIMEOUT=30s \
+k6 run --summary-export=summary-100k.json comprehensive-api-load-test.js
+```
+
+```bash
+MARQUEZ_URL=http://<api-host> \
+USE_EXISTING_DATA=true \
+MIN_EXISTING_EVENTS=400000 \
+FAIL_IF_BELOW_MIN=true \
+SETUP_TIMEOUT=20m \
+HTTP_TIMEOUT=30s \
+k6 run --summary-export=summary-400k.json comprehensive-api-load-test.js
+```
+
+Compare `http_req_duration` and custom `endpoint_latency` between `summary-100k.json` and `summary-400k.json` to quantify the impact of lineage volume.
+
+----
 SPDX-License-Identifier: Apache-2.0
 Copyright 2018-2023 contributors to the Marquez project.
