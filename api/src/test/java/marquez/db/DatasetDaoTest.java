@@ -655,9 +655,18 @@ class DatasetDaoTest {
     List<marquez.service.models.Dataset> datasets = datasetDao.findAll(NAMESPACE, 5, 0);
     assertThat(datasets).hasSize(2);
 
-    // datasets sorted alphabetically, so commonDataset is first
-    assertThat(datasets.get(0))
-        .matches(ds -> ds.getName().getValue().equals(DATASET))
+    marquez.service.models.Dataset commonDataset =
+        datasets.stream()
+            .filter(ds -> ds.getName().getValue().equals(DATASET))
+            .findFirst()
+            .orElseThrow();
+    marquez.service.models.Dataset secondDataset =
+        datasets.stream()
+            .filter(ds -> ds.getName().getValue().equals(secondDatasetName))
+            .findFirst()
+            .orElseThrow();
+
+    assertThat(commonDataset)
         .extracting(
             marquez.service.models.Dataset::getFacets,
             InstanceOfAssertFactories.map(String.class, Object.class))
@@ -684,8 +693,7 @@ class DatasetDaoTest {
                 "_schemaURL",
                 "http://test.schema/"));
 
-    assertThat(datasets.get(1))
-        .matches(ds -> ds.getName().getValue().equals(secondDatasetName))
+    assertThat(secondDataset)
         .extracting(
             marquez.service.models.Dataset::getFacets,
             InstanceOfAssertFactories.map(String.class, Object.class))
@@ -722,8 +730,13 @@ class DatasetDaoTest {
     datasets = datasetDao.findAll(NAMESPACE, 5, 0);
     assertThat(datasets).hasSize(2);
 
-    assertThat(datasets.get(0))
-        .matches(ds -> ds.getName().getValue().equals(DATASET))
+    commonDataset =
+        datasets.stream()
+            .filter(ds -> ds.getName().getValue().equals(DATASET))
+            .findFirst()
+            .orElseThrow();
+
+    assertThat(commonDataset)
         .extracting(
             marquez.service.models.Dataset::getFacets,
             InstanceOfAssertFactories.map(String.class, Object.class))

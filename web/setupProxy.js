@@ -35,7 +35,7 @@ app.use((req, res, next) => {
 app.use(createProxyMiddleware({
   target: targetUrl,
   changeOrigin: true,
-  pathFilter: ['/api/v1', '/api/v2beta'],
+  pathFilter: ['/api/v1', '/api/v2', '/api/v2beta'],
   logLevel: 'debug'
 }))
 

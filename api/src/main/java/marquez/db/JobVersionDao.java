@@ -137,7 +137,9 @@ public interface JobVersionDao extends BaseDao {
   @SqlQuery(BASE_SELECT_ON_JOB_VERSIONS + "WHERE jv.version = :jobVersionUuid")
   Optional<JobVersion> findJobVersion(String namespaceName, String jobName, UUID jobVersionUuid);
 
-  @SqlQuery(BASE_SELECT_ON_JOB_VERSIONS + "LIMIT :limit OFFSET :offset")
+  @SqlQuery(
+      BASE_SELECT_ON_JOB_VERSIONS
+          + "ORDER BY jv.created_at DESC, jv.uuid DESC LIMIT :limit OFFSET :offset")
   List<JobVersion> findAllJobVersions(String namespaceName, String jobName, int limit, int offset);
 
   /**

@@ -10,8 +10,8 @@ info:
     name: Apache 2.0
     url: http://www.apache.org/licenses/LICENSE-2.0.html
 servers:
-  - url: http://localhost:5000/api/v1
-    description: Local API server
+  - url: /api/v1
+    description: Current API server
 paths:
   /namespaces/{namespace}:
     parameters:
@@ -609,6 +609,28 @@ paths:
               schema:
                 $ref: '#/components/schemas/LineageGraph'
 
+  /api/v2/lineage:
+    servers:
+      - url: /
+        description: Root API server for V2 endpoints
+    get:
+      operationId: getLineageV2
+      parameters:
+        - $ref: '#/components/parameters/nodeId'
+        - $ref: '#/components/parameters/depth'
+        - $ref: '#/components/parameters/aggregateToParentRun'
+      tags:
+        - Lineage
+      summary: Get a denormalized lineage graph
+      description: Returns a lineage graph for the specified node using the V2 denormalized read path.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LineageGraph'
+
   /column-lineage:
     get:
       operationId: getColumnLineage
@@ -850,6 +872,15 @@ components:
         type: boolean
         default: false
       description: Determines if downstream lineage should be returned.
+      required: false
+
+    aggregateToParentRun:
+      name: aggregateToParentRun
+      in: query
+      schema:
+        type: boolean
+        default: false
+      description: When true, aggregates all child runs to their parent run UUID, grouping facets and lineage data together.
       required: false
 
     q:
