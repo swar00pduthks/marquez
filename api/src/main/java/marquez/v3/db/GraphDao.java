@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-package marquez.v2.db;
+package marquez.v3.db;
 
 import org.jdbi.v3.core.Handle;
 import org.jdbi.v3.core.Jdbi;

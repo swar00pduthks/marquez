@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-package marquez.v2.resources;
+package marquez.v3.resources;
 
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.Path;
@@ -19,14 +19,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.HashMap;
 
-@Path("/api/v2/namespaces/{namespace}/datasets")
+@Path("/api/v3/namespaces/{namespace}/datasets")
 @Produces(MediaType.APPLICATION_JSON)
-public class DatasetResourceV2 {
+public class DatasetResourceV3 {
 
     private final Jdbi jdbi;
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
-    public DatasetResourceV2(Jdbi jdbi) {
+    public DatasetResourceV3(Jdbi jdbi) {
         this.jdbi = jdbi;
     }
 
@@ -59,7 +59,7 @@ public class DatasetResourceV2 {
                   .bind("params_json", paramsJson)
                   .map((rs, ctx) -> {
                       try {
-                          return MAPPER.readTree(rs.getString(1)).get("props") != null ? MAPPER.readTree(rs.getString(1)).get("props") : MAPPER.readTree(rs.getString(1));
+                          com.fasterxml.jackson.databind.JsonNode root = MAPPER.readTree(rs.getString(1)); return root.get("props") != null ? root.get("props") : root;
                       } catch (Exception e) {
                           return null;
                       }

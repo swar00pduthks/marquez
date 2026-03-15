@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-package marquez.v2.resources;
+package marquez.v3.resources;
 
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.Path;
@@ -18,18 +18,18 @@ import java.util.List;
 import java.util.Map;
 import java.util.HashMap;
 
-@Path("/api/v2/tags")
+@Path("/api/v3/sources")
 @Produces(MediaType.APPLICATION_JSON)
-public class TagResourceV2 {
+public class SourceResourceV3 {
     private final Jdbi jdbi;
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
-    public TagResourceV2(Jdbi jdbi) {
+    public SourceResourceV3(Jdbi jdbi) {
         this.jdbi = jdbi;
     }
 
     @GET
-    public Response listTags(@QueryParam("limit") Integer limit) {
+    public Response listSources(@QueryParam("limit") Integer limit) {
         int l = limit == null ? 100 : limit;
         Map<String, Object> params = new HashMap<>();
         params.put("lim", l);
@@ -43,9 +43,9 @@ public class TagResourceV2 {
 
 
         String query =
-            "SELECT agtype_to_json(t) FROM cypher('marquez_graph', $$ " +
-            "MATCH (t:Tag) " +
-            "RETURN properties(t) LIMIT $lim $$, cast(:params_json as agtype)) as (t agtype);";
+            "SELECT agtype_to_json(s) FROM cypher('marquez_graph', $$ " +
+            "MATCH (s:Source) " +
+            "RETURN properties(s) LIMIT $lim $$, cast(:params_json as agtype)) as (s agtype);";
 
         List<com.fasterxml.jackson.databind.JsonNode> result = jdbi.withHandle(handle -> {
             handle.execute("LOAD 'age'; SET search_path = ag_catalog, \"$user\", public;");
@@ -53,7 +53,7 @@ public class TagResourceV2 {
                   .bind("params_json", paramsJson)
                   .map((rs, ctx) -> {
                       try {
-                          return MAPPER.readTree(rs.getString(1)).get("props") != null ? MAPPER.readTree(rs.getString(1)).get("props") : MAPPER.readTree(rs.getString(1));
+                          com.fasterxml.jackson.databind.JsonNode root = MAPPER.readTree(rs.getString(1)); return root.get("props") != null ? root.get("props") : root;
                       } catch (Exception e) {
                           return null;
                       }
@@ -61,6 +61,6 @@ public class TagResourceV2 {
                   .list(); }
         );
 
-        return Response.ok(Map.of("tags", result)).build();
+        return Response.ok(Map.of("sources", result)).build();
     }
 }

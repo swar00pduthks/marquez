@@ -226,17 +226,17 @@ public final class MarquezApp extends Application<MarquezConfig> {
     }
 
     if (ageEnabled) {
-        marquez.v2.db.GraphDao graphDao = new marquez.v2.db.GraphDao();
+        marquez.v3.db.GraphDao graphDao = new marquez.v3.db.GraphDao();
         graphDao.initGraph(jdbi, "marquez_graph");
 
-        env.jersey().register(new marquez.v2.resources.OpenLineageResourceV2(jdbi, graphDao));
-        env.jersey().register(new marquez.v2.resources.DatasetResourceV2(jdbi));
-        env.jersey().register(new marquez.v2.resources.NamespaceResourceV2(jdbi));
-        env.jersey().register(new marquez.v2.resources.JobResourceV2(jdbi));
-        env.jersey().register(new marquez.v2.resources.RunResourceV2(jdbi));
-        env.jersey().register(new marquez.v2.resources.TagResourceV2(jdbi));
-        env.jersey().register(new marquez.v2.resources.SourceResourceV2(jdbi));
-        env.jersey().register(new marquez.v2.resources.ColumnLineageResourceV2(jdbi));
+        env.jersey().register(new marquez.v3.resources.OpenLineageResourceV3(jdbi, graphDao));
+        env.jersey().register(new marquez.v3.resources.DatasetResourceV3(jdbi));
+        env.jersey().register(new marquez.v3.resources.NamespaceResourceV3(jdbi));
+        env.jersey().register(new marquez.v3.resources.JobResourceV3(jdbi));
+        env.jersey().register(new marquez.v3.resources.RunResourceV3(jdbi));
+        env.jersey().register(new marquez.v3.resources.TagResourceV3(jdbi));
+        env.jersey().register(new marquez.v3.resources.SourceResourceV3(jdbi));
+        env.jersey().register(new marquez.v3.resources.ColumnLineageResourceV3(jdbi));
     }
 
     if (config.getGraphql().isEnabled()) {

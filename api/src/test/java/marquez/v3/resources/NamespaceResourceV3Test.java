@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-package marquez.v2.resources;
+package marquez.v3.resources;
 
 import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -20,7 +20,7 @@ import jakarta.ws.rs.core.Response;
 import java.util.Collections;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
-public class NamespaceResourceV2Test {
+public class NamespaceResourceV3Test {
 
     @Test
     public void testListNamespaces() {
@@ -39,7 +39,7 @@ public class NamespaceResourceV2Test {
         when(mockQuery.map(any(org.jdbi.v3.core.mapper.RowMapper.class))).thenReturn(mockResultIterable);
         when(mockResultIterable.list()).thenReturn(Collections.emptyList());
 
-        NamespaceResourceV2 resource = new NamespaceResourceV2(mockJdbi);
+        NamespaceResourceV3 resource = new NamespaceResourceV3(mockJdbi);
         Response response = resource.listNamespaces(10);
 
         assertNotNull(response);

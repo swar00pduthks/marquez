@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-package marquez.v2.resources;
+package marquez.v3.resources;
 
 import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -14,11 +14,11 @@ import org.jdbi.v3.core.Jdbi;
 import org.jdbi.v3.core.Handle;
 import org.jdbi.v3.core.HandleConsumer;
 
-import marquez.v2.db.GraphDao;
+import marquez.v3.db.GraphDao;
 import marquez.service.models.LineageEvent;
 import jakarta.ws.rs.core.Response;
 
-public class OpenLineageResourceV2Test {
+public class OpenLineageResourceV3Test {
 
     @Test
     public void testCreateLineage() {
@@ -33,7 +33,7 @@ public class OpenLineageResourceV2Test {
             return null;
         }).when(mockJdbi).useTransaction(any());
 
-        OpenLineageResourceV2 resource = new OpenLineageResourceV2(mockJdbi, mockDao);
+        OpenLineageResourceV3 resource = new OpenLineageResourceV3(mockJdbi, mockDao);
 
         LineageEvent.Job mockJob = mock(LineageEvent.Job.class);
         when(mockJob.getNamespace()).thenReturn("test-namespace");
@@ -63,7 +63,7 @@ public class OpenLineageResourceV2Test {
     public void testCreateLineageNullPayloads() {
         GraphDao mockDao = mock(GraphDao.class);
         Jdbi mockJdbi = mock(Jdbi.class);
-        OpenLineageResourceV2 resource = new OpenLineageResourceV2(mockJdbi, mockDao);
+        OpenLineageResourceV3 resource = new OpenLineageResourceV3(mockJdbi, mockDao);
 
         // Null event
         Response res1 = resource.createLineage(null);

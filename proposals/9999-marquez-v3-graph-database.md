@@ -14,11 +14,11 @@ This proposal advocates for migrating the Marquez lineage graph to a native grap
 1. **Spring Boot (Latest) + Neo4j** (A complete rewrite of the API layer to use a modern Spring ecosystem coupled with Neo4j)
 2. **Dropwizard + Neo4j or PostgreSQL AGE** (Retaining the existing Dropwizard framework while replacing the data access layer with a graph backend, or using the Apache AGE extension within the existing PostgreSQL infrastructure)
 
-In accordance with Marquez project guidelines for massive architectural changes, this migration will be implemented as a new `v2` module (`api-v2`), ensuring complete backward compatibility and continuous operation of the existing `v1` API.
+In accordance with Marquez project guidelines for massive architectural changes, this migration will be implemented as a new `v3` module (`api-v3`), ensuring complete backward compatibility and continuous operation of the existing `v1` API.
 
 ## Proposal
 
-We propose the creation of an `api-v2` module that implements a graph-first architecture.
+We propose the creation of an `api-v3` module that implements a graph-first architecture.
 
 ### Why a Graph Database?
 Lineage is fundamentally a graph problem. Entities like `Datasets`, `Jobs`, and `Runs` are nodes, and the relationships (e.g., `Job` *CONSUMES* `Dataset`, `Run` *PRODUCES* `DatasetVersion`) are edges. Native graph databases are optimized for traversing these relationships (index-free adjacency) without the overhead of heavy relational JOINs, providing constant-time traversals regardless of total dataset size.
@@ -72,7 +72,7 @@ The core Marquez OpenLineage model translates cleanly to a property graph. In Po
 * `(:DatasetVersion)-[:HAS_FIELD]->(:DatasetField)`
 
 **Column Lineage (Dataset Fields):**
-In `v1`, column lineage relies heavily on intermediate tables like `column_lineage` to map input dataset fields to output dataset fields. In the `v2` graph:
+In `v1`, column lineage relies heavily on intermediate tables like `column_lineage` to map input dataset fields to output dataset fields. In the `v3` graph:
 * `(:DatasetField)-[:DERIVED_FROM { transformationDescription: "...", transformationType: "..." }]->(:DatasetField)`
 * `(:Run)-[:APPLIES_TRANSFORMATION]->(:DatasetField)`
 
@@ -105,22 +105,22 @@ Instead of scattering metadata across multiple tables, rich OpenLineage facets (
 
 ### 2. Advanced Graph Querying (`aggregateToParentRun`)
 
-In `v1`, collapsing lineage logic via `aggregateToParentRun=true` requires incredibly heavy and complex recursive CTEs. In the `v2` graph:
+In `v1`, collapsing lineage logic via `aggregateToParentRun=true` requires incredibly heavy and complex recursive CTEs. In the `v3` graph:
 * We ingest a new edge: `(:Run {id: "child"})-[:HAS_PARENT]->(:Run {id: "parent"})`
 * When querying, if `aggregateToParentRun=true`, the Cypher graph traversal naturally filters out `(:Dataset)` nodes that are strictly internal to the child run, and re-routes the `CONSUMES` and `PRODUCES` edges up to the parent `Run` node before returning the path.
 * This dramatically speeds up high-level aggregated lineage views.
 
 ### 3. Backward Compatibility for V1 Endpoints
 
-A major concern during this migration is: **How will the existing `v1` REST endpoints (e.g., `GET /api/v1/namespaces/{namespace}/datasets`) be supported by the new `v2` graph architecture?**
+A major concern during this migration is: **How will the existing `v1` REST endpoints (e.g., `GET /api/v1/namespaces/{namespace}/datasets`) be supported by the new `v3` graph architecture?**
 
 To maintain strict backwards compatibility without requiring clients to change their APIs:
 1. **Resource Controller Delegation:** The existing `v1` HTTP Resource classes (e.g., `DatasetResource.java`, `JobResource.java`) will remain untouched on the surface. However, their underlying service layer will be swapped out via dependency injection to utilize the new `GraphDao` instead of the legacy relational DAOs.
-2. **Cypher Translation:** For example, when a user calls the `v1` endpoint to list datasets in a namespace, the `v2` backend will execute a simple Cypher query: `MATCH (n:Namespace {name: $ns})-[:HAS_DATASET]->(d:Dataset) RETURN d` and serialize the result back into the exact same JSON format expected by `v1` clients.
+2. **Cypher Translation:** For example, when a user calls the `v1` endpoint to list datasets in a namespace, the `v3` backend will execute a simple Cypher query: `MATCH (n:Namespace {name: $ns})-[:HAS_DATASET]->(d:Dataset) RETURN d` and serialize the result back into the exact same JSON format expected by `v1` clients.
 
-### 4. Testing Strategy (V1 vs V2)
+### 4. Testing Strategy (V1 vs V3)
 
-Can we run the exact same `v1` tests on the `v2` codebase?
+Can we run the exact same `v1` tests on the `v3` codebase?
 * **Database/DAO Unit Tests:** **No.** The existing `v1` tests rely heavily on inserting raw relational records using SQL `INSERT INTO ...` and verifying table constraints. Because the underlying storage mechanism is entirely different (Nodes/Edges instead of Tables), these low-level data access tests must be rewritten specifically for Cypher/AGE.
 * **API Integration Tests (Blackbox):** **Yes.** The end-to-end API tests (e.g., sending an HTTP OpenLineage payload and asserting the HTTP response of a `GET` request) will remain identical. This ensures that while the internal database engine changes completely, the external API contract remains 100% compliant with existing OpenLineage specifications.
 
@@ -133,23 +133,23 @@ To handle billions of runs and thousands of namespaces:
 
 ### 6. Migration and Backfill Strategy (Billions of Events)
 
-A critical question is: **"Will we have data in both tables, or once we switch to v2 all the data would be in agegraph? How would we backfill existing billions of data?"**
+A critical question is: **"Will we have data in both tables, or once we switch to v3 all the data would be in agegraph? How would we backfill existing billions of data?"**
 
 This migration will utilize a **Zero-Downtime Dual-Write & Backfill** strategy:
-1. **Dual-Write (Transition Period):** During the transition, incoming OpenLineage events will be written to *both* the existing `v1` relational tables (like `runs`, `datasets`, `lineage_events`) AND the new `marquez_graph` in PostgreSQL AGE simultaneously. This ensures the legacy APIs keep working flawlessly while the V2 graph populates in real-time.
+1. **Dual-Write (Transition Period):** During the transition, incoming OpenLineage events will be written to *both* the existing `v1` relational tables (like `runs`, `datasets`, `lineage_events`) AND the new `marquez_graph` in PostgreSQL AGE simultaneously. This ensures the legacy APIs keep working flawlessly while the V3 graph populates in real-time.
 2. **Bulk Backfill:** A background migration worker (e.g., an Airflow DAG or a dedicated Marquez migration script) will query the existing billions of rows in the `lineage_events` table in historical chunks (e.g., month by month) and bulk-insert them into the `marquez_graph` using optimized `UNWIND` Cypher statements.
-3. **Cutover & Deprecation:** Once the historical backfill catches up to the real-time dual-writes, we verify that the V2 Graph API returns identical results to the V1 Relational API. At this point, we perform a cutover: UI and clients are directed to the V2 endpoints. The V1 writes are disabled, and the massive relational tables (`dataset_denormalized`, `run_lineage_denormalized`, etc.) are truncated and dropped to reclaim disk space.
+3. **Cutover & Deprecation:** Once the historical backfill catches up to the real-time dual-writes, we verify that the V3 Graph API returns identical results to the V1 Relational API. At this point, we perform a cutover: UI and clients are directed to the V3 endpoints. The V1 writes are disabled, and the massive relational tables (`dataset_denormalized`, `run_lineage_denormalized`, etc.) are truncated and dropped to reclaim disk space.
 
 ### 7. Step-by-Step Execution Plan
 
-1. **Phase 1: Bootstrap `api-v2` Module**
-   - Create a new package `marquez.v2`.
+1. **Phase 1: Bootstrap `api-v3` Module**
+   - Create a new package `marquez.v3`.
    - Implement the database driver connection (Postgres AGE JDBC wrapper).
 2. **Phase 2: Graph Data Access Layer (DAO)**
-   - Implement `v2` DAOs using Cypher queries.
+   - Implement `v3` DAOs using Cypher queries.
    - Create a dual-write mechanism in the `v1` ingestion path to mirror incoming OpenLineage events to both the relational schema and the graph schema.
-3. **Phase 3: `v2` Lineage API & Backfilling**
-   - Implement the `GET /api/v2/lineage` endpoint using pure graph traversal queries.
+3. **Phase 3: `v3` Lineage API & Backfilling**
+   - Implement the `GET /api/v3/lineage` endpoint using pure graph traversal queries.
    - Execute the background bulk backfill of legacy data.
 4. **Phase 4: Cutover**
    - Drop the legacy `v1` relational schema.

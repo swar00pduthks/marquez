@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-package marquez.v2.resources;
+package marquez.v3.resources;
 
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.Path;
@@ -18,13 +18,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Collections;
 
-@Path("/api/v2/column-lineage")
+@Path("/api/v3/column-lineage")
 @Produces(MediaType.APPLICATION_JSON)
-public class ColumnLineageResourceV2 {
+public class ColumnLineageResourceV3 {
     private final Jdbi jdbi;
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
-    public ColumnLineageResourceV2(Jdbi jdbi) {
+    public ColumnLineageResourceV3(Jdbi jdbi) {
         this.jdbi = jdbi;
     }
 
@@ -56,7 +56,7 @@ public class ColumnLineageResourceV2 {
                   .bind("params_json", paramsJson)
                   .map((rs, ctx) -> {
                       try {
-                          return MAPPER.readTree(rs.getString(1)).get("props") != null ? MAPPER.readTree(rs.getString(1)).get("props") : MAPPER.readTree(rs.getString(1));
+                          com.fasterxml.jackson.databind.JsonNode root = MAPPER.readTree(rs.getString(1)); return root.get("props") != null ? root.get("props") : root;
                       } catch (Exception e) {
                           return null;
                       }

@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-package marquez.v2.resources;
+package marquez.v3.resources;
 
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.GET;
@@ -14,7 +14,7 @@ import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import org.jdbi.v3.core.Jdbi;
-import marquez.v2.db.GraphDao;
+import marquez.v3.db.GraphDao;
 import marquez.service.models.LineageEvent;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -27,16 +27,16 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 
-@Path("/api/v2/lineage")
+@Path("/api/v3/lineage")
 @Produces(MediaType.APPLICATION_JSON)
-public class OpenLineageResourceV2 {
+public class OpenLineageResourceV3 {
 
     private final Jdbi jdbi;
     private final GraphDao graphDao;
     private static final String GRAPH_NAME = "marquez_graph";
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
-    public OpenLineageResourceV2(Jdbi jdbi, GraphDao graphDao) {
+    public OpenLineageResourceV3(Jdbi jdbi, GraphDao graphDao) {
         this.jdbi = jdbi;
         this.graphDao = graphDao;
     }
@@ -80,7 +80,7 @@ public class OpenLineageResourceV2 {
 
         // V1 Compatibility: If aggregateToParentRun is requested, the Cypher traversal is updated
         // to collapse `(child:Run)-[:HAS_PARENT]->(parent:Run)` nodes dynamically during path evaluation.
-        String cypherMatch = "MATCH path = (a)-[*1..%d]-(b) WHERE a.name = $nodeId OR a.uuid = $nodeId ";
+        String cypherMatch = "MATCH path = (a)-[*1..%d]-(b) WHERE (a.name = $nodeId OR a.uuid = $nodeId) ";
 
         if (aggregateToParentRun != null && aggregateToParentRun) {
             // Re-route paths through parents by filtering out pure child internal paths
@@ -100,7 +100,7 @@ public class OpenLineageResourceV2 {
                   .bind("params_json", paramsJson)
                   .map((rs, ctx) -> {
                       try {
-                          return MAPPER.readTree(rs.getString(1)).get("props") != null ? MAPPER.readTree(rs.getString(1)).get("props") : MAPPER.readTree(rs.getString(1));
+                          com.fasterxml.jackson.databind.JsonNode root = MAPPER.readTree(rs.getString(1)); return root.get("props") != null ? root.get("props") : root;
                       } catch (Exception e) {
                           return null;
                       }

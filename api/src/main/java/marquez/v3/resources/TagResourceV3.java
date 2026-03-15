@@ -3,11 +3,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-package marquez.v2.resources;
+package marquez.v3.resources;
 
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.Path;
-import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.MediaType;
@@ -19,23 +18,20 @@ import java.util.List;
 import java.util.Map;
 import java.util.HashMap;
 
-@Path("/api/v2/namespaces/{namespace}/jobs")
+@Path("/api/v3/tags")
 @Produces(MediaType.APPLICATION_JSON)
-public class JobResourceV2 {
-
+public class TagResourceV3 {
     private final Jdbi jdbi;
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
-    public JobResourceV2(Jdbi jdbi) {
+    public TagResourceV3(Jdbi jdbi) {
         this.jdbi = jdbi;
     }
 
     @GET
-    public Response listJobs(@PathParam("namespace") String namespace, @QueryParam("limit") Integer limit) {
+    public Response listTags(@QueryParam("limit") Integer limit) {
         int l = limit == null ? 100 : limit;
-
         Map<String, Object> params = new HashMap<>();
-        params.put("ns", namespace);
         params.put("lim", l);
 
         String paramsJson;
@@ -47,9 +43,9 @@ public class JobResourceV2 {
 
 
         String query =
-            "SELECT agtype_to_json(j) FROM cypher('marquez_graph', $$ " +
-            "MATCH (n:Namespace {name: $ns})-[:HAS_JOB]->(j:Job) " +
-            "RETURN properties(j) LIMIT $lim $$, cast(:params_json as agtype)) as (j agtype);";
+            "SELECT agtype_to_json(t) FROM cypher('marquez_graph', $$ " +
+            "MATCH (t:Tag) " +
+            "RETURN properties(t) LIMIT $lim $$, cast(:params_json as agtype)) as (t agtype);";
 
         List<com.fasterxml.jackson.databind.JsonNode> result = jdbi.withHandle(handle -> {
             handle.execute("LOAD 'age'; SET search_path = ag_catalog, \"$user\", public;");
@@ -57,7 +53,7 @@ public class JobResourceV2 {
                   .bind("params_json", paramsJson)
                   .map((rs, ctx) -> {
                       try {
-                          return MAPPER.readTree(rs.getString(1)).get("props") != null ? MAPPER.readTree(rs.getString(1)).get("props") : MAPPER.readTree(rs.getString(1));
+                          com.fasterxml.jackson.databind.JsonNode root = MAPPER.readTree(rs.getString(1)); return root.get("props") != null ? root.get("props") : root;
                       } catch (Exception e) {
                           return null;
                       }
@@ -65,6 +61,6 @@ public class JobResourceV2 {
                   .list(); }
         );
 
-        return Response.ok(Map.of("jobs", result)).build();
+        return Response.ok(Map.of("tags", result)).build();
     }
 }
