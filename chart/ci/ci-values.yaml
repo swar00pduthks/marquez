@@ -5,4 +5,4 @@ postgresql:
   image:
     registry: docker.io
     repository: bitnami/postgresql
-    tag: "17.2.0"
+    tag: "18.0.17"
