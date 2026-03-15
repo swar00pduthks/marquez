@@ -5,62 +5,66 @@
 
 package marquez.v3.resources;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
-import org.jdbi.v3.core.Jdbi;
-import com.fasterxml.jackson.databind.ObjectMapper;
-
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.HashMap;
+import org.jdbi.v3.core.Jdbi;
 
 @Path("/api/v3/tags")
 @Produces(MediaType.APPLICATION_JSON)
 public class TagResourceV3 {
-    private final Jdbi jdbi;
-    private static final ObjectMapper MAPPER = new ObjectMapper();
+  private final Jdbi jdbi;
+  private static final ObjectMapper MAPPER = new ObjectMapper();
 
-    public TagResourceV3(Jdbi jdbi) {
-        this.jdbi = jdbi;
+  public TagResourceV3(Jdbi jdbi) {
+    this.jdbi = jdbi;
+  }
+
+  @GET
+  public Response listTags(@QueryParam("limit") Integer limit) {
+    int l = limit == null ? 100 : limit;
+    Map<String, Object> params = new HashMap<>();
+    params.put("lim", l);
+
+    String paramsJson;
+    try {
+      paramsJson = MAPPER.writeValueAsString(params);
+    } catch (Exception e) {
+      return Response.status(Response.Status.INTERNAL_SERVER_ERROR).build();
     }
 
-    @GET
-    public Response listTags(@QueryParam("limit") Integer limit) {
-        int l = limit == null ? 100 : limit;
-        Map<String, Object> params = new HashMap<>();
-        params.put("lim", l);
+    String query =
+        "SELECT agtype_to_json(t) FROM cypher('marquez_graph', $$ "
+            + "MATCH (t:Tag) "
+            + "RETURN properties(t) LIMIT $lim $$, cast(:params_json as agtype)) as (t agtype);";
 
-        String paramsJson;
-        try {
-            paramsJson = MAPPER.writeValueAsString(params);
-        } catch (Exception e) {
-            return Response.status(Response.Status.INTERNAL_SERVER_ERROR).build();
-        }
-
-
-        String query =
-            "SELECT agtype_to_json(t) FROM cypher('marquez_graph', $$ " +
-            "MATCH (t:Tag) " +
-            "RETURN properties(t) LIMIT $lim $$, cast(:params_json as agtype)) as (t agtype);";
-
-        List<com.fasterxml.jackson.databind.JsonNode> result = jdbi.withHandle(handle -> {
-            handle.execute("LOAD 'age'; SET search_path = ag_catalog, \"$user\", public;");
-            return handle.createQuery(query)
+    List<com.fasterxml.jackson.databind.JsonNode> result =
+        jdbi.withHandle(
+            handle -> {
+              handle.execute("LOAD 'age'; SET search_path = ag_catalog, \"$user\", public;");
+              return handle
+                  .createQuery(query)
                   .bind("params_json", paramsJson)
-                  .map((rs, ctx) -> {
-                      try {
-                          com.fasterxml.jackson.databind.JsonNode root = MAPPER.readTree(rs.getString(1)); return root.get("props") != null ? root.get("props") : root;
-                      } catch (Exception e) {
+                  .map(
+                      (rs, ctx) -> {
+                        try {
+                          com.fasterxml.jackson.databind.JsonNode root =
+                              MAPPER.readTree(rs.getString(1));
+                          return root.get("props") != null ? root.get("props") : root;
+                        } catch (Exception e) {
                           return null;
-                      }
-                  })
-                  .list(); }
-        );
+                        }
+                      })
+                  .list();
+            });
 
-        return Response.ok(Map.of("tags", result)).build();
-    }
+    return Response.ok(Map.of("tags", result)).build();
+  }
 }
