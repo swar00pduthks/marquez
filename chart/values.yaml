@@ -85,7 +85,7 @@ web:
   replicaCount: 1
   ## Marquez web image version
   ## ref: https://hub.docker.com/r/marquezproject/marquez-web/tags/
-  ##docker pull swar00pduth/marquez:0.52.41
+  ## docker pull swar00pduth/marquez:0.52.41
   image:
     registry: docker.io
     repository: swar00pduth/marquez-web
