@@ -29,4 +29,4 @@ name: marquez
 sources:
   - https://github.com/swar00pduthks/marquez
   - https://marquezproject.github.io/marquez/
-version: 0.52.42
+version: 0.52.41
