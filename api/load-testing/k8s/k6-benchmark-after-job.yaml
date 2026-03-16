@@ -1,0 +1,48 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: k6-benchmark-after
+  namespace: marquez
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+      - name: k6
+        image: grafana/k6:0.52.0
+        env:
+        - name: MARQUEZ_URL
+          value: http://marquez-baseline
+        - name: USE_EXISTING_DATA
+          value: "true"
+        - name: FAIL_IF_BELOW_MIN
+          value: "false"
+        - name: SETUP_TIMEOUT
+          value: 20m
+        - name: HTTP_TIMEOUT
+          value: 30s
+        - name: READ_VUS
+          value: "4"
+        - name: WRITE_VUS
+          value: "1"
+        - name: RUN_VUS
+          value: "1"
+        - name: READ_DURATION
+          value: 90s
+        - name: WRITE_DURATION
+          value: 90s
+        - name: RUN_DURATION
+          value: 90s
+        - name: LINEAGE_AGGREGATE_TO_PARENT
+          value: "true"
+        - name: LINEAGE_INCLUDE_FACETS
+          value: "spark_version"
+        command: ["k6", "run", "/scripts/comprehensive-api-load-test.js"]
+        volumeMounts:
+        - name: scripts
+          mountPath: /scripts
+      volumes:
+      - name: scripts
+        configMap:
+          name: k6-benchmark-scripts

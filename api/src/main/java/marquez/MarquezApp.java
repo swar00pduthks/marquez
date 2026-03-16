@@ -111,9 +111,9 @@ public final class MarquezApp extends Application<MarquezConfig> {
             "graphql-playground"));
 
     bootstrap.addBundle(
-        new AssetsBundle("/assets/swagger-ui", "/swagger-ui", "index.html", "swagger-ui"));
+        new AssetsBundle("/assets/swagger-ui", "/api/swagger-ui", "index.html", "swagger-ui"));
 
-    bootstrap.addBundle(new AssetsBundle("/assets", "/assets", null, "assets"));
+    bootstrap.addBundle(new AssetsBundle("/assets", "/api/assets", null, "assets"));
   }
 
   @Override

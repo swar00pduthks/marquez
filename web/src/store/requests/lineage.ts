@@ -6,6 +6,10 @@ import { JobOrDataset } from '../../types/lineage'
 import { generateNodeId } from '../../helpers/nodes'
 import { genericFetchWrapper } from './index'
 
+const LINEAGE_API_URL = API_URL.endsWith('/api/v1')
+  ? `${API_URL.slice(0, -'/api/v1'.length)}/api/v2`
+  : API_URL
+
 export const getLineage = async (
   nodeType: JobOrDataset,
   namespace: string,
@@ -15,6 +19,6 @@ export const getLineage = async (
   const encodedNamespace = encodeURIComponent(namespace)
   const encodedName = encodeURIComponent(name)
   const nodeId = generateNodeId(nodeType, encodedNamespace, encodedName)
-  const url = `${API_URL}/lineage?nodeId=${nodeId}&depth=${depth}`
+  const url = `${LINEAGE_API_URL}/lineage?nodeId=${nodeId}&depth=${depth}`
   return genericFetchWrapper(url, { method: 'GET' }, 'fetchLineage')
 }

@@ -155,7 +155,7 @@ public class BaseResource {
     }
   }
 
-  void throwIfNotExists(@NonNull NodeId nodeId) {
+  protected void throwIfNotExists(@NonNull NodeId nodeId) {
     if (!nodeId.hasVersion()) {
       if (nodeId.isDatasetType()) {
         throwIfNotExists(nodeId.asDatasetId());
