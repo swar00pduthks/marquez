@@ -1,7 +1,9 @@
 version: "3.7"
 services:
   db:
-    image: postgres:14
+    build:
+      context: docker/postgres-age
+    image: marquez-postgres-age:latest
     container_name: marquez-db
     ports:
       - "${POSTGRES_PORT}:${POSTGRES_PORT}"

@@ -190,6 +190,7 @@ public final class MarquezApp extends Application<MarquezConfig> {
 
   private Jdbi newJdbi(
       @NonNull MarquezConfig config, @NonNull Environment env, @NonNull ManagedDataSource source) {
+
     final JdbiFactory factory = new JdbiFactory();
     final Jdbi jdbi =
         factory
@@ -209,6 +210,36 @@ public final class MarquezApp extends Application<MarquezConfig> {
 
   public void registerResources(
       @NonNull MarquezConfig config, @NonNull Environment env, MarquezContext context) {
+
+    final Jdbi jdbi = context.getJdbi();
+
+    // Register V2 Graph API Resources conditionally to prevent crashing standard V1 databases
+    boolean ageEnabled = false;
+    try {
+      jdbi.useHandle(
+          handle -> {
+            handle.execute("CREATE EXTENSION IF NOT EXISTS age");
+            handle.execute("LOAD 'age'; SET search_path = ag_catalog, \"$user\", public;");
+          });
+      ageEnabled = true;
+    } catch (Exception e) {
+      log.warn(
+          "Failed to create or load AGE extension on startup. V2 Graph API will be disabled on this instance.");
+    }
+
+    if (ageEnabled) {
+      marquez.v3.db.GraphDao graphDao = new marquez.v3.db.GraphDao();
+      graphDao.initGraph(jdbi, "marquez_graph");
+
+      env.jersey().register(new marquez.v3.resources.OpenLineageResourceV3(jdbi, graphDao));
+      env.jersey().register(new marquez.v3.resources.DatasetResourceV3(jdbi));
+      env.jersey().register(new marquez.v3.resources.NamespaceResourceV3(jdbi));
+      env.jersey().register(new marquez.v3.resources.JobResourceV3(jdbi));
+      env.jersey().register(new marquez.v3.resources.RunResourceV3(jdbi));
+      env.jersey().register(new marquez.v3.resources.TagResourceV3(jdbi));
+      env.jersey().register(new marquez.v3.resources.SourceResourceV3(jdbi));
+      env.jersey().register(new marquez.v3.resources.ColumnLineageResourceV3(jdbi));
+    }
 
     if (config.getGraphql().isEnabled()) {
       env.servlets()
