@@ -54,10 +54,10 @@ public class GraphDao {
             "SELECT * FROM cypher('%s', $$ "
                 + "MERGE (n:%s { %s: $matchValue }) "
                 + "SET n += $props "
-                + "RETURN n $$, cast(:params_json as agtype)) as (n agtype)",
+                + "RETURN n $$, :params_json) as (n agtype)",
             graphName, label, matchKey);
 
-    handle.createUpdate(query).bind("params_json", paramsJson).execute();
+    handle.createUpdate(query).bind("params_json", createAgtype(paramsJson)).execute();
   }
 
   public void upsertEdge(
@@ -89,9 +89,20 @@ public class GraphDao {
                 + "MATCH (a:%s { %s: $fromVal }) "
                 + "MATCH (b:%s { %s: $toVal }) "
                 + "MERGE (a)-[r:%s]->(b) "
-                + "RETURN r $$, cast(:params_json as agtype)) as (r agtype)",
+                + "RETURN r $$, :params_json) as (r agtype)",
             graphName, fromLabel, fromMatchKey, toLabel, toMatchKey, edgeLabel);
 
-    handle.createUpdate(query).bind("params_json", paramsJson).execute();
+    handle.createUpdate(query).bind("params_json", createAgtype(paramsJson)).execute();
   }
+
+    private static org.postgresql.util.PGobject createAgtype(String json) {
+        try {
+            org.postgresql.util.PGobject obj = new org.postgresql.util.PGobject();
+            obj.setType("agtype");
+            obj.setValue(json);
+            return obj;
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to create agtype", e);
+        }
+    }
 }

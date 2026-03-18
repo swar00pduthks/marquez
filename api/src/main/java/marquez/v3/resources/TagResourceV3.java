@@ -43,7 +43,7 @@ public class TagResourceV3 {
     String query =
         "SELECT agtype_to_json(t) FROM cypher('marquez_graph', $$ "
             + "MATCH (t:Tag) "
-            + "RETURN properties(t) LIMIT $lim $$, cast(:params_json as agtype)) as (t agtype);";
+            + "RETURN properties(t) LIMIT $lim $$, :params_json) as (t agtype);";
 
     List<com.fasterxml.jackson.databind.JsonNode> result =
         jdbi.withHandle(
@@ -51,7 +51,7 @@ public class TagResourceV3 {
               handle.execute("LOAD 'age'; SET search_path = ag_catalog, \"$user\", public;");
               return handle
                   .createQuery(query)
-                  .bind("params_json", paramsJson)
+                  .bind("params_json", createAgtype(paramsJson))
                   .map(
                       (rs, ctx) -> {
                         try {
@@ -67,4 +67,15 @@ public class TagResourceV3 {
 
     return Response.ok(Map.of("tags", result)).build();
   }
+
+    private static org.postgresql.util.PGobject createAgtype(String json) {
+        try {
+            org.postgresql.util.PGobject obj = new org.postgresql.util.PGobject();
+            obj.setType("agtype");
+            obj.setValue(json);
+            return obj;
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to create agtype", e);
+        }
+    }
 }

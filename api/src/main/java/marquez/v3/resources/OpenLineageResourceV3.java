@@ -93,7 +93,7 @@ public class OpenLineageResourceV3 {
         String.format(
             "SELECT agtype_to_json(path) FROM cypher('marquez_graph', $$ "
                 + cypherMatch
-                + "RETURN path $$, cast(:params_json as agtype)) as (path agtype);",
+                + "RETURN path $$, :params_json) as (path agtype);",
             d);
 
     List<com.fasterxml.jackson.databind.JsonNode> result =
@@ -102,7 +102,7 @@ public class OpenLineageResourceV3 {
               handle.execute("LOAD 'age'; SET search_path = ag_catalog, \"$user\", public;");
               return handle
                   .createQuery(query)
-                  .bind("params_json", paramsJson)
+                  .bind("params_json", createAgtype(paramsJson))
                   .map(
                       (rs, ctx) -> {
                         try {
@@ -398,4 +398,15 @@ public class OpenLineageResourceV3 {
 
     return Response.status(Response.Status.CREATED).build();
   }
+
+    private static org.postgresql.util.PGobject createAgtype(String json) {
+        try {
+            org.postgresql.util.PGobject obj = new org.postgresql.util.PGobject();
+            obj.setType("agtype");
+            obj.setValue(json);
+            return obj;
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to create agtype", e);
+        }
+    }
 }

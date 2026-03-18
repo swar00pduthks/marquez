@@ -48,7 +48,7 @@ public class LineageResourceV3Test {
     // Capture the executed query string
     ArgumentCaptor<String> queryCaptor = ArgumentCaptor.forClass(String.class);
     when(mockHandle.createQuery(queryCaptor.capture())).thenReturn(mockQuery);
-    when(mockQuery.bind(anyString(), anyString())).thenReturn(mockQuery);
+    when(mockQuery.bind(anyString(), any(Object.class))).thenReturn(mockQuery);
 
     // Mock a single JSON result from PostgreSQL AGE `agtype_to_json()`
     org.jdbi.v3.core.result.ResultIterable mockResultIterable =
@@ -105,7 +105,7 @@ public class LineageResourceV3Test {
 
     ArgumentCaptor<String> queryCaptor = ArgumentCaptor.forClass(String.class);
     when(mockHandle.createQuery(queryCaptor.capture())).thenReturn(mockQuery);
-    when(mockQuery.bind(anyString(), anyString())).thenReturn(mockQuery);
+    when(mockQuery.bind(anyString(), any(Object.class))).thenReturn(mockQuery);
 
     org.jdbi.v3.core.result.ResultIterable mockResultIterable =
         mock(org.jdbi.v3.core.result.ResultIterable.class);

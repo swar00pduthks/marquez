@@ -40,7 +40,7 @@ public class NamespaceResourceV3Test {
     org.jdbi.v3.core.result.ResultIterable mockResultIterable =
         mock(org.jdbi.v3.core.result.ResultIterable.class);
     when(mockHandle.createQuery(anyString())).thenReturn(mockQuery);
-    when(mockQuery.bind(anyString(), anyString())).thenReturn(mockQuery);
+    when(mockQuery.bind(anyString(), any(Object.class))).thenReturn(mockQuery);
     when(mockQuery.map(any(org.jdbi.v3.core.mapper.RowMapper.class)))
         .thenReturn(mockResultIterable);
     when(mockResultIterable.list()).thenReturn(Collections.emptyList());
