@@ -26,8 +26,11 @@ import org.junit.jupiter.api.Test;
 
 public class OpenLineageResourceV3Test {
 
+  private marquez.service.OpenLineageService mockOpenLineageService =
+      mock(marquez.service.OpenLineageService.class);
+
   @Test
-  public void testCreateLineage() {
+  public void testCreateLineage() throws Exception {
     GraphDao mockDao = mock(GraphDao.class);
     Jdbi mockJdbi = mock(Jdbi.class);
     Handle mockHandle = mock(Handle.class);
@@ -42,7 +45,8 @@ public class OpenLineageResourceV3Test {
         .when(mockJdbi)
         .useTransaction(any());
 
-    OpenLineageResourceV3 resource = new OpenLineageResourceV3(mockJdbi, mockDao);
+    OpenLineageResourceV3 resource =
+        new OpenLineageResourceV3(mockJdbi, mockDao, mockOpenLineageService);
 
     LineageEvent.Job mockJob = mock(LineageEvent.Job.class);
     when(mockJob.getNamespace()).thenReturn("test-namespace");
@@ -72,10 +76,11 @@ public class OpenLineageResourceV3Test {
   }
 
   @Test
-  public void testCreateLineageNullPayloads() {
+  public void testCreateLineageNullPayloads() throws Exception {
     GraphDao mockDao = mock(GraphDao.class);
     Jdbi mockJdbi = mock(Jdbi.class);
-    OpenLineageResourceV3 resource = new OpenLineageResourceV3(mockJdbi, mockDao);
+    OpenLineageResourceV3 resource =
+        new OpenLineageResourceV3(mockJdbi, mockDao, mockOpenLineageService);
 
     // Null event
     Response res1 = resource.createLineage(null);

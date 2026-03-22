@@ -5,118 +5,245 @@
 
 package marquez.v3.resources;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.POST;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.Produces;
-import jakarta.ws.rs.QueryParam;
+import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
+import jakarta.ws.rs.core.MultivaluedMap;
 import jakarta.ws.rs.core.Response;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.util.Collections;
+import jakarta.ws.rs.core.UriInfo;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
-import java.util.UUID;
+import lombok.extern.slf4j.Slf4j;
+import marquez.service.OpenLineageService;
 import marquez.service.models.LineageEvent;
 import marquez.v3.db.GraphDao;
 import org.jdbi.v3.core.Jdbi;
 
+@Slf4j
 @Path("/api/v3/lineage")
 @Produces(MediaType.APPLICATION_JSON)
 public class OpenLineageResourceV3 {
-
   private final Jdbi jdbi;
   private final GraphDao graphDao;
-  private static final String GRAPH_NAME = "marquez_graph";
+  private final OpenLineageService openLineageService;
   private static final ObjectMapper MAPPER = new ObjectMapper();
+  private static final String GRAPH_NAME = "marquez_graph";
 
-  public OpenLineageResourceV3(Jdbi jdbi, GraphDao graphDao) {
+  public OpenLineageResourceV3(
+      Jdbi jdbi, GraphDao graphDao, OpenLineageService openLineageService) {
     this.jdbi = jdbi;
     this.graphDao = graphDao;
-  }
-
-  private String generateDeterministicUuid(String input) {
-    try {
-      MessageDigest md = MessageDigest.getInstance("MD5");
-      byte[] hash = md.digest(input.getBytes(StandardCharsets.UTF_8));
-      return UUID.nameUUIDFromBytes(hash).toString();
-    } catch (NoSuchAlgorithmException e) {
-      throw new RuntimeException("MD5 not found", e);
-    }
-  }
-
-  private String safeJson(Object obj) {
-    if (obj == null) return "{}";
-    try {
-      return MAPPER.writeValueAsString(obj);
-    } catch (Exception e) {
-      return "{}";
-    }
+    this.openLineageService = openLineageService;
   }
 
   @GET
-  public Response getLineageGraph(
-      @QueryParam("nodeId") String nodeId,
-      @QueryParam("depth") Integer depth,
-      @QueryParam("aggregateToParentRun") Boolean aggregateToParentRun) {
+  public Response getLineageGraph(@Context UriInfo uriInfo) {
+    MultivaluedMap<String, String> queryParams = uriInfo.getQueryParameters();
+    String nodeId = queryParams.getFirst("nodeId"); // job:namespace:name or dataset:namespace:name
+    String depth = queryParams.getFirst("depth");
+    int d = depth == null ? 1 : Integer.parseInt(depth);
 
-    int d = depth == null ? 3 : depth;
-    if (d > 20) {
-      d = 20; // Hard upper bound to prevent traversal DoS attacks
+    if (nodeId == null) {
+      return Response.status(Response.Status.BAD_REQUEST).entity("Missing nodeId").build();
     }
 
-    String paramsJson;
+    String fqn;
     try {
-      paramsJson = MAPPER.writeValueAsString(Collections.singletonMap("nodeId", nodeId));
+      fqn = nodeId.substring(nodeId.indexOf(":") + 1);
     } catch (Exception e) {
       return Response.status(Response.Status.BAD_REQUEST).entity("Invalid nodeId").build();
     }
 
-    // V1 Compatibility: If aggregateToParentRun is requested, the Cypher traversal is updated
-    // to collapse `(child:Run)-[:HAS_PARENT]->(parent:Run)` nodes dynamically during path
-    // evaluation.
-    String cypherMatch =
-        "MATCH path = (a)-[*1..%d]-(b) WHERE (a.name = $nodeId OR a.uuid = $nodeId) ";
+    Map<String, Object> params = new HashMap<>();
+    params.put("fqn", fqn);
 
-    if (aggregateToParentRun != null && aggregateToParentRun) {
-      // Re-route paths through parents by filtering out pure child internal paths
-      // and returning paths that step up through HAS_PARENT edges.
-      cypherMatch += "AND NOT (b)<-[:HAS_PARENT]-(:Run) "; // Simplification for Cypher aggregation
+    String paramsJson;
+    try {
+      paramsJson = MAPPER.writeValueAsString(params);
+    } catch (Exception e) {
+      return Response.status(Response.Status.INTERNAL_SERVER_ERROR).build();
     }
 
-    String query =
-        String.format(
-            "SELECT agtype_to_json(path) FROM cypher('marquez_graph', $$ "
-                + cypherMatch
-                + "RETURN path $$, :params_json) as (path agtype);",
-            d);
+    // Cypher query to get paths. We then extract nodes and edges.
+    String sql =
+        "SELECT agtype_to_json(path) "
+            + "FROM ag_catalog.cypher('marquez_graph', $$ "
+            + "MATCH path = (n {fqn: $fqn})-[*1.."
+            + d
+            + "]-(m) "
+            + "RETURN path "
+            + "$$, ?) as (path agtype)";
 
-    List<com.fasterxml.jackson.databind.JsonNode> result =
-        jdbi.withHandle(
-            handle -> {
-              handle.execute("LOAD 'age'; SET search_path = ag_catalog, \"$user\", public;");
-              return handle
-                  .createQuery(query)
-                  .bind("params_json", createAgtype(paramsJson))
-                  .map(
-                      (rs, ctx) -> {
+    return jdbi.withHandle(
+        handle -> {
+          try {
+            Connection conn = handle.getConnection();
+            GraphDao.initAgeSession(conn);
+
+            Map<String, ObjectNode> nodesMap = new HashMap<>();
+
+            try (PreparedStatement ps = conn.prepareStatement(sql)) {
+              ps.setObject(1, GraphDao.createAgtype(paramsJson));
+              try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                  JsonNode path = MAPPER.readTree(rs.getString(1));
+
+                  Map<String, String> internalToUiId = new HashMap<>();
+
+                  // First pass: identify and store all Job/Dataset nodes
+                  for (int i = 0; i < path.size(); i += 1) {
+                    JsonNode item = path.get(i);
+                    if (item.has("label")) { // It's a node
+                      ObjectNode node = (ObjectNode) item;
+                      ObjectNode props = (ObjectNode) node.get("properties");
+
+                      // Handle JSON fields that might be stored as strings
+                      if (props.has("facets") && props.get("facets").isTextual()) {
                         try {
-                          com.fasterxml.jackson.databind.JsonNode root =
-                              MAPPER.readTree(rs.getString(1));
-                          return root.get("props") != null ? root.get("props") : root;
+                          props.set("facets", MAPPER.readTree(props.get("facets").asText()));
                         } catch (Exception e) {
-                          return null;
                         }
-                      })
-                  .list();
-            });
+                      }
 
-    return Response.ok(Map.of("graph", result)).build();
+                      String label = node.get("label").asText();
+                      if (label.equals("Job") || label.equals("Dataset")) {
+                        String uiId = getUiId(node);
+                        String internalId = node.get("id").asText();
+                        internalToUiId.put(internalId, uiId);
+                        if (!nodesMap.containsKey(uiId)) {
+                          nodesMap.put(uiId, createUiNode(node));
+                        }
+                      }
+                    }
+                  }
+
+                  // Second pass: synthesize Job-Dataset edges
+                  for (int i = 0; i < path.size(); i += 1) {
+                    JsonNode item = path.get(i);
+                    if (item.has("start_id")) { // It's an edge
+                      String startInternalId = item.get("start_id").asText();
+                      String endInternalId = item.get("end_id").asText();
+                      String label = item.get("label").asText();
+
+                      String startUiId = internalToUiId.get(startInternalId);
+                      String endUiId = internalToUiId.get(endInternalId);
+
+                      if (startUiId != null && endUiId != null) {
+                        addEdge(nodesMap.get(startUiId), startUiId, endUiId, "out");
+                        addEdge(nodesMap.get(endUiId), startUiId, endUiId, "in");
+                      }
+                    }
+                  }
+                }
+              }
+            }
+
+            // If the starting node was not involved in any path (no edges out of it), add it
+            // manually
+            if (nodesMap.isEmpty()) {
+              String findSql =
+                  "SELECT agtype_to_json(n) FROM ag_catalog.cypher('marquez_graph', $$ MATCH (n {fqn: $fqn}) RETURN n $$, ?) as (n agtype)";
+              try (PreparedStatement ps = conn.prepareStatement(findSql)) {
+                ps.setObject(1, GraphDao.createAgtype(paramsJson));
+                try (ResultSet rs = ps.executeQuery()) {
+                  if (rs.next()) {
+                    JsonNode node = MAPPER.readTree(rs.getString(1));
+                    String uiId = getUiId(node);
+                    nodesMap.put(uiId, createUiNode(node));
+                  }
+                }
+              }
+            }
+
+            return Response.ok(Map.of("graph", nodesMap.values())).build();
+          } catch (Exception e) {
+            log.error("Failed to fetch lineage graph", e);
+            return Response.status(Response.Status.INTERNAL_SERVER_ERROR).build();
+          }
+        });
+  }
+
+  private ObjectNode createUiNode(JsonNode node) {
+    JsonNode props = node.get("properties");
+    String label = node.get("label").asText();
+    String uiId = getUiId(node);
+
+    ObjectNode data = MAPPER.createObjectNode();
+    data.setAll((ObjectNode) props);
+    // Compatibility fields for UI
+    data.put(
+        "fqn",
+        props.has("fqn")
+            ? props.get("fqn").asText()
+            : (props.has("name") ? props.get("name").asText() : ""));
+    data.put("name", props.has("name") ? props.get("name").asText() : "");
+    data.put("namespace", props.has("namespace") ? props.get("namespace").asText() : "default");
+
+    ObjectNode id = MAPPER.createObjectNode();
+    id.put("namespace", data.get("namespace").asText());
+    id.put("name", data.get("name").asText());
+    data.set("id", id);
+
+    data.set("inputs", MAPPER.createArrayNode());
+    data.set("outputs", MAPPER.createArrayNode());
+    if (label.equals("Dataset")) {
+      data.set("fields", MAPPER.createArrayNode());
+    }
+    if (!data.has("tags")) {
+      data.set("tags", MAPPER.createArrayNode());
+    }
+    if (!data.has("description")) {
+      data.put("description", "");
+    }
+    data.set("latestRun", null);
+
+    ObjectNode uiNode = MAPPER.createObjectNode();
+    uiNode.put("id", uiId);
+    uiNode.put("type", label.toUpperCase());
+    uiNode.set("data", data);
+    uiNode.set("inEdges", MAPPER.createArrayNode());
+    uiNode.set("outEdges", MAPPER.createArrayNode());
+    return uiNode;
+  }
+
+  private void addEdge(ObjectNode node, String startUiId, String endUiId, String direction) {
+    ArrayNode edges = (ArrayNode) node.get(direction + "Edges");
+    boolean exists = false;
+    for (JsonNode e : edges) {
+      if (e.get("origin").asText().equals(startUiId)
+          && e.get("destination").asText().equals(endUiId)) {
+        exists = true;
+        break;
+      }
+    }
+    if (!exists) {
+      ObjectNode uiEdge = MAPPER.createObjectNode();
+      uiEdge.put("origin", startUiId);
+      uiEdge.put("destination", endUiId);
+      edges.add(uiEdge);
+    }
+  }
+
+  private String getUiId(JsonNode node) {
+    if (node == null || node.isMissingNode()) return "";
+    String label = node.get("label").asText();
+    JsonNode props = node.get("properties");
+    String fqn =
+        props.has("fqn")
+            ? props.get("fqn").asText()
+            : (props.has("name") ? props.get("name").asText() : "");
+    return label.toLowerCase() + ":" + fqn;
   }
 
   @POST
@@ -128,285 +255,303 @@ public class OpenLineageResourceV3 {
           .build();
     }
 
-    // Execute the entire graph ingestion in a single transaction for atomicity and performance
     jdbi.useTransaction(
         handle -> {
-          handle.execute("LOAD 'age'; SET search_path = ag_catalog, \"$user\", public;");
+          try {
+            Connection conn = handle.getConnection();
+            GraphDao.initAgeSession(conn);
 
-          // 1. Source and Namespace
-          String sourceName = "default";
-          if (event.getJob().getNamespace() != null) {
-            Map<String, Object> srcProps = new HashMap<>();
-            srcProps.put("name", sourceName);
-            srcProps.put("type", "unknown");
-            graphDao.upsertNode(handle, GRAPH_NAME, "Source", "name", srcProps);
+            String sourceName = "default";
+            if (event.getJob().getNamespace() != null) {
+              Map<String, Object> srcProps = new HashMap<>();
+              srcProps.put("name", sourceName);
+              srcProps.put("type", "unknown");
+              graphDao.upsertNode(handle, GRAPH_NAME, "Source", "name", srcProps);
 
-            Map<String, Object> nsProps = new HashMap<>();
-            nsProps.put("name", event.getJob().getNamespace());
-            if (event.getRun().getFacets() != null) {
-              nsProps.put("facets", event.getRun().getFacets());
+              Map<String, Object> nsProps = new HashMap<>();
+              nsProps.put("name", event.getJob().getNamespace());
+              graphDao.upsertNode(handle, GRAPH_NAME, "Namespace", "name", nsProps);
+              graphDao.upsertEdge(
+                  handle,
+                  GRAPH_NAME,
+                  "HAS_NAMESPACE",
+                  "Source",
+                  "name",
+                  sourceName,
+                  "Namespace",
+                  "name",
+                  event.getJob().getNamespace());
             }
-            graphDao.upsertNode(handle, GRAPH_NAME, "Namespace", "name", nsProps);
+
+            String jobFqn = event.getJob().getNamespace() + ":" + event.getJob().getName();
+            Map<String, Object> jobProps = new HashMap<>();
+            jobProps.put("name", event.getJob().getName());
+            jobProps.put("namespace", event.getJob().getNamespace());
+            jobProps.put("fqn", jobFqn);
+            if (event.getJob().getFacets() != null) {
+              jobProps.put("facets", MAPPER.valueToTree(event.getJob().getFacets()));
+            }
+            graphDao.upsertNode(handle, GRAPH_NAME, "Job", "fqn", jobProps);
             graphDao.upsertEdge(
                 handle,
                 GRAPH_NAME,
-                "HAS_NAMESPACE",
-                "Source",
-                "name",
-                sourceName,
+                "HAS_JOB",
                 "Namespace",
                 "name",
-                event.getJob().getNamespace());
-          }
+                event.getJob().getNamespace(),
+                "Job",
+                "fqn",
+                jobFqn);
 
-          // 2. Job and JobVersion
-          String jobFqn = event.getJob().getNamespace() + ":" + event.getJob().getName();
-          Map<String, Object> jobProps = new HashMap<>();
-          jobProps.put("name", event.getJob().getName());
-          jobProps.put("namespace", event.getJob().getNamespace());
-          jobProps.put("fqn", jobFqn);
-          if (event.getJob().getFacets() != null) {
-            jobProps.put("facets", event.getJob().getFacets());
-          }
-          graphDao.upsertNode(handle, GRAPH_NAME, "Job", "fqn", jobProps);
-          graphDao.upsertEdge(
-              handle,
-              GRAPH_NAME,
-              "HAS_JOB",
-              "Namespace",
-              "name",
-              event.getJob().getNamespace(),
-              "Job",
-              "fqn",
-              jobFqn);
+            String jobContextJson = safeJson(event.getJob().getFacets());
+            String jobInputs = safeJson(event.getInputs());
+            String jobOutputs = safeJson(event.getOutputs());
+            String jobVersionSignature = jobFqn + jobContextJson + jobInputs + jobOutputs;
+            String jobVersionUuid = generateDeterministicUuid(jobVersionSignature);
 
-          String jobContextJson = safeJson(event.getJob().getFacets());
-          String jobInputs = safeJson(event.getInputs());
-          String jobOutputs = safeJson(event.getOutputs());
-          String jobVersionSignature = jobFqn + jobContextJson + jobInputs + jobOutputs;
-          String jobVersionUuid = generateDeterministicUuid(jobVersionSignature);
-
-          Map<String, Object> jvProps = new HashMap<>();
-          jvProps.put("uuid", jobVersionUuid);
-          jvProps.put("version", jobVersionUuid);
-          jvProps.put("jobContext", jobContextJson);
-          graphDao.upsertNode(handle, GRAPH_NAME, "JobVersion", "uuid", jvProps);
-          graphDao.upsertEdge(
-              handle,
-              GRAPH_NAME,
-              "HAS_VERSION",
-              "Job",
-              "fqn",
-              jobFqn,
-              "JobVersion",
-              "uuid",
-              jobVersionUuid);
-
-          // 3. Run and RunState
-          String runId = event.getRun().getRunId();
-          String eventType = event.getEventType() != null ? event.getEventType() : "START";
-
-          Map<String, Object> runProps = new HashMap<>();
-          runProps.put("uuid", runId);
-          runProps.put("state", eventType);
-          if (event.getRun().getFacets() != null) {
-            runProps.put("runArgs", event.getRun().getFacets());
-          }
-          graphDao.upsertNode(handle, GRAPH_NAME, "Run", "uuid", runProps);
-          graphDao.upsertEdge(
-              handle,
-              GRAPH_NAME,
-              "HAS_RUN",
-              "JobVersion",
-              "uuid",
-              jobVersionUuid,
-              "Run",
-              "uuid",
-              runId);
-
-          String runStateUuid = generateDeterministicUuid(runId + eventType);
-          Map<String, Object> rsProps = new HashMap<>();
-          rsProps.put("uuid", runStateUuid);
-          rsProps.put("state", eventType);
-          graphDao.upsertNode(handle, GRAPH_NAME, "RunState", "uuid", rsProps);
-          graphDao.upsertEdge(
-              handle,
-              GRAPH_NAME,
-              "HAS_STATE",
-              "Run",
-              "uuid",
-              runId,
-              "RunState",
-              "uuid",
-              runStateUuid);
-
-          // aggregateToParentRun: Extract Parent Run Facet and create HAS_PARENT edge
-          if (event.getRun().getFacets() != null
-              && event.getRun().getFacets().getParent() != null) {
-            String parentRunId =
-                event.getRun().getFacets().getParent().getRun().getRunId().toString();
-            // Ensure parent node exists (stub if it doesn't) to draw the edge
-            Map<String, Object> pRunProps = new HashMap<>();
-            pRunProps.put("uuid", parentRunId);
-            graphDao.upsertNode(handle, GRAPH_NAME, "Run", "uuid", pRunProps);
-
-            // Link Child Run to Parent Run
+            Map<String, Object> jvProps = new HashMap<>();
+            jvProps.put("uuid", jobVersionUuid);
+            jvProps.put("version", jobVersionUuid);
+            jvProps.put("jobContext", jobContextJson);
+            graphDao.upsertNode(handle, GRAPH_NAME, "JobVersion", "uuid", jvProps);
             graphDao.upsertEdge(
-                handle, GRAPH_NAME, "HAS_PARENT", "Run", "uuid", runId, "Run", "uuid", parentRunId);
-          }
+                handle,
+                GRAPH_NAME,
+                "HAS_VERSION",
+                "Job",
+                "fqn",
+                jobFqn,
+                "JobVersion",
+                "uuid",
+                jobVersionUuid);
 
-          // 4. Inputs (Datasets, DatasetVersions, and Fields)
-          if (event.getInputs() != null) {
-            for (LineageEvent.Dataset ds : event.getInputs()) {
-              String dsFqn = ds.getNamespace() + ":" + ds.getName();
-              Map<String, Object> dsProps = new HashMap<>();
-              dsProps.put("name", ds.getName());
-              dsProps.put("namespace", ds.getNamespace());
-              dsProps.put("fqn", dsFqn);
-              if (ds.getFacets() != null) dsProps.put("facets", ds.getFacets());
-              graphDao.upsertNode(handle, GRAPH_NAME, "Dataset", "fqn", dsProps);
-              graphDao.upsertEdge(
-                  handle,
-                  GRAPH_NAME,
-                  "HAS_DATASET",
-                  "Namespace",
-                  "name",
-                  ds.getNamespace(),
-                  "Dataset",
-                  "fqn",
-                  dsFqn);
+            String runId = event.getRun().getRunId();
+            String eventType = event.getEventType() != null ? event.getEventType() : "START";
 
-              String dsSchemaJson = safeJson(ds.getFacets());
-              String dvUuid = generateDeterministicUuid(dsFqn + dsSchemaJson);
-
-              Map<String, Object> dvProps = new HashMap<>();
-              dvProps.put("uuid", dvUuid);
-              dvProps.put("datasetFqn", dsFqn);
-              graphDao.upsertNode(handle, GRAPH_NAME, "DatasetVersion", "uuid", dvProps);
-              graphDao.upsertEdge(
-                  handle,
-                  GRAPH_NAME,
-                  "HAS_VERSION",
-                  "Dataset",
-                  "fqn",
-                  dsFqn,
-                  "DatasetVersion",
-                  "uuid",
-                  dvUuid);
-
-              graphDao.upsertEdge(
-                  handle,
-                  GRAPH_NAME,
-                  "CONSUMES_VERSION",
-                  "Run",
-                  "uuid",
-                  runId,
-                  "DatasetVersion",
-                  "uuid",
-                  dvUuid);
+            Map<String, Object> runProps = new HashMap<>();
+            runProps.put("runId", runId);
+            runProps.put("fqn", jobFqn);
+            runProps.put("createdAt", event.getEventTime());
+            runProps.put("updatedAt", event.getEventTime());
+            runProps.put("startedAt", event.getEventTime());
+            runProps.put("endedAt", event.getEventTime());
+            runProps.put("durationMs", 0);
+            runProps.put("state", eventType);
+            if (event.getRun().getFacets() != null) {
+              runProps.put("facets", MAPPER.valueToTree(event.getRun().getFacets()));
             }
-          }
+            graphDao.upsertNode(handle, GRAPH_NAME, "Run", "runId", runProps);
+            graphDao.upsertEdge(
+                handle,
+                GRAPH_NAME,
+                "HAS_RUN",
+                "JobVersion",
+                "uuid",
+                jobVersionUuid,
+                "Run",
+                "runId",
+                runId);
 
-          // 5. Outputs (Datasets, DatasetVersions, and Fields)
-          if (event.getOutputs() != null) {
-            for (LineageEvent.Dataset ds : event.getOutputs()) {
-              String dsFqn = ds.getNamespace() + ":" + ds.getName();
-              Map<String, Object> dsProps = new HashMap<>();
-              dsProps.put("name", ds.getName());
-              dsProps.put("namespace", ds.getNamespace());
-              dsProps.put("fqn", dsFqn);
-              if (ds.getFacets() != null) dsProps.put("facets", ds.getFacets());
-              graphDao.upsertNode(handle, GRAPH_NAME, "Dataset", "fqn", dsProps);
-              graphDao.upsertEdge(
-                  handle,
-                  GRAPH_NAME,
-                  "HAS_DATASET",
-                  "Namespace",
-                  "name",
-                  ds.getNamespace(),
-                  "Dataset",
-                  "fqn",
-                  dsFqn);
+            if (event.getRun().getFacets() != null
+                && event.getRun().getFacets().getParent() != null) {
+              String parentRunId = event.getRun().getFacets().getParent().getRun().getRunId();
+              if (parentRunId != null) {
+                Map<String, Object> pRunProps = new HashMap<>();
+                pRunProps.put("runId", parentRunId);
+                graphDao.upsertNode(handle, GRAPH_NAME, "Run", "runId", pRunProps);
+                graphDao.upsertEdge(
+                    handle,
+                    GRAPH_NAME,
+                    "PARENT_RUN",
+                    "Run",
+                    "runId",
+                    runId,
+                    "Run",
+                    "runId",
+                    parentRunId);
+              }
+            }
 
-              String dsSchemaJson = safeJson(ds.getFacets());
-              String dvUuid = generateDeterministicUuid(dsFqn + dsSchemaJson);
+            String runStateUuid = generateDeterministicUuid(runId + eventType);
+            Map<String, Object> rsProps = new HashMap<>();
+            rsProps.put("uuid", runStateUuid);
+            rsProps.put("state", eventType);
+            graphDao.upsertNode(handle, GRAPH_NAME, "RunState", "uuid", rsProps);
+            graphDao.upsertEdge(
+                handle,
+                GRAPH_NAME,
+                "HAS_STATE",
+                "Run",
+                "runId",
+                runId,
+                "RunState",
+                "uuid",
+                runStateUuid);
 
-              Map<String, Object> dvProps = new HashMap<>();
-              dvProps.put("uuid", dvUuid);
-              dvProps.put("datasetFqn", dsFqn);
-              graphDao.upsertNode(handle, GRAPH_NAME, "DatasetVersion", "uuid", dvProps);
-              graphDao.upsertEdge(
-                  handle,
-                  GRAPH_NAME,
-                  "HAS_VERSION",
-                  "Dataset",
-                  "fqn",
-                  dsFqn,
-                  "DatasetVersion",
-                  "uuid",
-                  dvUuid);
+            if (event.getInputs() != null) {
+              for (LineageEvent.Dataset ds : event.getInputs()) {
+                String dsFqn = ds.getNamespace() + ":" + ds.getName();
+                Map<String, Object> dsProps = new HashMap<>();
+                dsProps.put("fqn", dsFqn);
+                dsProps.put("name", ds.getName());
+                dsProps.put("namespace", ds.getNamespace());
+                if (ds.getFacets() != null) {
+                  dsProps.put("facets", MAPPER.valueToTree(ds.getFacets()));
+                }
+                graphDao.upsertNode(handle, GRAPH_NAME, "Dataset", "fqn", dsProps);
+                graphDao.upsertEdge(
+                    handle,
+                    GRAPH_NAME,
+                    "HAS_DATASET",
+                    "Namespace",
+                    "name",
+                    ds.getNamespace(),
+                    "Dataset",
+                    "fqn",
+                    dsFqn);
 
-              graphDao.upsertEdge(
-                  handle,
-                  GRAPH_NAME,
-                  "PRODUCES_VERSION",
-                  "Run",
-                  "uuid",
-                  runId,
-                  "DatasetVersion",
-                  "uuid",
-                  dvUuid);
+                String dsSchema = safeJson(ds.getFacets());
+                String dvUuid = generateDeterministicUuid(dsFqn + dsSchema);
+                Map<String, Object> dvProps = new HashMap<>();
+                dvProps.put("uuid", dvUuid);
+                dvProps.put("datasetFqn", dsFqn);
+                graphDao.upsertNode(handle, GRAPH_NAME, "DatasetVersion", "uuid", dvProps);
+                graphDao.upsertEdge(
+                    handle,
+                    GRAPH_NAME,
+                    "HAS_VERSION",
+                    "Dataset",
+                    "fqn",
+                    dsFqn,
+                    "DatasetVersion",
+                    "uuid",
+                    dvUuid);
+                graphDao.upsertEdge(
+                    handle,
+                    GRAPH_NAME,
+                    "HAS_INPUT",
+                    "Run",
+                    "runId",
+                    runId,
+                    "DatasetVersion",
+                    "uuid",
+                    dvUuid);
 
-              // Column Lineage
-              if (ds.getFacets() != null
-                  && ds.getFacets().getSchema() != null
-                  && ds.getFacets().getSchema().getFields() != null) {
-                for (LineageEvent.SchemaField field : ds.getFacets().getSchema().getFields()) {
-                  String fieldId = dvUuid + ":" + field.getName();
-                  Map<String, Object> fieldProps = new HashMap<>();
-                  fieldProps.put("id", fieldId);
-                  fieldProps.put("name", field.getName());
-                  fieldProps.put("type", field.getType());
-                  graphDao.upsertNode(handle, GRAPH_NAME, "DatasetField", "id", fieldProps);
-                  graphDao.upsertEdge(
-                      handle,
-                      GRAPH_NAME,
-                      "HAS_FIELD",
-                      "DatasetVersion",
-                      "uuid",
-                      dvUuid,
-                      "DatasetField",
-                      "id",
-                      fieldId);
+                // Direct edge for easier lineage traversal
+                graphDao.upsertEdge(
+                    handle, GRAPH_NAME, "INPUT_TO", "Dataset", "fqn", dsFqn, "Job", "fqn", jobFqn);
+              }
+            }
 
-                  // Link Run applies transformation to field
-                  graphDao.upsertEdge(
-                      handle,
-                      GRAPH_NAME,
-                      "APPLIES_TRANSFORMATION",
-                      "Run",
-                      "uuid",
-                      runId,
-                      "DatasetField",
-                      "id",
-                      fieldId);
+            if (event.getOutputs() != null) {
+              for (LineageEvent.Dataset ds : event.getOutputs()) {
+                String dsFqn = ds.getNamespace() + ":" + ds.getName();
+                Map<String, Object> dsProps = new HashMap<>();
+                dsProps.put("fqn", dsFqn);
+                dsProps.put("name", ds.getName());
+                dsProps.put("namespace", ds.getNamespace());
+                if (ds.getFacets() != null) {
+                  dsProps.put("facets", MAPPER.valueToTree(ds.getFacets()));
+                }
+                graphDao.upsertNode(handle, GRAPH_NAME, "Dataset", "fqn", dsProps);
+                graphDao.upsertEdge(
+                    handle,
+                    GRAPH_NAME,
+                    "HAS_DATASET",
+                    "Namespace",
+                    "name",
+                    ds.getNamespace(),
+                    "Dataset",
+                    "fqn",
+                    dsFqn);
+
+                String dsSchema = safeJson(ds.getFacets());
+                String dvUuid = generateDeterministicUuid(dsFqn + dsSchema);
+                Map<String, Object> dvProps = new HashMap<>();
+                dvProps.put("uuid", dvUuid);
+                dvProps.put("datasetFqn", dsFqn);
+                graphDao.upsertNode(handle, GRAPH_NAME, "DatasetVersion", "uuid", dvProps);
+                graphDao.upsertEdge(
+                    handle,
+                    GRAPH_NAME,
+                    "HAS_VERSION",
+                    "Dataset",
+                    "fqn",
+                    dsFqn,
+                    "DatasetVersion",
+                    "uuid",
+                    dvUuid);
+                graphDao.upsertEdge(
+                    handle,
+                    GRAPH_NAME,
+                    "HAS_OUTPUT",
+                    "Run",
+                    "runId",
+                    runId,
+                    "DatasetVersion",
+                    "uuid",
+                    dvUuid);
+
+                // Direct edge for easier lineage traversal
+                graphDao.upsertEdge(
+                    handle,
+                    GRAPH_NAME,
+                    "OUTPUT_FROM",
+                    "Job",
+                    "fqn",
+                    jobFqn,
+                    "Dataset",
+                    "fqn",
+                    dsFqn);
+
+                if (ds.getFacets() != null
+                    && ds.getFacets().getSchema() != null
+                    && ds.getFacets().getSchema().getFields() != null) {
+                  for (LineageEvent.SchemaField field : ds.getFacets().getSchema().getFields()) {
+                    String fieldId = dvUuid + ":" + field.getName();
+                    Map<String, Object> fieldProps = new HashMap<>();
+                    fieldProps.put("id", fieldId);
+                    fieldProps.put("name", field.getName());
+                    fieldProps.put("type", field.getType());
+                    graphDao.upsertNode(handle, GRAPH_NAME, "DatasetField", "id", fieldProps);
+                    graphDao.upsertEdge(
+                        handle,
+                        GRAPH_NAME,
+                        "HAS_FIELD",
+                        "DatasetVersion",
+                        "uuid",
+                        dvUuid,
+                        "DatasetField",
+                        "id",
+                        fieldId);
+                  }
                 }
               }
             }
+          } catch (Exception e) {
+            throw new RuntimeException("Failed to ingest lineage event", e);
           }
         });
+
+    try {
+      openLineageService.createAsync(event);
+    } catch (Exception e) {
+      log.warn("Failed to ingest event into relational store", e);
+    }
 
     return Response.status(Response.Status.CREATED).build();
   }
 
-    private static org.postgresql.util.PGobject createAgtype(String json) {
-        try {
-            org.postgresql.util.PGobject obj = new org.postgresql.util.PGobject();
-            obj.setType("agtype");
-            obj.setValue(json);
-            return obj;
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to create agtype", e);
-        }
+  private String safeJson(Object obj) {
+    if (obj == null) return "{}";
+    try {
+      return MAPPER.writeValueAsString(obj);
+    } catch (Exception e) {
+      return "{}";
     }
+  }
+
+  private String generateDeterministicUuid(String input) {
+    return java.util.UUID.nameUUIDFromBytes(input.getBytes()).toString();
+  }
 }

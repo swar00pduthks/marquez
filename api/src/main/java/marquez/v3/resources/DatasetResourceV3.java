@@ -6,19 +6,24 @@
 package marquez.v3.resources;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.Path;
-import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import marquez.v3.db.GraphDao;
 import org.jdbi.v3.core.Jdbi;
 
-@Path("/api/v3/namespaces/{namespace}/datasets")
+@Path("/api/v3/datasets")
 @Produces(MediaType.APPLICATION_JSON)
 public class DatasetResourceV3 {
 
@@ -30,13 +35,14 @@ public class DatasetResourceV3 {
   }
 
   @GET
-  public Response listDatasets(
-      @PathParam("namespace") String namespace, @QueryParam("limit") Integer limit) {
+  public Response listGlobalDatasets(
+      @QueryParam("limit") Integer limit, @QueryParam("offset") Integer offset) {
     int l = limit == null ? 100 : limit;
+    int o = offset == null ? 0 : offset;
 
     Map<String, Object> params = new HashMap<>();
-    params.put("ns", namespace);
     params.put("lim", l);
+    params.put("off", o);
 
     String paramsJson;
     try {
@@ -45,47 +51,65 @@ public class DatasetResourceV3 {
       return Response.status(Response.Status.INTERNAL_SERVER_ERROR).build();
     }
 
-    // This demonstrates to the user how exactly V1 endpoints are ported to V2.
-    // We use a simple Cypher match to replace complex relational joins.
+    String sql =
+        "SELECT agtype_to_json(n) FROM ag_catalog.cypher('marquez_graph', $$ "
+            + "MATCH (d:Dataset) "
+            + "RETURN properties(d) "
+            + "SKIP $off LIMIT $lim "
+            + "$$, ?) as (n agtype)";
 
-    String query =
-        "SELECT agtype_to_json(d) FROM cypher('marquez_graph', $$ "
-            + "MATCH (n:Namespace {name: $ns})-[:HAS_DATASET]->(d:Dataset) "
-            + "RETURN properties(d) LIMIT $lim $$, :params_json) as (d agtype);";
-
-    List<com.fasterxml.jackson.databind.JsonNode> result =
-        jdbi.withHandle(
-            handle -> {
-              handle.execute("LOAD 'age'; SET search_path = ag_catalog, \"$user\", public;");
-              return handle
-                  .createQuery(query)
-                  .bind("params_json", createAgtype(paramsJson))
-                  .map(
-                      (rs, ctx) -> {
-                        try {
-                          com.fasterxml.jackson.databind.JsonNode root =
-                              MAPPER.readTree(rs.getString(1));
-                          return root.get("props") != null ? root.get("props") : root;
-                        } catch (Exception e) {
-                          return null;
-                        }
-                      })
-                  .list();
-            });
-
-    // This would normally map to `marquez.api.models.DatasetsResponse` to fulfill exact V1
-    // contract.
-    return Response.ok(Map.of("datasets", result)).build();
+    return executeQuery(sql, paramsJson);
   }
 
-    private static org.postgresql.util.PGobject createAgtype(String json) {
-        try {
-            org.postgresql.util.PGobject obj = new org.postgresql.util.PGobject();
-            obj.setType("agtype");
-            obj.setValue(json);
-            return obj;
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to create agtype", e);
-        }
-    }
+  private Response executeQuery(String sql, String paramsJson) {
+    List<ObjectNode> result =
+        jdbi.withHandle(
+            handle -> {
+              try {
+                List<ObjectNode> rows = new ArrayList<>();
+                Connection conn = handle.getConnection();
+                GraphDao.initAgeSession(conn);
+                try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                  ps.setObject(1, GraphDao.createAgtype(paramsJson));
+                  try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                      ObjectNode props = (ObjectNode) MAPPER.readTree(rs.getString(1));
+                      ObjectNode dataset = MAPPER.createObjectNode();
+                      dataset.setAll(props);
+                      dataset.put(
+                          "namespace",
+                          props.has("namespace") ? props.get("namespace").asText() : "default");
+                      dataset.put("name", props.has("name") ? props.get("name").asText() : "");
+                      dataset.put(
+                          "createdAt",
+                          props.has("createdAt")
+                              ? props.get("createdAt").asText()
+                              : "2024-01-01T00:00:00Z");
+                      dataset.put(
+                          "updatedAt",
+                          props.has("updatedAt")
+                              ? props.get("updatedAt").asText()
+                              : "2024-01-01T00:00:00Z");
+
+                      if (!dataset.has("tags")) {
+                        dataset.set("tags", MAPPER.createArrayNode());
+                      }
+
+                      ObjectNode id = MAPPER.createObjectNode();
+                      id.put("namespace", dataset.get("namespace").asText());
+                      id.put("name", dataset.get("name").asText());
+                      dataset.set("id", id);
+
+                      rows.add(dataset);
+                    }
+                  }
+                }
+                return rows;
+              } catch (Exception e) {
+                throw new RuntimeException("Cypher query failed", e);
+              }
+            });
+
+    return Response.ok(Map.of("datasets", result, "totalCount", result.size())).build();
+  }
 }

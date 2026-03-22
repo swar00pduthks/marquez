@@ -213,13 +213,18 @@ public final class MarquezApp extends Application<MarquezConfig> {
 
     final Jdbi jdbi = context.getJdbi();
 
-    // Register V2 Graph API Resources conditionally to prevent crashing standard V1 databases
+    // Register V3 Graph API Resources conditionally to prevent crashing standard V1
+    // databases
     boolean ageEnabled = false;
     try {
       jdbi.useHandle(
           handle -> {
-            handle.execute("CREATE EXTENSION IF NOT EXISTS age");
-            handle.execute("LOAD 'age'; SET search_path = ag_catalog, \"$user\", public;");
+            java.sql.Connection conn = handle.getConnection();
+            try (java.sql.Statement stmt = conn.createStatement()) {
+              stmt.execute("CREATE EXTENSION IF NOT EXISTS age");
+              stmt.execute("LOAD 'age'");
+              stmt.execute("SET search_path = ag_catalog, \"$user\", public");
+            }
           });
       ageEnabled = true;
     } catch (Exception e) {
@@ -231,14 +236,21 @@ public final class MarquezApp extends Application<MarquezConfig> {
       marquez.v3.db.GraphDao graphDao = new marquez.v3.db.GraphDao();
       graphDao.initGraph(jdbi, "marquez_graph");
 
-      env.jersey().register(new marquez.v3.resources.OpenLineageResourceV3(jdbi, graphDao));
+      env.jersey()
+          .register(
+              new marquez.v3.resources.OpenLineageResourceV3(
+                  jdbi, graphDao, context.getOpenLineageService()));
       env.jersey().register(new marquez.v3.resources.DatasetResourceV3(jdbi));
+      env.jersey().register(new marquez.v3.resources.NamespaceDatasetResourceV3(jdbi));
       env.jersey().register(new marquez.v3.resources.NamespaceResourceV3(jdbi));
       env.jersey().register(new marquez.v3.resources.JobResourceV3(jdbi));
+      env.jersey().register(new marquez.v3.resources.NamespaceJobResourceV3(jdbi));
+      env.jersey().register(new marquez.v3.resources.EventsResourceV3(jdbi));
       env.jersey().register(new marquez.v3.resources.RunResourceV3(jdbi));
       env.jersey().register(new marquez.v3.resources.TagResourceV3(jdbi));
       env.jersey().register(new marquez.v3.resources.SourceResourceV3(jdbi));
       env.jersey().register(new marquez.v3.resources.ColumnLineageResourceV3(jdbi));
+      env.jersey().register(new marquez.v3.resources.StatsResourceV3(context.getStatsService()));
     }
 
     if (config.getGraphql().isEnabled()) {

@@ -5,6 +5,7 @@
 
 package marquez.v3.resources;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.Path;
@@ -12,9 +13,14 @@ import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import marquez.v3.db.GraphDao;
 import org.jdbi.v3.core.Jdbi;
 
 @Path("/api/v3/column-lineage")
@@ -42,46 +48,35 @@ public class ColumnLineageResourceV3 {
     }
 
     // Follow the DERIVED_FROM edges to track column lineage across dataset fields
-
-    String query =
+    String sql =
         String.format(
-            "SELECT agtype_to_json(path) FROM cypher('marquez_graph', $$ "
+            "SELECT agtype_to_json(path) FROM ag_catalog.cypher('marquez_graph', $$ "
                 + "MATCH path = (a:DatasetField)-[:DERIVED_FROM*1..%d]-(b:DatasetField) "
-                + "WHERE a.id = $nodeId "
-                + "RETURN path $$, :params_json) as (path agtype);",
+                + "WHERE a.id = $nodeId RETURN path "
+                + "$$, ?) as (path agtype)",
             d);
 
-    List<com.fasterxml.jackson.databind.JsonNode> result =
+    List<JsonNode> result =
         jdbi.withHandle(
             handle -> {
-              handle.execute("LOAD 'age'; SET search_path = ag_catalog, \"$user\", public;");
-              return handle
-                  .createQuery(query)
-                  .bind("params_json", createAgtype(paramsJson))
-                  .map(
-                      (rs, ctx) -> {
-                        try {
-                          com.fasterxml.jackson.databind.JsonNode root =
-                              MAPPER.readTree(rs.getString(1));
-                          return root.get("props") != null ? root.get("props") : root;
-                        } catch (Exception e) {
-                          return null;
-                        }
-                      })
-                  .list();
+              try {
+                List<JsonNode> rows = new ArrayList<>();
+                Connection conn = handle.getConnection();
+                GraphDao.initAgeSession(conn);
+                try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                  ps.setObject(1, GraphDao.createAgtype(paramsJson));
+                  try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                      rows.add(MAPPER.readTree(rs.getString(1)));
+                    }
+                  }
+                }
+                return rows;
+              } catch (Exception e) {
+                throw new RuntimeException("Cypher query failed", e);
+              }
             });
 
     return Response.ok(Map.of("lineage", result)).build();
   }
-
-    private static org.postgresql.util.PGobject createAgtype(String json) {
-        try {
-            org.postgresql.util.PGobject obj = new org.postgresql.util.PGobject();
-            obj.setType("agtype");
-            obj.setValue(json);
-            return obj;
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to create agtype", e);
-        }
-    }
 }

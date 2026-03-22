@@ -128,7 +128,7 @@
   "overrides": {
     "micromatch": "^4.0.8",
     "body-parser": "^1.20.3",
-    "http-proxy-middleware": "^3.0.3",
+
     "@babel/runtime": "^7.26.10",
     "@babel/helpers": "^7.26.10",
     "form-data": "^4.0.4",
