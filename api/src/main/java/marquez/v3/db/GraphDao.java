@@ -50,16 +50,20 @@ public class GraphDao {
         handle -> {
           try {
             Connection conn = handle.getConnection();
-            initAgeSession(conn);
-            try (Statement stmt = conn.createStatement()) {
-              var rs =
-                  stmt.executeQuery(
-                      "SELECT 1 FROM ag_graph WHERE name = '" + graphName.replace("'", "''") + "'");
-              if (!rs.next()) {
-                stmt.execute("SELECT create_graph('" + graphName.replace("'", "''") + "')");
+            if (conn != null) {
+              initAgeSession(conn);
+              try (Statement stmt = conn.createStatement()) {
+                var rs =
+                    stmt.executeQuery(
+                        "SELECT 1 FROM ag_graph WHERE name = '"
+                            + graphName.replace("'", "''")
+                            + "'");
+                if (!rs.next()) {
+                  stmt.execute("SELECT create_graph('" + graphName.replace("'", "''") + "')");
+                }
               }
+              createIndices(conn, graphName);
             }
-            createIndices(conn, graphName);
           } catch (SQLException e) {
             throw new RuntimeException("Failed to initialize graph: " + graphName, e);
           }
@@ -109,15 +113,17 @@ public class GraphDao {
     String cypherProps = toCypherMap(stringifiedProps);
 
     Connection conn = handle.getConnection();
-    initAgeSession(conn);
+    if (conn != null) {
+      initAgeSession(conn);
 
-    String sql =
-        String.format(
-            "SELECT * FROM ag_catalog.cypher(cast('%s' as name), $$ MERGE (n:%s { %s: %s }) SET n = %s RETURN n $$) as (n agtype)",
-            graphName, label, matchKey, matchValueLiteral, cypherProps);
+      String sql =
+          String.format(
+              "SELECT * FROM ag_catalog.cypher(cast('%s' as name), $$ MERGE (n:%s { %s: %s }) SET n = %s RETURN n $$) as (n agtype)",
+              graphName, label, matchKey, matchValueLiteral, cypherProps);
 
-    try (PreparedStatement ps = conn.prepareStatement(sql)) {
-      ps.execute();
+      try (PreparedStatement ps = conn.prepareStatement(sql)) {
+        ps.execute();
+      }
     }
   }
 
@@ -165,22 +171,24 @@ public class GraphDao {
       throws SQLException {
 
     Connection conn = handle.getConnection();
-    initAgeSession(conn);
+    if (conn != null) {
+      initAgeSession(conn);
 
-    String sql =
-        String.format(
-            "SELECT * FROM ag_catalog.cypher(cast('%s' as name), $$ MATCH (a:%s { %s: %s }) MATCH (b:%s { %s: %s }) MERGE (a)-[r:%s]->(b) RETURN r $$) as (r agtype)",
-            graphName,
-            fromLabel,
-            fromMatchKey,
-            toCypherLiteral(fromMatchValue),
-            toLabel,
-            toMatchKey,
-            toCypherLiteral(toMatchValue),
-            edgeLabel);
+      String sql =
+          String.format(
+              "SELECT * FROM ag_catalog.cypher(cast('%s' as name), $$ MATCH (a:%s { %s: %s }) MATCH (b:%s { %s: %s }) MERGE (a)-[r:%s]->(b) RETURN r $$) as (r agtype)",
+              graphName,
+              fromLabel,
+              fromMatchKey,
+              toCypherLiteral(fromMatchValue),
+              toLabel,
+              toMatchKey,
+              toCypherLiteral(toMatchValue),
+              edgeLabel);
 
-    try (PreparedStatement ps = conn.prepareStatement(sql)) {
-      ps.execute();
+      try (PreparedStatement ps = conn.prepareStatement(sql)) {
+        ps.execute();
+      }
     }
   }
 }

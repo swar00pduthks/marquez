@@ -60,12 +60,14 @@ public class NamespaceResourceV3 {
               try {
                 List<JsonNode> rows = new ArrayList<>();
                 Connection conn = handle.getConnection();
-                GraphDao.initAgeSession(conn);
-                try (PreparedStatement ps = conn.prepareStatement(sql)) {
-                  ps.setObject(1, GraphDao.createAgtype(paramsJson));
-                  try (ResultSet rs = ps.executeQuery()) {
-                    while (rs.next()) {
-                      rows.add(MAPPER.readTree(rs.getString(1)));
+                if (conn != null) {
+                  GraphDao.initAgeSession(conn);
+                  try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                    ps.setObject(1, GraphDao.createAgtype(paramsJson));
+                    try (ResultSet rs = ps.executeQuery()) {
+                      while (rs.next()) {
+                        rows.add(MAPPER.readTree(rs.getString(1)));
+                      }
                     }
                   }
                 }
@@ -102,12 +104,14 @@ public class NamespaceResourceV3 {
               try {
                 List<JsonNode> rows = new ArrayList<>();
                 Connection conn = handle.getConnection();
-                GraphDao.initAgeSession(conn);
-                try (PreparedStatement ps = conn.prepareStatement(sql)) {
-                  ps.setObject(1, GraphDao.createAgtype(paramsJson));
-                  try (ResultSet rs = ps.executeQuery()) {
-                    while (rs.next()) {
-                      rows.add(MAPPER.readTree(rs.getString(1)));
+                if (conn != null) {
+                  GraphDao.initAgeSession(conn);
+                  try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                    ps.setObject(1, GraphDao.createAgtype(paramsJson));
+                    try (ResultSet rs = ps.executeQuery()) {
+                      while (rs.next()) {
+                        rows.add(MAPPER.readTree(rs.getString(1)));
+                      }
                     }
                   }
                 }

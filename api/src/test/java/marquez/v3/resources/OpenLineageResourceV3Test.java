@@ -17,6 +17,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import jakarta.ws.rs.core.Response;
+import java.sql.Connection;
+import java.sql.Statement;
 import marquez.service.models.LineageEvent;
 import marquez.v3.db.GraphDao;
 import org.jdbi.v3.core.Handle;
@@ -34,6 +36,11 @@ public class OpenLineageResourceV3Test {
     GraphDao mockDao = mock(GraphDao.class);
     Jdbi mockJdbi = mock(Jdbi.class);
     Handle mockHandle = mock(Handle.class);
+    Connection mockConn = mock(Connection.class);
+    Statement mockStmt = mock(Statement.class);
+
+    when(mockHandle.getConnection()).thenReturn(mockConn);
+    when(mockConn.createStatement()).thenReturn(mockStmt);
 
     // Stub the useTransaction method to immediately execute the callback with the mock handle
     doAnswer(
@@ -72,7 +79,7 @@ public class OpenLineageResourceV3Test {
     verify(mockDao, atLeastOnce())
         .upsertNode(eq(mockHandle), eq("marquez_graph"), eq("Job"), eq("fqn"), anyMap());
     verify(mockDao, atLeastOnce())
-        .upsertNode(eq(mockHandle), eq("marquez_graph"), eq("Run"), eq("uuid"), anyMap());
+        .upsertNode(eq(mockHandle), eq("marquez_graph"), eq("Run"), eq("runId"), anyMap());
   }
 
   @Test
