@@ -28,13 +28,40 @@ import org.jdbi.v3.core.Jdbi;
 @Slf4j
 public class GraphDao {
   private static final ObjectMapper MAPPER = new ObjectMapper();
+  private static String SCHEMA_PREFIX = "ag_catalog.";
+  private static boolean isAgeAvailable = false;
 
   /** Initializes an AGE session on a raw JDBC connection. */
-  public static void initAgeSession(Connection conn) throws SQLException {
+  public static void initAgeSession(Connection conn) {
     try (Statement stmt = conn.createStatement()) {
-      stmt.execute("LOAD 'age'");
-      stmt.execute("SET search_path = ag_catalog, \"$user\", public");
+      try {
+        stmt.execute("LOAD 'age'");
+        isAgeAvailable = true;
+      } catch (Exception e) {
+        // In some environments, age might be pre-loaded or missing
+        try (var rs = stmt.executeQuery("SELECT 1 FROM pg_extension WHERE extname = 'age'")) {
+          isAgeAvailable = rs.next();
+        }
+      }
+
+      if (isAgeAvailable) {
+        try {
+          stmt.execute("SET search_path = ag_catalog, \"$user\", public");
+        } catch (Exception e) {
+          log.info("Note: SET search_path failed, but continuing: {}", e.getMessage());
+        }
+      }
+    } catch (SQLException e) {
+      log.warn("Failed to create statement for AGE session initialization: {}", e.getMessage());
     }
+  }
+
+  public static String prefix() {
+    return isAgeAvailable() ? SCHEMA_PREFIX : "";
+  }
+
+  public static boolean isAgeAvailable() {
+    return isAgeAvailable;
   }
 
   /** Creates an agtype-typed PGobject for use as a PreparedStatement parameter. */
@@ -52,6 +79,12 @@ public class GraphDao {
             Connection conn = handle.getConnection();
             if (conn != null) {
               initAgeSession(conn);
+              if (!isAgeAvailable()) {
+                log.warn(
+                    "Apache AGE not available. Skipping graph initialization for {}", graphName);
+                return;
+              }
+
               try (Statement stmt = conn.createStatement()) {
                 var rs =
                     stmt.executeQuery(
@@ -65,7 +98,7 @@ public class GraphDao {
               createIndices(conn, graphName);
             }
           } catch (SQLException e) {
-            throw new RuntimeException("Failed to initialize graph: " + graphName, e);
+            log.error("Failed to initialize graph: {}. V3 features may be disabled.", graphName, e);
           }
         });
   }
@@ -118,8 +151,8 @@ public class GraphDao {
 
       String sql =
           String.format(
-              "SELECT * FROM ag_catalog.cypher(cast('%s' as name), $$ MERGE (n:%s { %s: %s }) SET n = %s RETURN n $$) as (n agtype)",
-              graphName, label, matchKey, matchValueLiteral, cypherProps);
+              "SELECT * FROM %scypher(cast('%s' as name), $$ MERGE (n:%s { %s: %s }) SET n = %s RETURN n $$) as (n %sagtype)",
+              prefix(), graphName, label, matchKey, matchValueLiteral, cypherProps, prefix());
 
       try (PreparedStatement ps = conn.prepareStatement(sql)) {
         ps.execute();
@@ -176,7 +209,8 @@ public class GraphDao {
 
       String sql =
           String.format(
-              "SELECT * FROM ag_catalog.cypher(cast('%s' as name), $$ MATCH (a:%s { %s: %s }) MATCH (b:%s { %s: %s }) MERGE (a)-[r:%s]->(b) RETURN r $$) as (r agtype)",
+              "SELECT * FROM %scypher(cast('%s' as name), $$ MATCH (a:%s { %s: %s }) MATCH (b:%s { %s: %s }) MERGE (a)-[r:%s]->(b) RETURN r $$) as (r %sagtype)",
+              prefix(),
               graphName,
               fromLabel,
               fromMatchKey,
@@ -184,7 +218,8 @@ public class GraphDao {
               toLabel,
               toMatchKey,
               toCypherLiteral(toMatchValue),
-              edgeLabel);
+              edgeLabel,
+              prefix());
 
       try (PreparedStatement ps = conn.prepareStatement(sql)) {
         ps.execute();

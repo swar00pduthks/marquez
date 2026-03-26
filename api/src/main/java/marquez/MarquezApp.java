@@ -23,6 +23,7 @@ import io.prometheus.client.servlet.jakarta.exporter.MetricsServlet;
 import io.sentry.Sentry;
 import jakarta.servlet.DispatcherType;
 import java.util.EnumSet;
+import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.NonNull;
 import lombok.extern.slf4j.Slf4j;
 import marquez.api.filter.JobRedirectFilter;
@@ -213,26 +214,59 @@ public final class MarquezApp extends Application<MarquezConfig> {
 
     final Jdbi jdbi = context.getJdbi();
 
-    // Register V3 Graph API Resources conditionally to prevent crashing standard V1
-    // databases
-    boolean ageEnabled = false;
+    // Register V3 Graph API Resources conditionally to prevent crashing standard V1 databases
+    final AtomicBoolean ageEnabled = new AtomicBoolean(false);
+    log.info("Starting V3 Graph API registration check...");
     try {
       jdbi.useHandle(
           handle -> {
             java.sql.Connection conn = handle.getConnection();
             try (java.sql.Statement stmt = conn.createStatement()) {
-              stmt.execute("CREATE EXTENSION IF NOT EXISTS age");
-              stmt.execute("LOAD 'age'");
-              stmt.execute("SET search_path = ag_catalog, \"$user\", public");
+              log.info("Attempting to verify/create AGE extension...");
+              try {
+                stmt.execute("CREATE EXTENSION IF NOT EXISTS age");
+                log.info("Finished CREATE EXTENSION command.");
+              } catch (Exception e) {
+                log.info(
+                    "Note: CREATE EXTENSION IF NOT EXISTS age message (standard on Azure/non-superuser): {}",
+                    e.getMessage());
+              }
+
+              log.info("Attempting to LOAD 'age'...");
+              try {
+                stmt.execute("LOAD 'age'");
+                log.info("Successfully LOADed 'age'.");
+              } catch (Exception e) {
+                log.info(
+                    "Note: LOAD 'age' failed, but continuing as it may be preloaded: {}",
+                    e.getMessage());
+              }
+
+              log.info("Attempting to set search_path for AGE...");
+              try {
+                stmt.execute("SET search_path = ag_catalog, \"$user\", public");
+                log.info("Successfully set search_path for AGE.");
+              } catch (Exception e) {
+                log.info("Note: SET search_path failed, but continuing: {}", e.getMessage());
+              }
+
+              // Final check: confirm AGE extension exists in database
+              try (java.sql.ResultSet rs =
+                  stmt.executeQuery("SELECT 1 FROM pg_extension WHERE extname = 'age'")) {
+                ageEnabled.set(rs.next());
+              }
             }
           });
-      ageEnabled = true;
+      if (ageEnabled.get()) {
+        log.info("Marquez V3 initialization complete (ageEnabled=true).");
+      } else {
+        log.info("Marquez V3 initialization complete (ageEnabled=false).");
+      }
     } catch (Exception e) {
-      log.warn(
-          "Failed to create or load AGE extension on startup. V2 Graph API will be disabled on this instance.");
+      log.warn("Failed V3 check. V3 Graph API will be disabled. Reason: {}", e.getMessage(), e);
     }
 
-    if (ageEnabled) {
+    if (ageEnabled.get()) {
       marquez.v3.db.GraphDao graphDao = new marquez.v3.db.GraphDao();
       graphDao.initGraph(jdbi, "marquez_graph");
 

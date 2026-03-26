@@ -52,11 +52,13 @@ public class JobResourceV3 {
     }
 
     String sql =
-        "SELECT agtype_to_json(n) FROM ag_catalog.cypher('marquez_graph', $$ "
-            + "MATCH (j:Job) "
-            + "RETURN properties(j) "
-            + "SKIP $off LIMIT $lim "
-            + "$$, ?) as (n agtype)";
+        String.format(
+            "SELECT %sagtype_to_json(n) FROM %scypher('marquez_graph', $$ "
+                + "MATCH (j:Job) "
+                + "RETURN properties(j) "
+                + "SKIP $off LIMIT $lim "
+                + "$$, ?) as (n %sagtype)",
+            GraphDao.prefix(), GraphDao.prefix(), GraphDao.prefix());
 
     return executeQuery(sql, paramsJson);
   }

@@ -47,9 +47,11 @@ public class TagResourceV3 {
     }
 
     String sql =
-        "SELECT agtype_to_json(t) FROM ag_catalog.cypher('marquez_graph', $$ "
-            + "MATCH (t:Tag) RETURN properties(t) LIMIT $lim "
-            + "$$, ?) as (t agtype)";
+        String.format(
+            "SELECT %sagtype_to_json(t) FROM %scypher('marquez_graph', $$ "
+                + "MATCH (t:Tag) RETURN properties(t) LIMIT $lim "
+                + "$$, ?) as (t %sagtype)",
+            GraphDao.prefix(), GraphDao.prefix(), GraphDao.prefix());
 
     List<JsonNode> result =
         jdbi.withHandle(

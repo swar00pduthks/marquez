@@ -57,11 +57,13 @@ public class NamespaceJobResourceV3 {
     }
 
     String sql =
-        "SELECT agtype_to_json(n) FROM ag_catalog.cypher('marquez_graph', $$ "
-            + "MATCH (:Namespace {name: $ns})-[:HAS_JOB]->(j) "
-            + "RETURN properties(j) "
-            + "SKIP $off LIMIT $lim "
-            + "$$, ?) as (n agtype)";
+        String.format(
+            "SELECT %sagtype_to_json(n) FROM %scypher('marquez_graph', $$ "
+                + "MATCH (:Namespace {name: $ns})-[:HAS_JOB]->(j) "
+                + "RETURN properties(j) "
+                + "SKIP $off LIMIT $lim "
+                + "$$, ?) as (n %sagtype)",
+            GraphDao.prefix(), GraphDao.prefix(), GraphDao.prefix());
 
     List<ObjectNode> jobs = executeQueryInternal(sql, paramsJson);
     return Response.ok(Map.of("jobs", jobs, "totalCount", jobs.size())).build();
@@ -82,10 +84,12 @@ public class NamespaceJobResourceV3 {
     }
 
     String sql =
-        "SELECT agtype_to_json(n) FROM ag_catalog.cypher('marquez_graph', $$ "
-            + "MATCH (:Namespace {name: $ns})-[:HAS_JOB]->(j:Job {name: $job}) "
-            + "RETURN properties(j) "
-            + "$$, ?) as (n agtype)";
+        String.format(
+            "SELECT %sagtype_to_json(n) FROM %scypher('marquez_graph', $$ "
+                + "MATCH (:Namespace {name: $ns})-[:HAS_JOB]->(j:Job {name: $job}) "
+                + "RETURN properties(j) "
+                + "$$, ?) as (n %sagtype)",
+            GraphDao.prefix(), GraphDao.prefix(), GraphDao.prefix());
 
     List<ObjectNode> jobs = executeQueryInternal(sql, paramsJson);
     if (jobs.isEmpty()) {
@@ -118,12 +122,14 @@ public class NamespaceJobResourceV3 {
     }
 
     String sql =
-        "SELECT agtype_to_json(n) FROM ag_catalog.cypher('marquez_graph', $$ "
-            + "MATCH (:Namespace {name: $ns})-[:HAS_JOB]->(:Job {name: $job})-[:HAS_VERSION]->()-[:HAS_RUN]->(r) "
-            + "RETURN properties(r) "
-            + "ORDER BY r.createdAt DESC "
-            + "SKIP $off LIMIT $lim "
-            + "$$, ?) as (n agtype)";
+        String.format(
+            "SELECT %sagtype_to_json(n) FROM %scypher('marquez_graph', $$ "
+                + "MATCH (:Namespace {name: $ns})-[:HAS_JOB]->(:Job {name: $job})-[:HAS_VERSION]->()-[:HAS_RUN]->(r) "
+                + "RETURN properties(r) "
+                + "ORDER BY r.createdAt DESC "
+                + "SKIP $off LIMIT $lim "
+                + "$$, ?) as (n %sagtype)",
+            GraphDao.prefix(), GraphDao.prefix(), GraphDao.prefix());
 
     List<JsonNode> result =
         jdbi.withHandle(

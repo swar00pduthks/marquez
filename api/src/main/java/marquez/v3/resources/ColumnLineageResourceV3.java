@@ -50,11 +50,11 @@ public class ColumnLineageResourceV3 {
     // Follow the DERIVED_FROM edges to track column lineage across dataset fields
     String sql =
         String.format(
-            "SELECT agtype_to_json(path) FROM ag_catalog.cypher('marquez_graph', $$ "
+            "SELECT %sagtype_to_json(path) FROM %scypher('marquez_graph', $$ "
                 + "MATCH path = (a:DatasetField)-[:DERIVED_FROM*1..%d]-(b:DatasetField) "
                 + "WHERE a.id = $nodeId RETURN path "
-                + "$$, ?) as (path agtype)",
-            d);
+                + "$$, ?) as (path %sagtype)",
+            GraphDao.prefix(), GraphDao.prefix(), d, GraphDao.prefix());
 
     List<JsonNode> result =
         jdbi.withHandle(

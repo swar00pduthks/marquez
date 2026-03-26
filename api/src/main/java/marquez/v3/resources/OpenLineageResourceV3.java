@@ -77,13 +77,13 @@ public class OpenLineageResourceV3 {
 
     // Cypher query to get paths. We then extract nodes and edges.
     String sql =
-        "SELECT agtype_to_json(path) "
-            + "FROM ag_catalog.cypher('marquez_graph', $$ "
-            + "MATCH path = (n {fqn: $fqn})-[*1.."
-            + d
-            + "]-(m) "
-            + "RETURN path "
-            + "$$, ?) as (path agtype)";
+        String.format(
+            "SELECT %sagtype_to_json(path) "
+                + "FROM %scypher('marquez_graph', $$ "
+                + "MATCH path = (n {fqn: $fqn})-[*1..%d]-(m) "
+                + "RETURN path "
+                + "$$, ?) as (path %sagtype)",
+            GraphDao.prefix(), GraphDao.prefix(), d, GraphDao.prefix());
 
     return jdbi.withHandle(
         handle -> {
@@ -153,7 +153,9 @@ public class OpenLineageResourceV3 {
               // manually
               if (nodesMap.isEmpty()) {
                 String findSql =
-                    "SELECT agtype_to_json(n) FROM ag_catalog.cypher('marquez_graph', $$ MATCH (n {fqn: $fqn}) RETURN n $$, ?) as (n agtype)";
+                    String.format(
+                        "SELECT %sagtype_to_json(n) FROM %scypher('marquez_graph', $$ MATCH (n {fqn: $fqn}) RETURN n $$, ?) as (n %sagtype)",
+                        GraphDao.prefix(), GraphDao.prefix(), GraphDao.prefix());
                 try (PreparedStatement ps = conn.prepareStatement(findSql)) {
                   ps.setObject(1, GraphDao.createAgtype(paramsJson));
                   try (ResultSet rs = ps.executeQuery()) {
@@ -178,11 +180,13 @@ public class OpenLineageResourceV3 {
                     String fieldParamsJson = MAPPER.writeValueAsString(fieldParams);
 
                     String fieldSql =
-                        "SELECT agtype_to_json(properties(f)) "
-                            + "FROM ag_catalog.cypher('marquez_graph', $$ "
-                            + "MATCH (d:Dataset {fqn: $fqn})-[:HAS_VERSION]->(dv:DatasetVersion)-[:HAS_FIELD]->(f:DatasetField) "
-                            + "RETURN f "
-                            + "$$, ?) as (f agtype)";
+                        String.format(
+                            "SELECT %sagtype_to_json(properties(f)) "
+                                + "FROM %scypher('marquez_graph', $$ "
+                                + "MATCH (d:Dataset {fqn: $fqn})-[:HAS_VERSION]->(dv:DatasetVersion)-[:HAS_FIELD]->(f:DatasetField) "
+                                + "RETURN f "
+                                + "$$, ?) as (f %sagtype)",
+                            GraphDao.prefix(), GraphDao.prefix(), GraphDao.prefix());
 
                     try (PreparedStatement ps = conn.prepareStatement(fieldSql)) {
                       ps.setObject(1, GraphDao.createAgtype(fieldParamsJson));

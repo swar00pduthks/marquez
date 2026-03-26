@@ -50,9 +50,11 @@ public class NamespaceResourceV3 {
     }
 
     String sql =
-        "SELECT agtype_to_json(n) FROM ag_catalog.cypher('marquez_graph', $$ "
-            + "MATCH (n:Namespace) RETURN properties(n) LIMIT $lim "
-            + "$$, ?) as (n agtype)";
+        String.format(
+            "SELECT %sagtype_to_json(n) FROM %scypher('marquez_graph', $$ "
+                + "MATCH (n:Namespace) RETURN properties(n) LIMIT $lim "
+                + "$$, ?) as (n %sagtype)",
+            GraphDao.prefix(), GraphDao.prefix(), GraphDao.prefix());
 
     List<JsonNode> result =
         jdbi.withHandle(
@@ -94,9 +96,11 @@ public class NamespaceResourceV3 {
     }
 
     String sql =
-        "SELECT agtype_to_json(n) FROM ag_catalog.cypher('marquez_graph', $$ "
-            + "MATCH (n:Namespace {name: $ns}) RETURN properties(n) "
-            + "$$, ?) as (n agtype)";
+        String.format(
+            "SELECT %sagtype_to_json(n) FROM %scypher('marquez_graph', $$ "
+                + "MATCH (n:Namespace {name: $ns}) RETURN properties(n) "
+                + "$$, ?) as (n %sagtype)",
+            GraphDao.prefix(), GraphDao.prefix(), GraphDao.prefix());
 
     List<JsonNode> result =
         jdbi.withHandle(
