@@ -50,7 +50,7 @@ public class ColumnLineageResourceV3 {
     // Follow the DERIVED_FROM edges to track column lineage across dataset fields
     String sql =
         String.format(
-            "SELECT %sagtype_to_json(path) FROM %scypher('marquez_graph', $$ "
+            "SELECT agtype_to_json(path) FROM %scypher('marquez_graph', $$ "
                 + "MATCH path = (a:DatasetField)-[:DERIVED_FROM*1..%d]-(b:DatasetField) "
                 + "WHERE a.id = $nodeId RETURN path "
                 + "$$, ?) as (path %sagtype)",

@@ -1,0 +1,83 @@
+-- SPDX-License-Identifier: Apache-2.0
+-- V98: Replace GIN indexes on AGE node labels with BTREE expression indexes
+--
+-- WHY: V97 (graph init) created GIN indexes on the `properties` column of each AGE
+-- node label table. GIN is designed for containment queries (@>) and full-text search.
+-- AGE translates Cypher MATCH equality predicates (e.g., {fqn: 'ns:job'}) to SQL
+-- expressions like `properties->>'fqn' = 'value'`, which require BTREE indexes to
+-- avoid full table scans at scale.
+--
+-- Each label table lives in the "marquez_graph" schema under Apache AGE.
+-- We create one BTREE index per lookup key per label. IF NOT EXISTS makes this
+-- idempotent and safe to re-run.
+--
+-- Labels and their primary match keys:
+--   Job            -> fqn
+--   Dataset        -> fqn
+--   JobVersion     -> uuid
+--   DatasetVersion -> uuid
+--   Run            -> runId
+--   Namespace      -> name
+--   Source         -> name
+--
+-- NOTE: This migration is a no-op if the marquez_graph schema does not yet exist
+-- (i.e., AGE extension is not installed). The DO block guards against that case.
+
+DO $$
+BEGIN
+  -- Only run if AGE is installed and marquez_graph exists
+  IF EXISTS (
+    SELECT 1 FROM pg_extension WHERE extname = 'age'
+  ) AND EXISTS (
+    SELECT 1 FROM ag_catalog.ag_graph WHERE name = 'marquez_graph'
+  ) THEN
+
+    -- Drop old GIN indexes that won't be used for equality lookups
+    DROP INDEX IF EXISTS marquez_graph.idx_age_job_props;
+    DROP INDEX IF EXISTS marquez_graph.idx_age_dataset_props;
+    DROP INDEX IF EXISTS marquez_graph.idx_age_jobversion_props;
+    DROP INDEX IF EXISTS marquez_graph.idx_age_datasetversion_props;
+    DROP INDEX IF EXISTS marquez_graph.idx_age_run_props;
+    DROP INDEX IF EXISTS marquez_graph.idx_age_runstate_props;
+    DROP INDEX IF EXISTS marquez_graph.idx_age_namespace_props;
+    DROP INDEX IF EXISTS marquez_graph.idx_age_source_props;
+
+    -- Job: match by fqn
+    EXECUTE 'CREATE INDEX IF NOT EXISTS idx_age_job_fqn
+             ON marquez_graph."Job" ((properties->>''fqn''))';
+
+    -- Dataset: match by fqn
+    EXECUTE 'CREATE INDEX IF NOT EXISTS idx_age_dataset_fqn
+             ON marquez_graph."Dataset" ((properties->>''fqn''))';
+
+    -- JobVersion: match by uuid
+    EXECUTE 'CREATE INDEX IF NOT EXISTS idx_age_jobversion_uuid
+             ON marquez_graph."JobVersion" ((properties->>''uuid''))';
+
+    -- DatasetVersion: match by uuid; also index datasetFqn for reverse lookups
+    EXECUTE 'CREATE INDEX IF NOT EXISTS idx_age_datasetversion_uuid
+             ON marquez_graph."DatasetVersion" ((properties->>''uuid''))';
+    EXECUTE 'CREATE INDEX IF NOT EXISTS idx_age_datasetversion_dataset_fqn
+             ON marquez_graph."DatasetVersion" ((properties->>''datasetFqn''))';
+
+    -- Run: match by runId; also index state for aggregation queries
+    EXECUTE 'CREATE INDEX IF NOT EXISTS idx_age_run_run_id
+             ON marquez_graph."Run" ((properties->>''runId''))';
+    EXECUTE 'CREATE INDEX IF NOT EXISTS idx_age_run_state
+             ON marquez_graph."Run" ((properties->>''state''))';
+
+    -- Namespace: match by name
+    EXECUTE 'CREATE INDEX IF NOT EXISTS idx_age_namespace_name
+             ON marquez_graph."Namespace" ((properties->>''name''))';
+
+    -- Source: match by name
+    EXECUTE 'CREATE INDEX IF NOT EXISTS idx_age_source_name
+             ON marquez_graph."Source" ((properties->>''name''))';
+
+    RAISE NOTICE 'AGE BTREE indexes created successfully on marquez_graph labels.';
+
+  ELSE
+    RAISE NOTICE 'AGE extension or marquez_graph not found - skipping index creation.';
+  END IF;
+END;
+$$;

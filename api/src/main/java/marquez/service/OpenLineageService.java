@@ -20,8 +20,11 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
-import java.util.concurrent.ForkJoinPool;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 import lombok.extern.slf4j.Slf4j;
 import marquez.common.Utils;
 import marquez.common.models.DatasetName;
@@ -49,26 +52,83 @@ import marquez.service.models.DatasetEvent;
 import marquez.service.models.JobEvent;
 import marquez.service.models.LineageEvent;
 import marquez.service.models.RunMeta;
+import marquez.v3.db.GraphDao;
+import marquez.v3.db.GraphWriter;
+import org.jdbi.v3.core.Jdbi;
 
 @Slf4j
 public class OpenLineageService extends DelegatingDaos.DelegatingOpenLineageDao {
+
+  /**
+   * Dedicated I/O thread pool for async event processing. Sized to the number of available
+   * processors × 4 to handle the I/O-bound nature of database writes without starving the JVM's
+   * common ForkJoinPool (which is intended for CPU-bound work).
+   */
+  private static Executor createDefaultExecutor() {
+    int threads = Math.max(4, Runtime.getRuntime().availableProcessors() * 4);
+    return new ThreadPoolExecutor(
+        threads,
+        threads,
+        60L,
+        TimeUnit.SECONDS,
+        new LinkedBlockingQueue<>(10_000),
+        new ThreadPoolExecutor.CallerRunsPolicy());
+  }
+
   private final RunService runService;
   private final DatasetVersionDao datasetVersionDao;
   private final ObjectMapper mapper = Utils.newObjectMapper();
   private final DenormalizedLineageService denormalizedLineageService;
-
   private final Executor executor;
 
+  /** Optional graph writer; {@code null} when AGE is not available. */
+  @Nullable private volatile GraphWriter graphWriter;
+
+  /** Optional Jdbi instance for graph writes; {@code null} when AGE is not available. */
+  @Nullable private volatile Jdbi graphJdbi;
+
   public OpenLineageService(BaseDao baseDao, RunService runService) {
-    this(baseDao, runService, ForkJoinPool.commonPool());
+    this(baseDao, runService, createDefaultExecutor(), null, null);
   }
 
   public OpenLineageService(BaseDao baseDao, RunService runService, Executor executor) {
+    this(baseDao, runService, executor, null, null);
+  }
+
+  /**
+   * Full constructor used when Apache AGE is available.
+   *
+   * @param baseDao relational DAO factory
+   * @param runService run lifecycle service
+   * @param executor thread pool for async processing
+   * @param graphWriter writes lineage events into the AGE property graph (nullable)
+   * @param graphJdbi JDBI instance used for graph transactions (nullable)
+   */
+  public OpenLineageService(
+      BaseDao baseDao,
+      RunService runService,
+      Executor executor,
+      @Nullable GraphWriter graphWriter,
+      @Nullable Jdbi graphJdbi) {
     super(baseDao.createOpenLineageDao());
     this.runService = runService;
     this.datasetVersionDao = baseDao.createDatasetVersionDao();
     this.denormalizedLineageService = new DenormalizedLineageService(baseDao.getHandle().getJdbi());
     this.executor = executor;
+    this.graphWriter = graphWriter;
+    this.graphJdbi = graphJdbi;
+  }
+
+  /**
+   * Enables fire-and-forget AGE graph writes after startup once AGE availability is confirmed. Safe
+   * to call from any thread; fields are {@code volatile}.
+   *
+   * @param graphWriter writer for AGE graph operations
+   * @param graphJdbi JDBI instance for graph transactions
+   */
+  public void enableGraphWrites(GraphWriter graphWriter, Jdbi graphJdbi) {
+    this.graphWriter = graphWriter;
+    this.graphJdbi = graphJdbi;
   }
 
   public CompletableFuture<Void> createAsync(DatasetEvent event) {
@@ -269,6 +329,31 @@ public class OpenLineageService extends DelegatingDaos.DelegatingOpenLineageDao 
                     }
                   }
                 });
+
+    // Best-effort graph write: fire-and-forget so V1 API latency is unaffected.
+    // Failures are logged but do not fail the overall event ingestion.
+    if (graphWriter != null && graphJdbi != null) {
+      final GraphWriter gw = graphWriter;
+      final Jdbi jdbi = graphJdbi;
+      CompletableFuture.runAsync(
+          withSentry(
+              withMdc(
+                  () -> {
+                    try {
+                      jdbi.useHandle(
+                          handle -> {
+                            GraphDao.initAgeSession(handle.getConnection());
+                            gw.writeEvent(handle, event);
+                          });
+                    } catch (Exception e) {
+                      log.warn(
+                          "Graph write failed for run '{}' – graph may be stale: {}",
+                          event.getRun() != null ? event.getRun().getRunId() : "unknown",
+                          e.getMessage());
+                    }
+                  })),
+          executor);
+    }
 
     return CompletableFuture.allOf(marquez, openLineage);
   }

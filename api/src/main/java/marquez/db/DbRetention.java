@@ -74,7 +74,20 @@ public final class DbRetention {
   public static void retentionOnDbOrError(
       @NonNull final Jdbi jdbi, final int numberOfRowsPerBatch, final int retentionDays)
       throws DbRetentionException {
-    retentionOnDbOrError(jdbi, numberOfRowsPerBatch, retentionDays, DEFAULT_DRY_RUN);
+    retentionOnDbOrError(jdbi, numberOfRowsPerBatch, retentionDays, DEFAULT_DRY_RUN, null);
+  }
+
+  /**
+   * Applies the retention policy to database including AGE graph cleanup when {@code graphName} is
+   * provided.
+   */
+  public static void retentionOnDbOrError(
+      @NonNull final Jdbi jdbi,
+      final int numberOfRowsPerBatch,
+      final int retentionDays,
+      final String graphName)
+      throws DbRetentionException {
+    retentionOnDbOrError(jdbi, numberOfRowsPerBatch, retentionDays, DEFAULT_DRY_RUN, graphName);
   }
 
   /** Applies the retention policy to database; optionally as a dry run if specified. */
@@ -83,6 +96,20 @@ public final class DbRetention {
       final int numberOfRowsPerBatch,
       final int retentionDays,
       final boolean dryRun)
+      throws DbRetentionException {
+    retentionOnDbOrError(jdbi, numberOfRowsPerBatch, retentionDays, dryRun, null);
+  }
+
+  /**
+   * Applies the retention policy to database; optionally as a dry run; with optional AGE graph
+   * cleanup.
+   */
+  public static void retentionOnDbOrError(
+      @NonNull final Jdbi jdbi,
+      final int numberOfRowsPerBatch,
+      final int retentionDays,
+      final boolean dryRun,
+      final String graphName)
       throws DbRetentionException {
     if (dryRun) {
       // On a dry run, add function(s) to return estimate of rows deleted (if not present).
@@ -97,8 +124,19 @@ public final class DbRetention {
     retentionOnDatasets(jdbi, numberOfRowsPerBatch, retentionDays, dryRun);
     retentionOnDatasetVersions(jdbi, numberOfRowsPerBatch, retentionDays, dryRun);
 
-    // Finally, apply retention policy to lineage events.
+    // Apply retention policy to lineage events.
     retentionOnLineageEvents(jdbi, numberOfRowsPerBatch, retentionDays, dryRun);
+
+    // Clean up denormalized tables — orphaned rows left after source-table deletions above.
+    // Run denorm uses time-based partition pruning; entity denorm checks for orphaned UUIDs.
+    if (!dryRun) {
+      retentionOnDenormTables(jdbi, numberOfRowsPerBatch, retentionDays);
+    }
+
+    // Clean up AGE graph nodes/edges when graph name is provided (AGE enabled).
+    if (!dryRun && graphName != null && !graphName.isBlank()) {
+      retentionOnAgeGraph(jdbi, retentionDays, graphName);
+    }
   }
 
   /** Apply retention policy on {@code jobs}. */
@@ -533,6 +571,199 @@ public final class DbRetention {
         "Deleted '{}' lineage events in '{}' ms!",
         rowsDeleted,
         rowsDeleteTime.elapsed().toMillis());
+  }
+
+  /**
+   * Cleans up denormalized tables after source-table rows have been deleted.
+   *
+   * <ul>
+   *   <li>{@code run_lineage_denormalized} / {@code run_parent_lineage_denormalized}: time-based
+   *       delete on {@code run_date} — leverages range-partition pruning for fast bulk removal.
+   *   <li>{@code job_denormalized}, {@code dataset_denormalized}, {@code
+   *       dataset_version_denormalized}: orphan-check delete (source UUID no longer exists).
+   * </ul>
+   */
+  private static void retentionOnDenormTables(
+      @NonNull final Jdbi jdbi, final int numberOfRowsPerBatch, final int retentionDays) {
+    log.info("Applying retention policy of '{}' days to denormalized tables...", retentionDays);
+    final com.google.common.base.Stopwatch sw = com.google.common.base.Stopwatch.createStarted();
+
+    jdbi.useHandle(
+        handle -> {
+          // --- Run lineage denorm: partition-pruned time-based delete ---
+          int runLineageDeleted =
+              handle
+                  .createUpdate(
+                      """
+          DELETE FROM run_lineage_denormalized
+          WHERE run_date < CURRENT_DATE - INTERVAL ':days days'
+          """
+                          .replace(":days", String.valueOf(retentionDays)))
+                  .execute();
+
+          int runParentLineageDeleted =
+              handle
+                  .createUpdate(
+                      """
+          DELETE FROM run_parent_lineage_denormalized
+          WHERE run_date < CURRENT_DATE - INTERVAL ':days days'
+          """
+                          .replace(":days", String.valueOf(retentionDays)))
+                  .execute();
+
+          // --- Entity denorm: orphan-check delete (source row no longer exists) ---
+          int jobDenormDeleted =
+              handle
+                  .createUpdate(
+                      """
+          DELETE FROM job_denormalized jd
+          WHERE NOT EXISTS (
+              SELECT 1 FROM jobs j
+              WHERE j.uuid = jd.uuid AND j.namespace_uuid = jd.namespace_uuid
+          )
+          """)
+                  .execute();
+
+          int datasetDenormDeleted =
+              handle
+                  .createUpdate(
+                      """
+          DELETE FROM dataset_denormalized dd
+          WHERE NOT EXISTS (
+              SELECT 1 FROM datasets d
+              WHERE d.uuid = dd.uuid AND d.namespace_uuid = dd.namespace_uuid
+          )
+          """)
+                  .execute();
+
+          int datasetVersionDenormDeleted =
+              handle
+                  .createUpdate(
+                      """
+          DELETE FROM dataset_version_denormalized dvd
+          WHERE NOT EXISTS (
+              SELECT 1 FROM dataset_versions dv
+              WHERE dv.uuid = dvd.uuid AND dv.namespace_uuid = dvd.namespace_uuid
+          )
+          """)
+                  .execute();
+
+          sw.stop();
+          log.info(
+              "Denorm retention complete in {} ms: run_lineage={}, run_parent_lineage={}, "
+                  + "job_denorm={}, dataset_denorm={}, dataset_version_denorm={}",
+              sw.elapsed().toMillis(),
+              runLineageDeleted,
+              runParentLineageDeleted,
+              jobDenormDeleted,
+              datasetDenormDeleted,
+              datasetVersionDenormDeleted);
+        });
+  }
+
+  /**
+   * Cleans up stale Apache AGE graph nodes and edges older than {@code retentionDays}.
+   *
+   * <p>Deletes via Cypher {@code DETACH DELETE} (removes attached edges automatically):
+   *
+   * <ul>
+   *   <li>{@code Run} nodes where {@code endedAt} is older than the retention threshold.
+   *   <li>{@code JobVersion} nodes no longer referenced by any {@code Run}.
+   *   <li>{@code Job} / {@code Dataset} / {@code DatasetVersion} nodes that no longer have any
+   *       attached edges (orphaned after run/version cleanup).
+   * </ul>
+   */
+  private static void retentionOnAgeGraph(
+      @NonNull final Jdbi jdbi, final int retentionDays, @NonNull final String graphName) {
+    log.info(
+        "Applying retention policy of '{}' days to AGE graph '{}'...", retentionDays, graphName);
+    final com.google.common.base.Stopwatch sw = com.google.common.base.Stopwatch.createStarted();
+    final String gn = graphName.replace("'", "''");
+
+    jdbi.useHandle(
+        handle -> {
+          try {
+            java.sql.Connection conn = handle.getConnection();
+            marquez.v3.db.GraphDao.initAgeSession(conn);
+
+            try (java.sql.Statement stmt = conn.createStatement()) {
+              // Delete Run nodes (and all attached edges) where endedAt is beyond retention
+              // threshold.
+              // AGE stores endedAt as a string; compare lexicographically against ISO-8601
+              // threshold.
+              String threshold =
+                  java.time.Instant.now()
+                      .minus(retentionDays, java.time.temporal.ChronoUnit.DAYS)
+                      .toString();
+
+              stmt.execute(
+                  String.format(
+                      """
+              SELECT * FROM ag_catalog.cypher('%s', $$
+                MATCH (r:Run)
+                WHERE r.endedAt IS NOT NULL AND r.endedAt < '%s'
+                DETACH DELETE r
+              $$) AS (result agtype)
+              """,
+                      gn, threshold.replace("'", "''")));
+
+              // Delete orphaned JobVersion nodes (no longer connected to any Run).
+              stmt.execute(
+                  String.format(
+                      """
+              SELECT * FROM ag_catalog.cypher('%s', $$
+                MATCH (jv:JobVersion)
+                WHERE NOT (jv)-[]-()
+                DETACH DELETE jv
+              $$) AS (result agtype)
+              """,
+                      gn));
+
+              // Delete orphaned Job nodes (no active runs or versions attached).
+              stmt.execute(
+                  String.format(
+                      """
+              SELECT * FROM ag_catalog.cypher('%s', $$
+                MATCH (j:Job)
+                WHERE NOT (j)-[]-()
+                DETACH DELETE j
+              $$) AS (result agtype)
+              """,
+                      gn));
+
+              // Delete orphaned Dataset nodes.
+              stmt.execute(
+                  String.format(
+                      """
+              SELECT * FROM ag_catalog.cypher('%s', $$
+                MATCH (d:Dataset)
+                WHERE NOT (d)-[]-()
+                DETACH DELETE d
+              $$) AS (result agtype)
+              """,
+                      gn));
+
+              // Delete orphaned DatasetVersion nodes.
+              stmt.execute(
+                  String.format(
+                      """
+              SELECT * FROM ag_catalog.cypher('%s', $$
+                MATCH (dv:DatasetVersion)
+                WHERE NOT (dv)-[]-()
+                DETACH DELETE dv
+              $$) AS (result agtype)
+              """,
+                      gn));
+            }
+
+            sw.stop();
+            log.info("AGE graph retention complete in {} ms.", sw.elapsed().toMillis());
+          } catch (Exception e) {
+            log.warn(
+                "AGE graph retention failed (non-fatal, graph data may be stale): {}",
+                e.getMessage());
+          }
+        });
   }
 
   /**

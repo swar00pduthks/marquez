@@ -53,12 +53,12 @@ public class DatasetResourceV3 {
 
     String sql =
         String.format(
-            "SELECT %sagtype_to_json(n) FROM %scypher('marquez_graph', $$ "
+            "SELECT agtype_to_json(n) FROM %scypher('marquez_graph', $$ "
                 + "MATCH (d:Dataset) "
                 + "RETURN properties(d) "
                 + "SKIP $off LIMIT $lim "
                 + "$$, ?) as (n %sagtype)",
-            GraphDao.prefix(), GraphDao.prefix(), GraphDao.prefix());
+            GraphDao.prefix(), GraphDao.prefix());
 
     return executeQuery(sql, paramsJson);
   }
