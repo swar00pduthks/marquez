@@ -187,120 +187,158 @@ public class OpenLineageResourceV3 {
   // ---------------------------------------------------------------------------
 
   /**
-   * Queries lineage for a Job or Dataset node by traversing only {@code INPUT_TO} and {@code
-   * PRODUCES} edges. This matches V1/V2 depth semantics exactly.
+   * Queries lineage for a Job or Dataset node using a BFS that alternates between {@code
+   * PRODUCES} and {@code INPUT_TO} edges each hop.
    *
-   * <p>Uses two separate Cypher queries (nodes then edges) rather than a PATH return to avoid the
-   * {@code agtype_to_json(PATH)} issue — vertex and edge agtypes are handled correctly by {@code
-   * agtype_to_json}, while the PATH composite type is not.
+   * <p>Single-type variable-length traversal ({@code [:PRODUCES*1..2]}) misses cross-type paths
+   * like {@code Job-[PRODUCES]->Dataset-[INPUT_TO]->Job} because the second hop needs a different
+   * edge type. A BFS that expands via both edge types at every hop correctly discovers all nodes
+   * and edges within the requested depth.
+   *
+   * <p>AGE 1.5.0 does not support edge-type alternation ({@code [:T1|T2]}), so each edge type is
+   * queried separately and results are merged in Java.
    */
   private Response getJobDatasetLineage(Connection conn, String startLabel, String fqn, int depth)
       throws Exception {
 
-    String paramsJson = MAPPER.writeValueAsString(Map.of("fqn", fqn));
     Map<String, ObjectNode> nodesMap = new LinkedHashMap<>();
     Map<Long, String> idToUiId = new HashMap<>();
 
-    // Step 1: Always fetch the start node first so idToUiId is populated.
-    {
-      String startSql =
-          String.format(
-              "SELECT agtype_to_json(n) "
-                  + "FROM %scypher('marquez_graph', $$ "
-                  + "MATCH (n:%s {fqn: $fqn}) RETURN n LIMIT 1 "
-                  + "$$, ?) as (n %sagtype)",
-              GraphDao.prefix(), startLabel, GraphDao.prefix());
-      try (PreparedStatement ps = conn.prepareStatement(startSql)) {
-        ps.setObject(1, GraphDao.createAgtype(paramsJson));
-        try (ResultSet rs = ps.executeQuery()) {
-          if (rs.next()) {
-            String json = rs.getString(1);
-            if (json != null) {
-              JsonNode node = MAPPER.readTree(json);
-              String uiId = buildUiId(node);
-              if (node.has("id")) idToUiId.put(node.get("id").asLong(), uiId);
-              nodesMap.computeIfAbsent(uiId, k -> buildUiNode(node));
+    // BFS: each iteration expands the current frontier one hop via both PRODUCES and INPUT_TO.
+    // frontier holds "Label:fqn" keys for nodes to expand in the next hop.
+    java.util.Set<String> frontier = new java.util.LinkedHashSet<>();
+    java.util.Set<String> visited = new java.util.LinkedHashSet<>();
+
+    // Seed: fetch and register the start node.
+    fetchAndRegisterNode(conn, startLabel, fqn, nodesMap, idToUiId);
+    String startKey = startLabel + ":" + fqn;
+    frontier.add(startKey);
+    visited.add(startKey);
+
+    for (int hop = 0; hop < depth && !frontier.isEmpty(); hop++) {
+      java.util.Set<String> nextFrontier = new java.util.LinkedHashSet<>();
+      for (String key : frontier) {
+        int colonIdx = key.indexOf(':');
+        String nodeLabel = key.substring(0, colonIdx);
+        String nodeFqn = key.substring(colonIdx + 1);
+        String nodeParamsJson = MAPPER.writeValueAsString(Map.of("fqn", nodeFqn));
+
+        // Expand via PRODUCES (directed: Job → Dataset) in both directions
+        // Expand via INPUT_TO (directed: Dataset → Job) in both directions
+        for (String edgeType : new String[] {"PRODUCES", "INPUT_TO"}) {
+          // Forward: (current)-[:EDGE]->(neighbor)
+          String fwdSql =
+              String.format(
+                  "SELECT agtype_to_json(n) "
+                      + "FROM %scypher('marquez_graph', $$ "
+                      + "MATCH (:%s {fqn: $fqn})-[:%s]->(n) RETURN DISTINCT n LIMIT 200"
+                      + "$$, ?) as (n %sagtype)",
+                  GraphDao.prefix(), nodeLabel, edgeType, GraphDao.prefix());
+          // Reverse: (neighbor)-[:EDGE]->(current)
+          String revSql =
+              String.format(
+                  "SELECT agtype_to_json(n) "
+                      + "FROM %scypher('marquez_graph', $$ "
+                      + "MATCH (n)-[:%s]->(:%s {fqn: $fqn}) RETURN DISTINCT n LIMIT 200"
+                      + "$$, ?) as (n %sagtype)",
+                  GraphDao.prefix(), edgeType, nodeLabel, GraphDao.prefix());
+
+          for (String sql : new String[] {fwdSql, revSql}) {
+            try (PreparedStatement ps = conn.prepareStatement(sql)) {
+              ps.setObject(1, GraphDao.createAgtype(nodeParamsJson));
+              try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                  String json = rs.getString(1);
+                  if (json == null) continue;
+                  JsonNode neighbor = MAPPER.readTree(json);
+                  String neighborLabel =
+                      neighbor.has("label") ? neighbor.get("label").asText() : "Job";
+                  JsonNode neighborProps =
+                      neighbor.has("properties") ? neighbor.get("properties") : neighbor;
+                  String neighborFqn =
+                      neighborProps.has("fqn") ? neighborProps.get("fqn").asText() : "";
+                  if (neighborFqn.isEmpty()) continue;
+
+                  String neighborKey = neighborLabel + ":" + neighborFqn;
+                  String uiId = buildUiId(neighbor);
+                  if (neighbor.has("id")) idToUiId.put(neighbor.get("id").asLong(), uiId);
+                  nodesMap.computeIfAbsent(uiId, k -> buildUiNode(neighbor));
+
+                  if (visited.add(neighborKey)) {
+                    nextFrontier.add(neighborKey);
+                  }
+                }
+              }
+            } catch (SQLException e) {
+              log.debug(
+                  "BFS hop {} expand {}/{} from {}: {}",
+                  hop,
+                  edgeType,
+                  sql.contains("(n)-") ? "rev" : "fwd",
+                  nodeFqn,
+                  e.getMessage());
             }
           }
         }
-      } catch (SQLException e) {
-        log.warn(
-            "Start node fetch failed for label={} fqn={}: {}", startLabel, fqn, e.getMessage());
       }
+      frontier = nextFrontier;
     }
 
-    // Step 2: Fetch connected nodes via each edge type (depth 1..N).
-    // AGE 1.5.0 limitations:
-    //   - No edge-type alternation [:T1|T2] — run two separate queries.
-    //   - No label predicates in WHERE (other:Job OR other:Dataset) — omit the WHERE clause;
-    //     INPUT_TO and PRODUCES edges connect only Job/Dataset nodes by schema.
-    //   - No list concatenation collect()+collect() — collect only `other` nodes here;
-    //     start node is already fetched above.
-    for (String edgeType : new String[] {"INPUT_TO", "PRODUCES"}) {
-      String nodesSql =
-          String.format(
-              "SELECT agtype_to_json(n) "
-                  + "FROM %scypher('marquez_graph', $$ "
-                  + "MATCH (:%s {fqn: $fqn})-[:%s*1..%d]-(n) "
-                  + "RETURN DISTINCT n "
-                  + "LIMIT 500 "
-                  + "$$, ?) as (n %sagtype)",
-              GraphDao.prefix(), startLabel, edgeType, depth, GraphDao.prefix());
-
-      try (PreparedStatement ps = conn.prepareStatement(nodesSql)) {
-        ps.setObject(1, GraphDao.createAgtype(paramsJson));
-        try (ResultSet rs = ps.executeQuery()) {
-          while (rs.next()) {
-            String json = rs.getString(1);
-            if (json == null) continue;
-            JsonNode node = MAPPER.readTree(json);
-            String uiId = buildUiId(node);
-            if (node.has("id")) idToUiId.put(node.get("id").asLong(), uiId);
-            nodesMap.computeIfAbsent(uiId, k -> buildUiNode(node));
-          }
-        }
-      } catch (SQLException e) {
-        log.warn("Node traversal failed for edgeType={} fqn={}: {}", edgeType, fqn, e.getMessage());
-      }
-    }
-
-    // Collect edges for each edge type separately (same reason: no | syntax).
-    // Variable-length match gives `rels` as a list; UNWIND extracts individual edge agtypes.
+    // Collect edges between ALL discovered nodes.
+    // For each discovered dataset node, pull both PRODUCES (incoming) and INPUT_TO (outgoing)
+    // edges. This covers every edge in the subgraph with two queries per dataset.
     if (nodesMap.size() > 1) {
-      for (String edgeType : new String[] {"INPUT_TO", "PRODUCES"}) {
-        String edgesSql =
-            String.format(
-                "SELECT agtype_to_json(rel) "
-                    + "FROM %scypher('marquez_graph', $$ "
-                    + "MATCH (:%s {fqn: $fqn})-[rels:%s*1..%d]-(n) "
-                    + "UNWIND rels AS rel "
-                    + "RETURN DISTINCT rel "
-                    + "LIMIT 1000 "
-                    + "$$, ?) as (rel %sagtype)",
-                GraphDao.prefix(), startLabel, edgeType, depth, GraphDao.prefix());
+      for (String key : new java.util.ArrayList<>(visited)) {
+        int colonIdx = key.indexOf(':');
+        String nodeLabel = key.substring(0, colonIdx);
+        String nodeFqn = key.substring(colonIdx + 1);
+        // Only need to anchor on Dataset nodes: every edge touches exactly one Dataset endpoint.
+        if (!"Dataset".equals(nodeLabel)) continue;
 
-        try (PreparedStatement ps = conn.prepareStatement(edgesSql)) {
-          ps.setObject(1, GraphDao.createAgtype(paramsJson));
-          try (ResultSet rs = ps.executeQuery()) {
-            while (rs.next()) {
-              String json = rs.getString(1);
-              if (json == null) continue;
-              JsonNode edge = MAPPER.readTree(json);
-              long startId = edge.has("start_id") ? edge.get("start_id").asLong() : -1;
-              long endId = edge.has("end_id") ? edge.get("end_id").asLong() : -1;
-              String startUiId = idToUiId.get(startId);
-              String endUiId = idToUiId.get(endId);
-              if (startUiId != null && endUiId != null) {
-                if (nodesMap.containsKey(startUiId))
+        String nodeParamsJson = MAPPER.writeValueAsString(Map.of("fqn", nodeFqn));
+
+        // PRODUCES: (j:Job)-[r:PRODUCES]->(d:Dataset {fqn})
+        String prodSql =
+            String.format(
+                "SELECT agtype_to_json(r) "
+                    + "FROM %scypher('marquez_graph', $$ "
+                    + "MATCH (j)-[r:PRODUCES]->(d:Dataset {fqn: $fqn}) RETURN r LIMIT 500"
+                    + "$$, ?) as (r %sagtype)",
+                GraphDao.prefix(), GraphDao.prefix());
+
+        // INPUT_TO: (d:Dataset {fqn})-[r:INPUT_TO]->(j:Job)
+        String inputSql =
+            String.format(
+                "SELECT agtype_to_json(r) "
+                    + "FROM %scypher('marquez_graph', $$ "
+                    + "MATCH (d:Dataset {fqn: $fqn})-[r:INPUT_TO]->(j) RETURN r LIMIT 500"
+                    + "$$, ?) as (r %sagtype)",
+                GraphDao.prefix(), GraphDao.prefix());
+
+        for (String sql : new String[] {prodSql, inputSql}) {
+          try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setObject(1, GraphDao.createAgtype(nodeParamsJson));
+            try (ResultSet rs = ps.executeQuery()) {
+              while (rs.next()) {
+                String json = rs.getString(1);
+                if (json == null) continue;
+                JsonNode edge = MAPPER.readTree(json);
+                long startId = edge.has("start_id") ? edge.get("start_id").asLong() : -1;
+                long endId = edge.has("end_id") ? edge.get("end_id").asLong() : -1;
+                String startUiId = idToUiId.get(startId);
+                String endUiId = idToUiId.get(endId);
+                if (startUiId != null
+                    && endUiId != null
+                    && nodesMap.containsKey(startUiId)
+                    && nodesMap.containsKey(endUiId)) {
                   addEdge(nodesMap.get(startUiId), startUiId, endUiId, "out");
-                if (nodesMap.containsKey(endUiId))
                   addEdge(nodesMap.get(endUiId), startUiId, endUiId, "in");
+                }
               }
             }
+          } catch (SQLException e) {
+            log.debug("Edge collect for dataset '{}': {}", nodeFqn, e.getMessage());
           }
-        } catch (SQLException e) {
-          log.warn(
-              "Edge traversal failed for edgeType={} fqn={}: {}", edgeType, fqn, e.getMessage());
         }
       }
     }
@@ -607,17 +645,24 @@ public class OpenLineageResourceV3 {
     }
   }
 
-  /** Fetches a single node by label and FQN when the start node has no lineage edges. */
-  private void fetchSingleNode(
-      Connection conn, String label, String fqn, Map<String, ObjectNode> nodesMap)
-      throws Exception {
-    String paramsJson = MAPPER.writeValueAsString(Map.of("fqn", fqn));
+  /** Fetches a single node by label and FQN, registering it in {@code nodesMap} and {@code idToUiId}. */
+  private void fetchAndRegisterNode(
+      Connection conn,
+      String label,
+      String fqn,
+      Map<String, ObjectNode> nodesMap,
+      Map<Long, String> idToUiId) {
+    String paramsJson;
+    try {
+      paramsJson = MAPPER.writeValueAsString(Map.of("fqn", fqn));
+    } catch (Exception e) {
+      return;
+    }
     String sql =
         String.format(
             "SELECT agtype_to_json(n) "
                 + "FROM %scypher('marquez_graph', $$ "
-                + "MATCH (n:%s {fqn: $fqn}) RETURN n "
-                + "LIMIT 1 "
+                + "MATCH (n:%s {fqn: $fqn}) RETURN n LIMIT 1"
                 + "$$, ?) as (n %sagtype)",
             GraphDao.prefix(), label, GraphDao.prefix());
 
@@ -625,13 +670,17 @@ public class OpenLineageResourceV3 {
       ps.setObject(1, GraphDao.createAgtype(paramsJson));
       try (ResultSet rs = ps.executeQuery()) {
         if (rs.next()) {
-          JsonNode node = MAPPER.readTree(rs.getString(1));
-          if (node != null) {
+          String json = rs.getString(1);
+          if (json != null) {
+            JsonNode node = MAPPER.readTree(json);
             String uiId = buildUiId(node);
-            nodesMap.putIfAbsent(uiId, buildUiNode(node));
+            if (node.has("id")) idToUiId.put(node.get("id").asLong(), uiId);
+            nodesMap.computeIfAbsent(uiId, k -> buildUiNode(node));
           }
         }
       }
+    } catch (Exception e) {
+      log.warn("fetchAndRegisterNode failed for label={} fqn={}: {}", label, fqn, e.getMessage());
     }
   }
 

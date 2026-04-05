@@ -100,11 +100,11 @@ public class GraphV1BackfillJob implements BackfillJob {
                   handle
                       .createQuery(
                           """
-              SELECT event_time, run_id, event
+              SELECT event_time, run_uuid AS run_id, event
               FROM lineage_events
               WHERE (event_time > :cursorTime)
-                 OR (event_time = :cursorTime AND run_id > :lastRunId)
-              ORDER BY event_time ASC, run_id ASC
+                 OR (event_time = :cursorTime AND run_uuid::text > :lastRunId)
+              ORDER BY event_time ASC, run_uuid ASC
               LIMIT :batchSize
               """)
                       .bind("cursorTime", cursorSnapshot)

@@ -651,6 +651,140 @@ public class OpenLineageResourceV3IntegrationTest extends BaseV3IntegrationTest 
   }
 
   // ===========================================================================
+  // Scenario 8 – Multi-hop edge regression tests
+  //
+  // Regression guard for the bug where single-type variable-length traversal
+  // ([:PRODUCES*1..2]) missed cross-type hops. The fix uses BFS alternating
+  // between PRODUCES and INPUT_TO each hop.
+  //
+  // Pattern: JobA -[PRODUCES]-> DatasetD -[INPUT_TO]-> JobB
+  // Starting from JobA at depth=2, JobB must appear.
+  // Starting from JobB at depth=2, JobA must appear.
+  // Edges (inEdges/outEdges) must be wired on every node.
+  // ===========================================================================
+
+  /**
+   * Scenario 25: From job A (producer), depth=2 graph must contain dataset D AND job B (consumer).
+   *
+   * <p>Regression: single-type traversal [:PRODUCES*1..2] only found dataset D at hop 1 but could
+   * not reach job B at hop 2 (which requires [:INPUT_TO]). BFS alternates edge types each hop.
+   */
+  @Test
+  @Order(61)
+  void multiHopEdge_fromProducer_graphContainsBothDatasetAndConsumer() throws Exception {
+    String ns = "v3-mh-ns";
+    String jobA = "v3-mh-producer";
+    String jobB = "v3-mh-consumer";
+    String ds = "v3-mh-dataset";
+    String runA = UUID.randomUUID().toString();
+    String runB = UUID.randomUUID().toString();
+
+    postV3Lineage(
+            lineageEvent(ns, jobA, runA, "COMPLETE", new String[] {}, new String[] {ns + ":" + ds}))
+        .get();
+    postV3Lineage(
+            lineageEvent(ns, jobB, runB, "COMPLETE", new String[] {ns + ":" + ds}, new String[] {}))
+        .get();
+
+    HttpResponse<String> response = getV3Lineage("job:" + ns + ":" + jobA, 2, false).get();
+    assertThat(response.statusCode()).isEqualTo(200);
+    JsonNode graph = MAPPER.readTree(response.body()).path("graph");
+
+    // Must contain all 3 nodes
+    boolean hasDs = streamNodes(graph).anyMatch(n -> ds.equals(n.path("data").path("name").asText()));
+    boolean hasJobB =
+        streamNodes(graph).anyMatch(n -> jobB.equals(n.path("data").path("name").asText()));
+    assertThat(hasDs).as("depth=2 from producer must include dataset").isTrue();
+    assertThat(hasJobB)
+        .as("depth=2 from producer must reach consumer job via Dataset (cross-type hop)")
+        .isTrue();
+
+    // JobA must have an outEdge to the dataset
+    java.util.Optional<JsonNode> jobANode =
+        streamNodes(graph)
+            .filter(n -> jobA.equals(n.path("data").path("name").asText()))
+            .findFirst();
+    assertThat(jobANode).as("JobA node must be present").isPresent();
+    boolean jobAHasOutEdge =
+        streamNodes(jobANode.get().path("outEdges"))
+            .anyMatch(e -> e.path("destination").asText().contains(ds));
+    assertThat(jobAHasOutEdge).as("JobA must have outEdge to dataset").isTrue();
+
+    // Dataset must have an outEdge to jobB
+    java.util.Optional<JsonNode> dsNode =
+        streamNodes(graph).filter(n -> ds.equals(n.path("data").path("name").asText())).findFirst();
+    assertThat(dsNode).as("Dataset node must be present").isPresent();
+    boolean dsHasOutEdgeToJobB =
+        streamNodes(dsNode.get().path("outEdges"))
+            .anyMatch(e -> e.path("destination").asText().contains(jobB));
+    assertThat(dsHasOutEdgeToJobB).as("Dataset must have outEdge to consumer job").isTrue();
+  }
+
+  /**
+   * Scenario 26: From job B (consumer), depth=2 graph must contain dataset D AND job A (producer).
+   *
+   * <p>Symmetric regression: starting from the consumer, BFS must traverse INPUT_TO in reverse to
+   * reach dataset D, then PRODUCES in reverse to reach job A.
+   */
+  @Test
+  @Order(62)
+  void multiHopEdge_fromConsumer_graphContainsBothDatasetAndProducer() throws Exception {
+    // Same data as scenario 25 (already ingested, shared test class instance)
+    String ns = "v3-mh-ns";
+    String jobA = "v3-mh-producer";
+    String jobB = "v3-mh-consumer";
+    String ds = "v3-mh-dataset";
+
+    HttpResponse<String> response = getV3Lineage("job:" + ns + ":" + jobB, 2, false).get();
+    assertThat(response.statusCode()).isEqualTo(200);
+    JsonNode graph = MAPPER.readTree(response.body()).path("graph");
+
+    boolean hasDs = streamNodes(graph).anyMatch(n -> ds.equals(n.path("data").path("name").asText()));
+    boolean hasJobA =
+        streamNodes(graph).anyMatch(n -> jobA.equals(n.path("data").path("name").asText()));
+    assertThat(hasDs).as("depth=2 from consumer must include dataset").isTrue();
+    assertThat(hasJobA)
+        .as("depth=2 from consumer must reach producer job via Dataset (cross-type hop)")
+        .isTrue();
+  }
+
+  /**
+   * Scenario 27: From the shared dataset, depth=2 graph must contain both producer and consumer
+   * jobs with correct inEdges and outEdges wired.
+   */
+  @Test
+  @Order(63)
+  void multiHopEdge_fromDataset_edgesWiredCorrectly() throws Exception {
+    String ns = "v3-mh-ns";
+    String jobA = "v3-mh-producer";
+    String jobB = "v3-mh-consumer";
+    String ds = "v3-mh-dataset";
+
+    HttpResponse<String> response =
+        getV3Lineage("dataset:" + ns + ":" + ds, 2, false).get();
+    assertThat(response.statusCode()).isEqualTo(200);
+    JsonNode graph = MAPPER.readTree(response.body()).path("graph");
+
+    // Dataset node must have jobA as inEdge and jobB as outEdge
+    java.util.Optional<JsonNode> dsNode =
+        streamNodes(graph).filter(n -> ds.equals(n.path("data").path("name").asText())).findFirst();
+    assertThat(dsNode).as("Dataset node must be present").isPresent();
+
+    boolean dsHasInEdgeFromJobA =
+        streamNodes(dsNode.get().path("inEdges"))
+            .anyMatch(e -> e.path("origin").asText().contains(jobA));
+    boolean dsHasOutEdgeToJobB =
+        streamNodes(dsNode.get().path("outEdges"))
+            .anyMatch(e -> e.path("destination").asText().contains(jobB));
+    assertThat(dsHasInEdgeFromJobA)
+        .as("Dataset inEdges must include producer job A")
+        .isTrue();
+    assertThat(dsHasOutEdgeToJobB)
+        .as("Dataset outEdges must include consumer job B")
+        .isTrue();
+  }
+
+  // ===========================================================================
   // Helpers
   // ===========================================================================
 
