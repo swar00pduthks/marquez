@@ -53,9 +53,18 @@ SELECT create_monthly_partition('run_parent_lineage_denormalized', '2026-12-01':
 -- GENERATED ALWAYS AS STORED means Postgres computes it on insert/update automatically
 -- with zero application-layer changes required.
 
-ALTER TABLE lineage_events
-  ADD COLUMN IF NOT EXISTS run_date DATE
-    GENERATED ALWAYS AS (event_time::date) STORED;
+-- Add run_date as a plain DATE column (not generated, for Azure PG Flexible Server compatibility).
+-- Backfill existing rows and maintain via index on expression for queries.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'lineage_events' AND column_name = 'run_date'
+  ) THEN
+    ALTER TABLE lineage_events ADD COLUMN run_date DATE;
+    UPDATE lineage_events SET run_date = event_time::date WHERE run_date IS NULL;
+  END IF;
+END $$;
 
 CREATE INDEX IF NOT EXISTS idx_lineage_events_run_date
   ON lineage_events (run_date);
