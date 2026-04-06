@@ -51,6 +51,8 @@ public class DenormV1BackfillJob implements BackfillJob {
   // Separate checkpoint keys per phase so each phase is independently resumable
   private static final String CP_NAMESPACE = "DENORM_V1_NAMESPACE";
   private static final String CP_RUN = "DENORM_V1_RUN";
+  // Completion sentinel — written once both phases drain; checked on every restart
+  private static final String CP_COMPLETED = "DENORM_V1_COMPLETED";
 
   private final Jdbi jdbi;
   private final BackfillConfig config;
@@ -70,12 +72,21 @@ public class DenormV1BackfillJob implements BackfillJob {
 
   @Override
   public void run() throws Exception {
+    if (isCompleted()) {
+      log.info("DenormV1BackfillJob: already completed — skipping.");
+      return;
+    }
+
     log.info("DenormV1BackfillJob: starting.");
 
     runNamespacePhase();
 
     if (!Thread.currentThread().isInterrupted()) {
       runRunPhase();
+    }
+
+    if (!Thread.currentThread().isInterrupted()) {
+      markCompleted();
     }
 
     log.info("DenormV1BackfillJob: finished.");
@@ -618,6 +629,52 @@ public class DenormV1BackfillJob implements BackfillJob {
   // ---------------------------------------------------------------------------
   // Checkpoint helpers — re-use the backfill_checkpoints table created in V99
   // ---------------------------------------------------------------------------
+
+  private boolean isCompleted() {
+    try {
+      return jdbi.withHandle(
+          handle ->
+              handle
+                  .createQuery(
+                      """
+                      SELECT completed_at IS NOT NULL
+                      FROM backfill_checkpoints
+                      WHERE version = :version
+                      """)
+                  .bind("version", CP_COMPLETED)
+                  .mapTo(Boolean.class)
+                  .findOne()
+                  .orElse(false));
+    } catch (Exception e) {
+      log.warn(
+          "DenormV1BackfillJob: could not check completed_at — assuming not completed. Error: {}",
+          e.getMessage());
+      return false;
+    }
+  }
+
+  private void markCompleted() {
+    try {
+      jdbi.useHandle(
+          handle ->
+              handle
+                  .createUpdate(
+                      """
+                      INSERT INTO backfill_checkpoints (version, last_cursor_time, last_run_id, completed_at, updated_at)
+                      VALUES (:version, now(), '', now(), now())
+                      ON CONFLICT (version) DO UPDATE SET
+                        completed_at = now(),
+                        updated_at   = now()
+                      """)
+                  .bind("version", CP_COMPLETED)
+                  .execute());
+      log.info("DenormV1BackfillJob: marked as completed in backfill_checkpoints.");
+    } catch (Exception e) {
+      log.warn(
+          "DenormV1BackfillJob: could not write completed_at — will re-run on next restart. Error: {}",
+          e.getMessage());
+    }
+  }
 
   private Instant readCheckpointCursorTime(String version) {
     try {

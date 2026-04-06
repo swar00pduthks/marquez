@@ -76,6 +76,11 @@ public class GraphV1BackfillJob implements BackfillJob {
 
   @Override
   public void run() throws Exception {
+    if (isCompleted()) {
+      log.info("GraphV1BackfillJob: already completed — skipping.");
+      return;
+    }
+
     log.info("GraphV1BackfillJob: starting graph backfill from lineage_events table.");
 
     // Read resumption cursor from checkpoint table
@@ -115,9 +120,11 @@ public class GraphV1BackfillJob implements BackfillJob {
 
       if (batch.isEmpty()) {
         log.info(
-            "GraphV1BackfillJob: no more rows to process. " + "Total processed: {}, failed: {}.",
+            "GraphV1BackfillJob: no more rows to process. Total processed: {}, failed: {}."
+                + " Marking as completed.",
             totalProcessed[0],
             totalFailed[0]);
+        markCompleted();
         break;
       }
 
@@ -212,6 +219,52 @@ public class GraphV1BackfillJob implements BackfillJob {
   // ---------------------------------------------------------------------------
   // Checkpoint helpers
   // ---------------------------------------------------------------------------
+
+  private boolean isCompleted() {
+    try {
+      return jdbi.withHandle(
+          handle ->
+              handle
+                  .createQuery(
+                      """
+                      SELECT completed_at IS NOT NULL
+                      FROM backfill_checkpoints
+                      WHERE version = :version
+                      """)
+                  .bind("version", VERSION)
+                  .mapTo(Boolean.class)
+                  .findOne()
+                  .orElse(false));
+    } catch (Exception e) {
+      log.warn(
+          "GraphV1BackfillJob: could not check completed_at — assuming not completed. Error: {}",
+          e.getMessage());
+      return false;
+    }
+  }
+
+  private void markCompleted() {
+    try {
+      jdbi.useHandle(
+          handle ->
+              handle
+                  .createUpdate(
+                      """
+                      INSERT INTO backfill_checkpoints (version, last_cursor_time, last_run_id, completed_at, updated_at)
+                      VALUES (:version, now(), '', now(), now())
+                      ON CONFLICT (version) DO UPDATE SET
+                        completed_at = now(),
+                        updated_at   = now()
+                      """)
+                  .bind("version", VERSION)
+                  .execute());
+      log.info("GraphV1BackfillJob: marked as completed in backfill_checkpoints.");
+    } catch (Exception e) {
+      log.warn(
+          "GraphV1BackfillJob: could not write completed_at — will re-run on next restart. Error: {}",
+          e.getMessage());
+    }
+  }
 
   private Instant readCheckpoint() {
     try {
