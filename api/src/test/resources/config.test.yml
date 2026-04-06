@@ -11,6 +11,14 @@ server:
 
 db:
   driverClass: org.postgresql.Driver
+  validationQuery: "/* Marquez Ping */ SELECT 1"
+  checkConnectionWhileIdle: true
+  checkConnectionOnBorrow: true
+  checkConnectionOnConnect: true
+  checkConnectionOnReturn: true
+  removeAbandoned: true
+  removeAbandonedTimeout: 60s
+  abandonWhenPercentageFull: 0
 
 flyway:
   connectRetries: 2
