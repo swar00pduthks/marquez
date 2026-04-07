@@ -46,7 +46,7 @@ public class OpenLineageResourceV3Test {
     when(mockHandle.getConnection()).thenReturn(mockConn);
     when(mockConn.createStatement()).thenReturn(mockStmt);
 
-    // Stub useTransaction to execute the callback immediately with the mock handle
+    // Stub useHandle to execute the callback immediately with the mock handle
     doAnswer(
             invocation -> {
               HandleConsumer<Exception> callback = invocation.getArgument(0);
@@ -54,7 +54,7 @@ public class OpenLineageResourceV3Test {
               return null;
             })
         .when(mockJdbi)
-        .useTransaction(any());
+        .useHandle(any());
 
     // GraphWriter.writeEvent is void – default mock behaviour (do nothing) is correct
     doNothing().when(mockGraphWriter).writeEvent(any(), any());

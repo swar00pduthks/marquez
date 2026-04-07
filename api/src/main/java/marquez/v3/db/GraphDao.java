@@ -57,21 +57,54 @@ public class GraphDao {
    * @param conn an open JDBC connection
    */
   public static void initAgeSession(Connection conn) {
-    // If AGE availability has already been determined, skip the LOAD step entirely.
-    // LOAD 'age' is a session-level command that must NOT be issued inside an active transaction
-    // (it aborts the transaction on Azure where the command is blocked by policy).
-    // We only need to set search_path on each new connection.
+    // First call: detect whether AGE is available at all.
     if (!AGE_AVAILABLE.get()) {
       detectAge(conn);
     }
 
-    if (AGE_AVAILABLE.get()) {
-      try (Statement stmt = conn.createStatement()) {
-        // Include marquez_v3 schema so agtype_to_json() is found (it lives there on Azure).
-        stmt.execute("SET search_path = ag_catalog, marquez_v3, \"$user\", public");
-      } catch (Exception e) {
-        log.debug("SET search_path note: {}", e.getMessage());
+    if (!AGE_AVAILABLE.get()) {
+      return;
+    }
+
+    // Always run LOAD 'age' per connection.
+    // On Azure, AGE is in shared_preload_libraries so LOAD is a no-op (or blocked by policy
+    // and silently ignored via SAVEPOINT).  On plain Postgres / test containers it is required
+    // for every new connection — skipping it causes "unhandled cypher(cstring) function call".
+    boolean wasAutoCommit = true;
+    try {
+      wasAutoCommit = conn.getAutoCommit();
+      if (!wasAutoCommit) {
+        try (Statement sp = conn.createStatement()) {
+          sp.execute("SAVEPOINT age_session_sp");
+        }
       }
+      try (Statement stmt = conn.createStatement()) {
+        stmt.execute("LOAD 'age'");
+      } catch (Exception ignored) {
+        // Already loaded (shared_preload_libraries) or blocked by policy — either way AGE works.
+        if (!wasAutoCommit) {
+          try (Statement sp = conn.createStatement()) {
+            sp.execute("ROLLBACK TO SAVEPOINT age_session_sp");
+          } catch (Exception ignored2) {
+          }
+        }
+      } finally {
+        if (!wasAutoCommit) {
+          try (Statement sp = conn.createStatement()) {
+            sp.execute("RELEASE SAVEPOINT age_session_sp");
+          } catch (Exception ignored) {
+          }
+        }
+      }
+    } catch (Exception e) {
+      log.debug("initAgeSession LOAD note: {}", e.getMessage());
+    }
+
+    try (Statement stmt = conn.createStatement()) {
+      // Include marquez_v3 schema so agtype_to_json() is found (it lives there on Azure).
+      stmt.execute("SET search_path = ag_catalog, marquez_v3, \"$user\", public");
+    } catch (Exception e) {
+      log.debug("SET search_path note: {}", e.getMessage());
     }
   }
 
