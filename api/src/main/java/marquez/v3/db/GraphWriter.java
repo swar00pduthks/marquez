@@ -104,11 +104,20 @@ public class GraphWriter {
   }
 
   private void writeNamespaceAndSource(Handle handle, String namespace) throws SQLException {
+    writeNamespaceAndSource(handle, namespace, "default", "unknown", null);
+  }
+
+  private void writeNamespaceAndSource(
+      Handle handle, String namespace, String sourceName, String sourceType, String connectionUrl)
+      throws SQLException {
     if (namespace == null) return;
 
     Map<String, Object> srcProps = new HashMap<>();
-    srcProps.put("name", "default");
-    srcProps.put("type", "unknown");
+    srcProps.put("name", sourceName);
+    srcProps.put("type", sourceType);
+    if (connectionUrl != null && !connectionUrl.isEmpty()) {
+      srcProps.put("connectionUrl", connectionUrl);
+    }
     graphDao.upsertNode(handle, GRAPH_NAME, "Source", "name", srcProps);
 
     Map<String, Object> nsProps = new HashMap<>();
@@ -121,7 +130,7 @@ public class GraphWriter {
         "HAS_NAMESPACE",
         "Source",
         "name",
-        "default",
+        sourceName,
         "Namespace",
         "name",
         namespace);
@@ -295,12 +304,38 @@ public class GraphWriter {
 
   private void writeDatasetNode(Handle handle, LineageEvent.Dataset ds, String dsFqn)
       throws SQLException {
+    // Extract real source name + connectionUrl from the OpenLineage dataSource facet when present,
+    // matching V1/V2 parity (OpenLineageDao uses ds.getFacets().getDataSource() the same way).
+    String sourceName = "default";
+    String sourceType = "unknown";
+    String connectionUrl = null;
+    if (ds.getFacets() != null && ds.getFacets().getDataSource() != null) {
+      LineageEvent.DatasourceDatasetFacet dsf = ds.getFacets().getDataSource();
+      if (dsf.getName() != null && !dsf.getName().isEmpty()) {
+        sourceName = dsf.getName();
+      }
+      if (dsf.getUri() != null && !dsf.getUri().isEmpty()) {
+        connectionUrl = dsf.getUri();
+        // Derive a rough type from the URI scheme (e.g. "postgresql", "s3", "bigquery")
+        int colonIdx = connectionUrl.indexOf(':');
+        if (colonIdx > 0) {
+          sourceType = connectionUrl.substring(0, colonIdx).toUpperCase();
+        }
+      }
+    }
+
+    // Ensure the source node and HAS_NAMESPACE edge exist for this dataset's namespace
+    writeNamespaceAndSource(handle, ds.getNamespace(), sourceName, sourceType, connectionUrl);
+
     Map<String, Object> dsProps = new HashMap<>();
     dsProps.put("fqn", dsFqn);
     dsProps.put("name", ds.getName());
     dsProps.put("namespace", ds.getNamespace());
     dsProps.put("physicalName", ds.getName());
-    dsProps.put("sourceName", "default");
+    dsProps.put("sourceName", sourceName);
+    if (connectionUrl != null) {
+      dsProps.put("connectionUrl", connectionUrl);
+    }
     dsProps.put("type", "DB_TABLE");
     if (ds.getFacets() != null) {
       dsProps.put("facets", safeJson(ds.getFacets()));
