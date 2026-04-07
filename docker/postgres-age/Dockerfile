@@ -23,6 +23,14 @@ FROM postgres:14
 COPY --from=builder /usr/lib/postgresql/14/lib/age.so /usr/lib/postgresql/14/lib/
 COPY --from=builder /usr/share/postgresql/14/extension/age* /usr/share/postgresql/14/extension/
 
+# Bake shared_preload_libraries into the image so AGE is preloaded regardless of
+# whether a custom postgresql.conf is mounted at runtime. Without this, CREATE EXTENSION age
+# fails at Flyway V95 migration startup when docker-compose.db.yml (load tests) is used
+# without a postgresql.conf volume mount.
+RUN echo "shared_preload_libraries = 'pg_stat_statements,age'" >> /usr/share/postgresql/postgresql.conf.sample \
+    && echo "pg_stat_statements.track = all" >> /usr/share/postgresql/postgresql.conf.sample \
+    && echo "listen_addresses = '*'" >> /usr/share/postgresql/postgresql.conf.sample
+
 # Add extension initialization to the standard postgres entrypoint
 RUN echo "CREATE EXTENSION IF NOT EXISTS age;" > /docker-entrypoint-initdb.d/00_init_age.sql \
     && echo "LOAD 'age';" >> /docker-entrypoint-initdb.d/00_init_age.sql \
