@@ -378,6 +378,76 @@ public class GraphDao {
     }
   }
 
+  /**
+   * Upserts a directed edge with additional properties on the edge itself (e.g. {@code
+   * transformationType} on a {@code DERIVED_FROM} edge). Properties are set via {@code ON CREATE
+   * SET} / {@code SET} after the MERGE.
+   *
+   * <p>AGE 1.5.0 does not support {@code ON CREATE SET} syntax, so we fall back to a post-MERGE
+   * {@code SET} which overwrites on every upsert — acceptable for immutable provenance properties.
+   */
+  public void upsertEdgeWithProps(
+      Handle handle,
+      String graphName,
+      String edgeLabel,
+      String fromLabel,
+      String fromMatchKey,
+      String fromMatchValue,
+      String toLabel,
+      String toMatchKey,
+      String toMatchValue,
+      Map<String, Object> edgeProps)
+      throws SQLException {
+
+    if (edgeProps == null || edgeProps.isEmpty()) {
+      upsertEdge(
+          handle,
+          graphName,
+          edgeLabel,
+          fromLabel,
+          fromMatchKey,
+          fromMatchValue,
+          toLabel,
+          toMatchKey,
+          toMatchValue);
+      return;
+    }
+
+    StringBuilder setClause = new StringBuilder();
+    for (String key : edgeProps.keySet()) {
+      if (setClause.length() > 0) setClause.append(", ");
+      Object val = edgeProps.get(key);
+      setClause
+          .append("r.")
+          .append(key)
+          .append(" = ")
+          .append(val instanceof String ? "'" + ((String) val).replace("'", "\\'") + "'" : val);
+    }
+
+    String sql =
+        String.format(
+            "SELECT * FROM %scypher(cast('%s' as name), $$ "
+                + "MATCH (a:%s { %s: %s }) MATCH (b:%s { %s: %s }) "
+                + "MERGE (a)-[r:%s]->(b) SET %s RETURN r "
+                + "$$) as (r %sagtype)",
+            prefix(),
+            graphName,
+            fromLabel,
+            fromMatchKey,
+            toCypherLiteral(fromMatchValue),
+            toLabel,
+            toMatchKey,
+            toCypherLiteral(toMatchValue),
+            edgeLabel,
+            setClause,
+            prefix());
+
+    Connection conn = handle.getConnection();
+    try (PreparedStatement ps = conn.prepareStatement(sql)) {
+      ps.execute();
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // AGE parameter helpers
   // ---------------------------------------------------------------------------

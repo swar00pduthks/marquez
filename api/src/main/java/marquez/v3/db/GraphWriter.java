@@ -283,6 +283,18 @@ public class GraphWriter {
     String jobFqn = fqn(event.getJob().getNamespace(), event.getJob().getName());
     String runId = event.getRun().getRunId();
 
+    // Build a lookup map: inputDsFqn -> inputDvUuid so that column lineage can resolve
+    // input DatasetField ids (which are keyed by dvUuid:fieldName, matching V1/V2 which is also
+    // version-scoped).
+    Map<String, String> inputDvUuidByFqn = new HashMap<>();
+    if (event.getInputs() != null) {
+      for (LineageEvent.Dataset inputDs : event.getInputs()) {
+        String inputFqn = fqn(inputDs.getNamespace(), inputDs.getName());
+        inputDvUuidByFqn.put(
+            inputFqn, generateDeterministicUuid(inputFqn + safeJson(inputDs.getFacets())));
+      }
+    }
+
     for (LineageEvent.Dataset ds : event.getOutputs()) {
       String dsFqn = fqn(ds.getNamespace(), ds.getName());
       String dvUuid = generateDeterministicUuid(dsFqn + safeJson(ds.getFacets()));
@@ -299,6 +311,74 @@ public class GraphWriter {
           handle, GRAPH_NAME, "PRODUCES", "Job", "fqn", jobFqn, "Dataset", "fqn", dsFqn);
 
       writeDatasetFields(handle, ds, dvUuid);
+      writeColumnLineage(handle, ds, dvUuid, inputDvUuidByFqn);
+    }
+  }
+
+  /**
+   * Writes {@code DERIVED_FROM} edges between output {@link DatasetField} nodes and their source
+   * input {@link DatasetField} nodes, matching the V1/V2 {@code column_lineage} table which is also
+   * version-scoped (keyed by output_dataset_version_uuid + input_dataset_version_uuid).
+   *
+   * <p>The OpenLineage {@code columnLineage} facet lives on the <em>output</em> dataset and lists,
+   * for each output field, the input fields that contributed to it:
+   *
+   * <pre>
+   * outputs[].facets.columnLineage.fields = {
+   *   "output_col": {
+   *     inputFields: [{ namespace, name, field }],
+   *     transformationType: "IDENTITY",
+   *     transformationDescription: "..."
+   *   }
+   * }
+   * </pre>
+   */
+  private void writeColumnLineage(
+      Handle handle,
+      LineageEvent.Dataset outputDs,
+      String outputDvUuid,
+      Map<String, String> inputDvUuidByFqn)
+      throws SQLException {
+    if (outputDs.getFacets() == null || outputDs.getFacets().getColumnLineage() == null) return;
+    LineageEvent.ColumnLineageDatasetFacet clFacet = outputDs.getFacets().getColumnLineage();
+    if (clFacet.getFields() == null || clFacet.getFields().getAdditionalFacets() == null) return;
+
+    for (Map.Entry<String, LineageEvent.ColumnLineageOutputColumn> entry :
+        clFacet.getFields().getAdditionalFacets().entrySet()) {
+      String outputFieldName = entry.getKey();
+      LineageEvent.ColumnLineageOutputColumn outputCol = entry.getValue();
+      if (outputCol == null || outputCol.getInputFields() == null) continue;
+
+      String outputFieldId = outputDvUuid + ":" + outputFieldName;
+
+      for (LineageEvent.ColumnLineageInputField inputRef : outputCol.getInputFields()) {
+        String inputFqn = fqn(inputRef.getNamespace(), inputRef.getName());
+        String inputDvUuid = inputDvUuidByFqn.get(inputFqn);
+        if (inputDvUuid == null) continue; // input dataset not in this event; skip
+
+        String inputFieldId = inputDvUuid + ":" + inputRef.getField();
+
+        // Edge properties: transformationType and transformationDescription for provenance
+        Map<String, Object> edgeProps = new HashMap<>();
+        if (outputCol.getTransformationType() != null) {
+          edgeProps.put("transformationType", outputCol.getTransformationType());
+        }
+        if (outputCol.getTransformationDescription() != null) {
+          edgeProps.put("transformationDescription", outputCol.getTransformationDescription());
+        }
+
+        graphDao.upsertEdgeWithProps(
+            handle,
+            GRAPH_NAME,
+            "DERIVED_FROM",
+            "DatasetField",
+            "id",
+            outputFieldId,
+            "DatasetField",
+            "id",
+            inputFieldId,
+            edgeProps);
+      }
     }
   }
 
