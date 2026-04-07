@@ -444,11 +444,13 @@ kubectl logs -n marquez -l app=marquez-api-v3 --tail=50 | grep -v 'stats/' | gre
 SELECT * FROM cypher('marquez_graph', $$ MATCH (n:Job) RETURN count(n) $$) as (c agtype);
 SELECT * FROM cypher('marquez_graph', $$ MATCH (n:Dataset) RETURN count(n) $$) as (c agtype);
 SELECT * FROM cypher('marquez_graph', $$ MATCH (n:Run) RETURN count(n) $$) as (c agtype);
+SELECT * FROM cypher('marquez_graph', $$ MATCH (n:DatasetField) RETURN count(n) $$) as (c agtype);
 
 -- Count edges by type
 SELECT * FROM cypher('marquez_graph', $$ MATCH ()-[r:INPUT_TO]->() RETURN count(r) $$) as (c agtype);
 SELECT * FROM cypher('marquez_graph', $$ MATCH ()-[r:PRODUCES]->() RETURN count(r) $$) as (c agtype);
 SELECT * FROM cypher('marquez_graph', $$ MATCH ()-[r:HAS_CHILD_RUN]->() RETURN count(r) $$) as (c agtype);
+SELECT * FROM cypher('marquez_graph', $$ MATCH ()-[r:DERIVED_FROM]->() RETURN count(r) $$) as (c agtype);
 
 -- Find all runs for a job
 SELECT * FROM cypher('marquez_graph', $$ MATCH (r:Run)-[:RUN_OF]->(j:Job) WHERE j.fqn = 'ns:jobname' RETURN r.runId, r.state LIMIT 10 $$) as (runId agtype, state agtype);
@@ -462,4 +464,268 @@ SELECT * FROM ag_graph;
 
 -- List all labels in the graph
 SELECT * FROM ag_label;
+```
+
+---
+
+## Column lineage (`GET /api/v3/column-lineage`)
+
+### How it works
+
+Column lineage is stored as `DERIVED_FROM` edges between `DatasetField` nodes. This mirrors the
+V1/V2 `column_lineage` table which is also version-scoped
+(`output_dataset_version_uuid + field ↔ input_dataset_version_uuid + field`).
+
+`DatasetField.id = {dvUuid}:{fieldName}` — version-scoped, exactly matching V1/V2.
+
+The `DERIVED_FROM` edge carries `transformationType` and `transformationDescription` properties
+read from the OpenLineage `columnLineage` dataset facet on the output dataset.
+
+### Cypher query used by `GET /api/v3/column-lineage?nodeId={id}&depth={n}`
+
+```sql
+SELECT agtype_to_json(path)
+FROM ag_catalog.cypher('marquez_graph', $$
+  MATCH path = (a:DatasetField)-[:DERIVED_FROM*1..10]-(b:DatasetField)
+  WHERE a.id = $nodeId
+  RETURN path
+$$, '{"nodeId": "dvUuid:fieldName"}') as (path ag_catalog.agtype);
+```
+
+### How to investigate missing column lineage
+
+```bash
+# Check if DERIVED_FROM edges exist at all
+psql> SELECT * FROM cypher('marquez_graph', $$
+  MATCH ()-[r:DERIVED_FROM]->() RETURN count(r)
+$$) as (c agtype);
+
+# Find all DERIVED_FROM edges for a specific output dataset version
+# (replace dvUuid with the actual DatasetVersion uuid from the graph)
+psql> SELECT * FROM cypher('marquez_graph', $$
+  MATCH (out:DatasetField)-[r:DERIVED_FROM]->(inp:DatasetField)
+  WHERE out.id STARTS WITH 'your-dv-uuid'
+  RETURN out.id, inp.id, r.transformationType
+$$) as (out agtype, inp agtype, ttype agtype);
+
+# Check if the DatasetField nodes exist for a dataset version
+psql> SELECT * FROM cypher('marquez_graph', $$
+  MATCH (dv:DatasetVersion {uuid: 'your-dv-uuid'})-[:HAS_FIELD]->(f:DatasetField)
+  RETURN f.id, f.name, f.type
+$$) as (id agtype, name agtype, type agtype);
+
+# Verify columnLineage facet is present in the raw lineage event
+SELECT run_uuid, event_type, event->>'outputs' as outputs
+FROM lineage_events
+WHERE event->'outputs'->0->'facets'->'columnLineage' IS NOT NULL
+LIMIT 5;
+```
+
+**Common issues:**
+- `DERIVED_FROM` count = 0 — the event sending column lineage did not include the `columnLineage`
+  facet on the output dataset, OR the input datasets were not in the same event (the input `dvUuid`
+  cannot be resolved if the input dataset was not present in the event's `inputs` array).
+- Fields exist but no `DERIVED_FROM` edge — check that the input dataset fqn in the
+  `columnLineage.fields[].inputFields[].namespace + name` matches an entry in `event.inputs`.
+
+---
+
+## V1/V2 parity checks
+
+Use these queries to verify that the V3 graph matches the V1/V2 relational data for a given
+namespace/job/dataset. Run them side-by-side when investigating discrepancies.
+
+### Jobs
+
+```sql
+-- V1/V2 relational
+SELECT j.name, j.namespace_name, j.updated_at
+FROM jobs j WHERE j.namespace_name = 'my-ns' ORDER BY j.name;
+
+-- V3 graph
+SELECT * FROM cypher('marquez_graph', $$
+  MATCH (j:Job) WHERE j.namespace = 'my-ns' RETURN j.fqn, j.name
+  ORDER BY j.name
+$$) as (fqn agtype, name agtype);
+```
+
+### Datasets
+
+```sql
+-- V1/V2 relational
+SELECT d.name, d.namespace_name, d.source_name, d.type
+FROM datasets d WHERE d.namespace_name = 'my-ns' ORDER BY d.name;
+
+-- V3 graph
+SELECT * FROM cypher('marquez_graph', $$
+  MATCH (d:Dataset) WHERE d.namespace = 'my-ns'
+  RETURN d.fqn, d.name, d.sourceName, d.type
+$$) as (fqn agtype, name agtype, src agtype, type agtype);
+```
+
+### Runs for a job
+
+```sql
+-- V1/V2 relational
+SELECT r.uuid, rs.state, r.created_at, r.started_at, r.ended_at
+FROM runs r
+JOIN run_states rs ON rs.uuid = r.current_run_state_uuid
+JOIN jobs j ON j.uuid = r.job_uuid
+WHERE j.namespace_name = 'my-ns' AND j.name = 'my-job'
+ORDER BY r.created_at DESC LIMIT 10;
+
+-- V3 graph
+SELECT * FROM cypher('marquez_graph', $$
+  MATCH (r:Run)-[:RUN_OF]->(j:Job)
+  WHERE j.fqn = 'my-ns:my-job'
+  RETURN r.runId, r.state, r.createdAt, r.startedAt, r.endedAt
+  ORDER BY r.createdAt DESC
+$$) as (runId agtype, state agtype, createdAt agtype, startedAt agtype, endedAt agtype)
+LIMIT 10;
+```
+
+### Lineage edges (INPUT_TO / PRODUCES)
+
+```sql
+-- V1/V2 relational (via job_versions_io)
+SELECT d.name as dataset, j.name as job, jvi.io_type
+FROM job_versions_io jvi
+JOIN datasets d ON d.uuid = jvi.dataset_uuid
+JOIN job_versions jv ON jv.uuid = jvi.job_version_uuid
+JOIN jobs j ON j.uuid = jv.job_uuid
+WHERE j.namespace_name = 'my-ns' AND j.name = 'my-job';
+
+-- V3 graph
+SELECT * FROM cypher('marquez_graph', $$
+  MATCH (d:Dataset)-[r:INPUT_TO]->(j:Job) WHERE j.fqn = 'my-ns:my-job'
+  RETURN d.fqn, 'INPUT' as io_type
+$$) as (fqn agtype, io_type agtype);
+SELECT * FROM cypher('marquez_graph', $$
+  MATCH (j:Job)-[r:PRODUCES]->(d:Dataset) WHERE j.fqn = 'my-ns:my-job'
+  RETURN d.fqn, 'OUTPUT' as io_type
+$$) as (fqn agtype, io_type agtype);
+```
+
+### Column lineage
+
+```sql
+-- V1/V2 relational
+SELECT
+  out_f.name as output_field,
+  out_d.name as output_dataset,
+  in_f.name as input_field,
+  in_d.name as input_dataset,
+  cl.transformation_type
+FROM column_lineage cl
+JOIN dataset_fields out_f ON out_f.uuid = cl.output_dataset_field_uuid
+JOIN dataset_versions out_dv ON out_dv.uuid = cl.output_dataset_version_uuid
+JOIN datasets out_d ON out_d.uuid = out_dv.dataset_uuid
+JOIN dataset_fields in_f ON in_f.uuid = cl.input_dataset_field_uuid
+JOIN dataset_versions in_dv ON in_dv.uuid = cl.input_dataset_version_uuid
+JOIN datasets in_d ON in_d.uuid = in_dv.dataset_uuid
+WHERE out_d.namespace_name = 'my-ns' AND out_d.name = 'my-output-table'
+LIMIT 20;
+
+-- V3 graph (same version-scoped structure)
+SELECT * FROM cypher('marquez_graph', $$
+  MATCH (out:DatasetField)-[r:DERIVED_FROM]->(inp:DatasetField)
+  WHERE out.id STARTS WITH 'output-dv-uuid'
+  RETURN out.name, inp.name, r.transformationType
+$$) as (out_field agtype, in_field agtype, ttype agtype);
+```
+
+### Sources
+
+```sql
+-- V1/V2 relational
+SELECT s.name, s.type, s.connection_url FROM sources s ORDER BY s.name;
+
+-- V3 graph
+SELECT * FROM cypher('marquez_graph', $$
+  MATCH (s:Source) RETURN s.name, s.type, s.connectionUrl
+$$) as (name agtype, type agtype, url agtype);
+```
+
+---
+
+## Production incident runbook
+
+### Incident: "My job's lineage graph is empty"
+
+```bash
+# 1. Verify the job node exists in the graph
+psql> SELECT * FROM cypher('marquez_graph', $$
+  MATCH (j:Job {fqn: 'ns:jobname'}) RETURN properties(j)
+$$) as (j agtype);
+
+# 2. Verify INPUT_TO / PRODUCES edges exist
+psql> SELECT * FROM cypher('marquez_graph', $$
+  MATCH (d:Dataset)-[:INPUT_TO]->(j:Job {fqn: 'ns:jobname'}) RETURN d.fqn
+$$) as (fqn agtype);
+
+# 3. If no job node: check if the event was ingested in V3
+SELECT count(*) FROM lineage_events
+WHERE event->>'job'->>'namespace' = 'ns' AND event->>'job'->>'name' = 'jobname';
+
+# 4. Check the backfill checkpoint (if event is historical)
+SELECT * FROM backfill_checkpoints WHERE version = 'GRAPH_V1';
+-- NULL completed_at = backfill still running
+-- last_event_time should be advancing
+
+# 5. If event was ingested but graph is empty: check app logs
+kubectl logs -n marquez -l app=marquez-api-v3 --since=1h | grep -E '(Graph write failed|ERROR)'
+```
+
+### Incident: "Run shows wrong state / missing endedAt"
+
+```bash
+# Check what state is in the graph
+psql> SELECT * FROM cypher('marquez_graph', $$
+  MATCH (r:Run {runId: 'your-run-id'}) RETURN r.state, r.startedAt, r.endedAt
+$$) as (state agtype, started agtype, ended agtype);
+
+# Compare with V1/V2 relational
+SELECT r.uuid, rs.state, r.started_at, r.ended_at
+FROM runs r
+JOIN run_states rs ON rs.uuid = r.current_run_state_uuid
+WHERE r.uuid = 'your-run-id';
+
+# Check all events for this run in order
+SELECT event_type, event_time FROM lineage_events
+WHERE run_uuid = 'your-run-id'
+ORDER BY event_time;
+```
+
+### Incident: "Column lineage not appearing"
+
+```bash
+# 1. Verify the event has the columnLineage facet
+SELECT run_uuid, event_type,
+       event->'outputs'->0->'facets'->'columnLineage' as col_lineage
+FROM lineage_events WHERE run_uuid = 'your-run-id';
+
+# 2. Verify DERIVED_FROM edges exist for that run's output version
+psql> SELECT * FROM cypher('marquez_graph', $$
+  MATCH (r:Run {runId: 'your-run-id'})-[:WRITES]->(dv:DatasetVersion)
+  MATCH (out:DatasetField)<-[:HAS_FIELD]-(dv)
+  OPTIONAL MATCH (out)-[d:DERIVED_FROM]->(inp:DatasetField)
+  RETURN dv.uuid, out.name, inp.name, d.transformationType
+$$) as (dv agtype, out_f agtype, in_f agtype, ttype agtype);
+-- inp.name = NULL means DERIVED_FROM edge is missing
+```
+
+### Incident: "Backfill appears stuck"
+
+```bash
+# Check checkpoint progress
+SELECT version, last_event_time, last_run_id, completed_at
+FROM backfill_checkpoints ORDER BY version;
+
+# If last_event_time is not advancing, check app logs
+kubectl logs -n marquez -l app=marquez-api-v3 --since=30m | grep -i backfill
+
+# Count graph vs relational nodes to estimate backfill progress
+SELECT count(*) FROM lineage_events;  -- total to backfill
+psql> SELECT * FROM cypher('marquez_graph', $$ MATCH (r:Run) RETURN count(r) $$) as (c agtype);
+-- divide to get % complete
 ```
