@@ -24,21 +24,21 @@ repos:
       hooks:
         -   id: gradle-pmd
             name: PMD Static Analysis
-            entry: cmd /c gradlew.bat pmdMain pmdTest
+            entry: sh dev/gradlew_compat.sh pmdMain pmdTest
             language: system
             pass_filenames: false
             files: \.java$
 
         -   id: gradle-build
             name: Gradle Build
-            entry: cmd /c gradlew.bat build -x test
+            entry: sh dev/gradlew_compat.sh build -x test
             language: system
             pass_filenames: false
             files: \.(java|gradle|properties)$
 
         -   id: gradle-test
             name: Run Tests
-            entry: cmd /c gradlew.bat test
+            entry: sh dev/gradlew_compat.sh test
             language: system
             pass_filenames: false
             files: \.java$
@@ -53,7 +53,7 @@ repos:
 
         -   id: check-dco-signoff
             name: Check DCO Sign-off
-            entry: powershell -Command "git log -1 --pretty=%B | Select-String 'Signed-off-by:' -Quiet"
+            entry: sh -c "git log -1 --pretty=%B | grep -q 'Signed-off-by:'"
             language: system
             pass_filenames: false
             stages: [commit-msg]
