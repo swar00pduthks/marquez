@@ -42,7 +42,7 @@ import org.jdbi.v3.core.Jdbi;
  *       multi-billion-row table.
  *   <li>Each batch runs in a single JDBI transaction so AGE writes are atomic with the checkpoint
  *       update.
- *   <li>A configurable sleep between batches ({@link BackfillConfig#getDelayBetweenBatchesMs()})
+ *   <li>A configurable sleep between batches ({@link BackfillConfig} delayBetweenBatchesMs)
  *       prevents the backfill from monopolising DB connections needed by live ingestion.
  * </ul>
  *

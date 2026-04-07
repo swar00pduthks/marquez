@@ -28,8 +28,8 @@ import marquez.jobs.backfill.BackfillJob;
  *   <li><strong>Zero startup impact</strong> – all work runs in a daemon thread; server startup
  *       completes immediately.
  *   <li><strong>Sequential, ordered execution</strong> – jobs run in the order they appear in
- *       {@link BackfillConfig#getEnabledVersions()}, matching the dependency order of the
- *       migrations they mirror.
+ *       {@link BackfillConfig} enabledVersions, matching the dependency order of the migrations
+ *       they mirror.
  *   <li><strong>Resumable</strong> – each {@link BackfillJob} implementation checkpoints its own
  *       progress so that a crash mid-way can be restarted without duplicating completed work.
  *   <li><strong>Graceful shutdown</strong> – {@link #stop()} asks the background thread to finish
