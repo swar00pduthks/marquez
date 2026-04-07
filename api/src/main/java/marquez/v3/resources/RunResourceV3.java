@@ -49,7 +49,7 @@ public class RunResourceV3 {
 
     String sql =
         String.format(
-            "SELECT %sagtype_to_json(r) FROM %scypher('marquez_graph', $$ "
+            "SELECT agtype_to_json(r) FROM %scypher('marquez_graph', $$ "
                 + "MATCH (r:Run) RETURN properties(r) LIMIT $lim "
                 + "$$, ?) as (r %sagtype)",
             GraphDao.prefix(), GraphDao.prefix(), GraphDao.prefix());
@@ -93,7 +93,7 @@ public class RunResourceV3 {
 
     String sql =
         String.format(
-            "SELECT %sagtype_to_json(r) FROM %scypher('marquez_graph', $$ "
+            "SELECT agtype_to_json(r) FROM %scypher('marquez_graph', $$ "
                 + "MATCH (r:Run {runId: $id}) "
                 + "RETURN properties(r) "
                 + "$$, ?) as (r %sagtype)",
@@ -134,8 +134,8 @@ public class RunResourceV3 {
 
     String sql =
         String.format(
-            "SELECT %sagtype_to_json(dv) FROM %scypher('marquez_graph', $$ "
-                + "MATCH (r:Run {runId: $id})-[:HAS_INPUT]->(dv:DatasetVersion) "
+            "SELECT agtype_to_json(dv) FROM %scypher('marquez_graph', $$ "
+                + "MATCH (r:Run {runId: $id})-[:READS]->(dv:DatasetVersion) "
                 + "RETURN properties(dv) "
                 + "$$, ?) as (dv %sagtype)",
             GraphDao.prefix(), GraphDao.prefix(), GraphDao.prefix());
@@ -179,8 +179,8 @@ public class RunResourceV3 {
 
     String sql =
         String.format(
-            "SELECT %sagtype_to_json(dv) FROM %scypher('marquez_graph', $$ "
-                + "MATCH (r:Run {runId: $id})-[:HAS_OUTPUT]->(dv:DatasetVersion) "
+            "SELECT agtype_to_json(dv) FROM %scypher('marquez_graph', $$ "
+                + "MATCH (r:Run {runId: $id})-[:WRITES]->(dv:DatasetVersion) "
                 + "RETURN properties(dv) "
                 + "$$, ?) as (dv %sagtype)",
             GraphDao.prefix(), GraphDao.prefix(), GraphDao.prefix());

@@ -56,14 +56,15 @@ public class NamespaceJobResourceV3 {
       return Response.status(Response.Status.INTERNAL_SERVER_ERROR).build();
     }
 
+    // Fall back to direct label match on namespace property if CONTAINS edges not yet populated
     String sql =
         String.format(
-            "SELECT %sagtype_to_json(n) FROM %scypher('marquez_graph', $$ "
-                + "MATCH (:Namespace {name: $ns})-[:HAS_JOB]->(j) "
+            "SELECT agtype_to_json(n) FROM %scypher('marquez_graph', $$ "
+                + "MATCH (j:Job) WHERE j.namespace = $ns "
                 + "RETURN properties(j) "
                 + "SKIP $off LIMIT $lim "
                 + "$$, ?) as (n %sagtype)",
-            GraphDao.prefix(), GraphDao.prefix(), GraphDao.prefix());
+            GraphDao.prefix(), GraphDao.prefix());
 
     List<ObjectNode> jobs = executeQueryInternal(sql, paramsJson);
     return Response.ok(Map.of("jobs", jobs, "totalCount", jobs.size())).build();
@@ -85,11 +86,12 @@ public class NamespaceJobResourceV3 {
 
     String sql =
         String.format(
-            "SELECT %sagtype_to_json(n) FROM %scypher('marquez_graph', $$ "
-                + "MATCH (:Namespace {name: $ns})-[:HAS_JOB]->(j:Job {name: $job}) "
+            "SELECT agtype_to_json(n) FROM %scypher('marquez_graph', $$ "
+                + "MATCH (j:Job) WHERE j.namespace = $ns AND j.name = $job "
                 + "RETURN properties(j) "
+                + "LIMIT 1 "
                 + "$$, ?) as (n %sagtype)",
-            GraphDao.prefix(), GraphDao.prefix(), GraphDao.prefix());
+            GraphDao.prefix(), GraphDao.prefix());
 
     List<ObjectNode> jobs = executeQueryInternal(sql, paramsJson);
     if (jobs.isEmpty()) {
@@ -121,21 +123,28 @@ public class NamespaceJobResourceV3 {
       return Response.status(Response.Status.INTERNAL_SERVER_ERROR).build();
     }
 
+    // Traverse via RUN_OF edge shortcut (direct Run->Job) to avoid needing HAS_JOB_VERSION edges.
+    // WITH DISTINCT r de-duplicates runs that have multiple RUN_OF edges before ORDER BY.
     String sql =
         String.format(
-            "SELECT %sagtype_to_json(n) FROM %scypher('marquez_graph', $$ "
-                + "MATCH (:Namespace {name: $ns})-[:HAS_JOB]->(:Job {name: $job})-[:HAS_VERSION]->()-[:HAS_RUN]->(r) "
+            "SELECT agtype_to_json(n) FROM %scypher('marquez_graph', $$ "
+                + "MATCH (r:Run)-[:RUN_OF]->(j:Job) "
+                + "WHERE j.namespace = $ns AND j.name = $job "
+                + "WITH DISTINCT r "
                 + "RETURN properties(r) "
                 + "ORDER BY r.createdAt DESC "
                 + "SKIP $off LIMIT $lim "
                 + "$$, ?) as (n %sagtype)",
-            GraphDao.prefix(), GraphDao.prefix(), GraphDao.prefix());
+            GraphDao.prefix(), GraphDao.prefix());
 
     List<JsonNode> result =
         jdbi.withHandle(
             handle -> {
               try {
-                List<JsonNode> rows = new ArrayList<>();
+                // Use LinkedHashMap keyed by runId to deduplicate; last-write wins (most
+                // properties).
+                java.util.LinkedHashMap<String, ObjectNode> byRunId =
+                    new java.util.LinkedHashMap<>();
                 Connection conn = handle.getConnection();
                 GraphDao.initAgeSession(conn);
                 try (PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -143,43 +152,34 @@ public class NamespaceJobResourceV3 {
                   try (ResultSet rs = ps.executeQuery()) {
                     while (rs.next()) {
                       ObjectNode runProps = (ObjectNode) MAPPER.readTree(rs.getString(1));
-
-                      // Compatibility fields for UI
                       String runId =
                           runProps.has("runId") ? runProps.get("runId").asText() : "unknown";
                       runProps.put("id", runId);
-                      if (!runProps.has("createdAt")) {
+                      if (!runProps.has("createdAt"))
                         runProps.put("createdAt", "2024-01-01T00:00:00Z");
-                      }
-                      if (!runProps.has("updatedAt")) {
+                      if (!runProps.has("updatedAt"))
                         runProps.put("updatedAt", "2024-01-01T00:00:00Z");
-                      }
-                      if (!runProps.has("startedAt")) {
+                      if (!runProps.has("startedAt"))
                         runProps.put("startedAt", "2024-01-01T00:00:00Z");
-                      }
-                      if (!runProps.has("endedAt")) {
-                        runProps.put("endedAt", "2024-01-01T00:00:00Z");
-                      }
-                      if (!runProps.has("durationMs")) {
-                        runProps.put("durationMs", 0);
-                      }
-                      if (!runProps.has("state")) {
-                        runProps.put("state", "COMPLETED");
-                      }
-
-                      // Handle JSON fields
+                      if (!runProps.has("endedAt")) runProps.put("endedAt", "2024-01-01T00:00:00Z");
+                      if (!runProps.has("durationMs")) runProps.put("durationMs", 0);
+                      if (!runProps.has("state")) runProps.put("state", "COMPLETED");
                       if (runProps.has("facets") && runProps.get("facets").isTextual()) {
                         try {
                           runProps.set("facets", MAPPER.readTree(runProps.get("facets").asText()));
-                        } catch (Exception e) {
+                        } catch (Exception ignored) {
                         }
                       }
-
-                      rows.add(runProps);
+                      // Keep the entry with the most complete data (prefer one that has
+                      // fqn/jobName).
+                      ObjectNode existing = byRunId.get(runId);
+                      if (existing == null || (!existing.has("fqn") && runProps.has("fqn"))) {
+                        byRunId.put(runId, runProps);
+                      }
                     }
                   }
                 }
-                return rows;
+                return new ArrayList<>(byRunId.values());
               } catch (Exception e) {
                 throw new RuntimeException("Cypher query failed", e);
               }
@@ -201,7 +201,6 @@ public class NamespaceJobResourceV3 {
                 while (rs.next()) {
                   ObjectNode props = (ObjectNode) MAPPER.readTree(rs.getString(1));
 
-                  // Handle JSON fields that might be stored as strings
                   if (props.has("facets") && props.get("facets").isTextual()) {
                     try {
                       props.set("facets", MAPPER.readTree(props.get("facets").asText()));
@@ -226,16 +225,9 @@ public class NamespaceJobResourceV3 {
                       props.has("updatedAt")
                           ? props.get("updatedAt").asText()
                           : "2024-01-01T00:00:00Z");
-
-                  if (!job.has("tags")) {
-                    job.set("tags", MAPPER.createArrayNode());
-                  }
-                  if (!job.has("description")) {
-                    job.put("description", "");
-                  }
-                  if (!job.has("latestRuns")) {
-                    job.set("latestRuns", MAPPER.createArrayNode());
-                  }
+                  if (!job.has("tags")) job.set("tags", MAPPER.createArrayNode());
+                  if (!job.has("description")) job.put("description", "");
+                  if (!job.has("latestRuns")) job.set("latestRuns", MAPPER.createArrayNode());
 
                   ObjectNode id = MAPPER.createObjectNode();
                   id.put("namespace", job.get("namespace").asText());

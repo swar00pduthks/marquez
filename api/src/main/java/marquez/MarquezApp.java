@@ -35,9 +35,13 @@ import marquez.cli.MetadataCommand;
 import marquez.cli.SeedCommand;
 import marquez.common.Utils;
 import marquez.db.DbMigration;
+import marquez.jobs.BackfillConfig;
+import marquez.jobs.BackfillOrchestrator;
 import marquez.jobs.DbRetentionJob;
 import marquez.jobs.MaterializeViewRefresherJob;
 import marquez.jobs.PartitionManagementJob;
+import marquez.jobs.backfill.DenormV1BackfillJob;
+import marquez.jobs.backfill.GraphV1BackfillJob;
 import marquez.logging.DelegatingSqlLogger;
 import marquez.logging.LabelledSqlLogger;
 import marquez.logging.LoggingMdcFilter;
@@ -214,6 +218,20 @@ public final class MarquezApp extends Application<MarquezConfig> {
 
     final Jdbi jdbi = context.getJdbi();
 
+    // Build orchestrator early so both AGE-dependent and relational backfill jobs can register
+    BackfillConfig backfillConfig = config.getBackfill();
+    final BackfillOrchestrator backfillOrchestrator =
+        (backfillConfig != null
+                && backfillConfig.getEnabledVersions() != null
+                && !backfillConfig.getEnabledVersions().isEmpty())
+            ? new BackfillOrchestrator(backfillConfig)
+            : null;
+
+    // DENORM_V1 only needs the relational DB — register it regardless of AGE availability
+    if (backfillOrchestrator != null) {
+      backfillOrchestrator.register(new DenormV1BackfillJob(jdbi, backfillConfig));
+    }
+
     // Register V3 Graph API Resources conditionally to prevent crashing standard V1 databases
     final AtomicBoolean ageEnabled = new AtomicBoolean(false);
     log.info("Starting V3 Graph API registration check...");
@@ -269,11 +287,15 @@ public final class MarquezApp extends Application<MarquezConfig> {
     if (ageEnabled.get()) {
       marquez.v3.db.GraphDao graphDao = new marquez.v3.db.GraphDao();
       graphDao.initGraph(jdbi, "marquez_graph");
+      marquez.v3.db.GraphWriter graphWriter = new marquez.v3.db.GraphWriter(graphDao);
+
+      // Wire graph writes into the V1 service path (fire-and-forget)
+      context.getOpenLineageService().enableGraphWrites(graphWriter, jdbi);
 
       env.jersey()
           .register(
               new marquez.v3.resources.OpenLineageResourceV3(
-                  jdbi, graphDao, context.getOpenLineageService()));
+                  jdbi, graphWriter, context.getOpenLineageService()));
       env.jersey().register(new marquez.v3.resources.DatasetResourceV3(jdbi));
       env.jersey().register(new marquez.v3.resources.NamespaceDatasetResourceV3(jdbi));
       env.jersey().register(new marquez.v3.resources.NamespaceResourceV3(jdbi));
@@ -285,6 +307,18 @@ public final class MarquezApp extends Application<MarquezConfig> {
       env.jersey().register(new marquez.v3.resources.SourceResourceV3(jdbi));
       env.jersey().register(new marquez.v3.resources.ColumnLineageResourceV3(jdbi));
       env.jersey().register(new marquez.v3.resources.StatsResourceV3(context.getStatsService()));
+
+      // GRAPH_V1 requires AGE — only register it here when AGE is confirmed available
+      if (backfillOrchestrator != null) {
+        backfillOrchestrator.register(new GraphV1BackfillJob(jdbi, graphWriter, backfillConfig));
+      }
+    }
+
+    // Manage the orchestrator lifecycle after all jobs are registered
+    if (backfillOrchestrator != null) {
+      env.lifecycle().manage(backfillOrchestrator);
+      log.info(
+          "BackfillOrchestrator registered with versions: {}", backfillConfig.getEnabledVersions());
     }
 
     if (config.getGraphql().isEnabled()) {

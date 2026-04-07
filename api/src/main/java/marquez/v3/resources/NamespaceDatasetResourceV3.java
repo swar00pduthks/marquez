@@ -56,14 +56,16 @@ public class NamespaceDatasetResourceV3 {
       return Response.status(Response.Status.INTERNAL_SERVER_ERROR).build();
     }
 
+    // Match directly on namespace property — avoids dependency on CONTAINS edges
+    // which are only written during real-time ingestion and GRAPH_V1 backfill.
     String sql =
         String.format(
-            "SELECT %sagtype_to_json(n) FROM %scypher('marquez_graph', $$ "
-                + "MATCH (:Namespace {name: $ns})-[:HAS_DATASET]->(d) "
+            "SELECT agtype_to_json(n) FROM %scypher('marquez_graph', $$ "
+                + "MATCH (d:Dataset) WHERE d.namespace = $ns "
                 + "RETURN properties(d) "
                 + "SKIP $off LIMIT $lim "
                 + "$$, ?) as (n %sagtype)",
-            GraphDao.prefix(), GraphDao.prefix(), GraphDao.prefix());
+            GraphDao.prefix(), GraphDao.prefix());
 
     List<ObjectNode> datasets = executeQueryInternal(sql, paramsJson);
     return Response.ok(Map.of("datasets", datasets, "totalCount", datasets.size())).build();
@@ -86,11 +88,11 @@ public class NamespaceDatasetResourceV3 {
 
     String sql =
         String.format(
-            "SELECT %sagtype_to_json(n) FROM %scypher('marquez_graph', $$ "
-                + "MATCH (:Namespace {name: $ns})-[:HAS_DATASET]->(d:Dataset {name: $ds}) "
+            "SELECT agtype_to_json(n) FROM %scypher('marquez_graph', $$ "
+                + "MATCH (d:Dataset) WHERE d.namespace = $ns AND d.name = $ds "
                 + "RETURN properties(d) "
                 + "$$, ?) as (n %sagtype)",
-            GraphDao.prefix(), GraphDao.prefix(), GraphDao.prefix());
+            GraphDao.prefix(), GraphDao.prefix());
 
     List<ObjectNode> datasets = executeQueryInternal(sql, paramsJson);
     if (datasets.isEmpty()) {
@@ -124,12 +126,12 @@ public class NamespaceDatasetResourceV3 {
 
     String sql =
         String.format(
-            "SELECT %sagtype_to_json(n) FROM %scypher('marquez_graph', $$ "
-                + "MATCH (:Namespace {name: $ns})-[:HAS_DATASET]->(:Dataset {name: $ds})-[:HAS_VERSION]->(v) "
+            "SELECT agtype_to_json(n) FROM %scypher('marquez_graph', $$ "
+                + "MATCH (:Namespace {name: $ns})-[:CONTAINS]->(:Dataset {name: $ds})-[:HAS_DATASET_VERSION]->(v:DatasetVersion) "
                 + "RETURN properties(v) "
                 + "SKIP $off LIMIT $lim "
                 + "$$, ?) as (n %sagtype)",
-            GraphDao.prefix(), GraphDao.prefix(), GraphDao.prefix());
+            GraphDao.prefix(), GraphDao.prefix());
 
     List<JsonNode> result =
         jdbi.withHandle(

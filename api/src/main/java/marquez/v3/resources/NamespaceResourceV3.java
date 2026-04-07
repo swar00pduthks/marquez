@@ -51,7 +51,7 @@ public class NamespaceResourceV3 {
 
     String sql =
         String.format(
-            "SELECT %sagtype_to_json(n) FROM %scypher('marquez_graph', $$ "
+            "SELECT agtype_to_json(n) FROM %scypher('marquez_graph', $$ "
                 + "MATCH (n:Namespace) RETURN properties(n) LIMIT $lim "
                 + "$$, ?) as (n %sagtype)",
             GraphDao.prefix(), GraphDao.prefix(), GraphDao.prefix());
@@ -97,7 +97,7 @@ public class NamespaceResourceV3 {
 
     String sql =
         String.format(
-            "SELECT %sagtype_to_json(n) FROM %scypher('marquez_graph', $$ "
+            "SELECT agtype_to_json(n) FROM %scypher('marquez_graph', $$ "
                 + "MATCH (n:Namespace {name: $ns}) RETURN properties(n) "
                 + "$$, ?) as (n %sagtype)",
             GraphDao.prefix(), GraphDao.prefix(), GraphDao.prefix());

@@ -15,6 +15,7 @@ import lombok.Setter;
 import marquez.api.filter.exclusions.ExclusionsConfig;
 import marquez.db.FlywayFactory;
 import marquez.graphql.GraphqlConfig;
+import marquez.jobs.BackfillConfig;
 import marquez.jobs.DbRetentionConfig;
 import marquez.jobs.MaterializedViewRefreshConfig;
 import marquez.search.SearchConfig;
@@ -59,6 +60,11 @@ public class MarquezConfig extends Configuration {
   @Setter
   @JsonProperty("materializedViewRefresh")
   private MaterializedViewRefreshConfig materializedViewRefresh; // OPTIONAL
+
+  @Getter
+  @Setter
+  @JsonProperty("backfill")
+  private BackfillConfig backfill; // OPTIONAL
 
   @Getter
   @JsonProperty("exclude")

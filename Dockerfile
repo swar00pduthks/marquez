@@ -20,6 +20,7 @@ FROM base AS build
 WORKDIR /usr/src/app
 COPY build.gradle build.gradle
 RUN ls -la build.gradle
+ARG CACHE_BUST=1
 COPY api ./api
 RUN ls -la api
 COPY clients/java ./clients/java

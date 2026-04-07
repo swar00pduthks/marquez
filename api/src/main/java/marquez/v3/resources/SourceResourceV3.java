@@ -48,7 +48,7 @@ public class SourceResourceV3 {
 
     String sql =
         String.format(
-            "SELECT %sagtype_to_json(s) FROM %scypher('marquez_graph', $$ "
+            "SELECT agtype_to_json(s) FROM %scypher('marquez_graph', $$ "
                 + "MATCH (s:Source) RETURN properties(s) LIMIT $lim "
                 + "$$, ?) as (s %sagtype)",
             GraphDao.prefix(), GraphDao.prefix(), GraphDao.prefix());

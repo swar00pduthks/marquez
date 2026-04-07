@@ -3,15 +3,15 @@ repos:
       rev: v4.1.0
       hooks:
         -   id: trailing-whitespace
-            exclude: ^(docs/|web/|examples/)|.*\.(md|yaml|yml|sh|ps1|svg)$
+            exclude: ^(docs/|web/|examples/)|.*\.(md|yaml|yml|sh|ps1|svg)$|^api/src/main/resources/marquez/db/migration/
         -   id: end-of-file-fixer
-            exclude: ^(docs/|web/|examples/)|.*\.(md|yaml|yml|sh|ps1|svg)$
+            exclude: ^(docs/|web/|examples/)|.*\.(md|yaml|yml|sh|ps1|svg)$|^api/src/main/resources/marquez/db/migration/
         -   id: check-yaml
             exclude: ^chart/
         -   id: check-added-large-files
         -   id: check-merge-conflict
         -   id: mixed-line-ending
-            exclude: ^(docs/|web/|examples/)
+            exclude: ^(docs/|web/|examples/)|^api/src/main/resources/marquez/db/migration/
 
   -   repo: https://github.com/jguttman94/pre-commit-gradle
       rev: v0.3.0
@@ -24,21 +24,21 @@ repos:
       hooks:
         -   id: gradle-pmd
             name: PMD Static Analysis
-            entry: cmd /c gradlew.bat pmdMain pmdTest
+            entry: sh dev/gradlew_compat.sh pmdMain pmdTest
             language: system
             pass_filenames: false
             files: \.java$
 
         -   id: gradle-build
             name: Gradle Build
-            entry: cmd /c gradlew.bat build -x test
+            entry: sh dev/gradlew_compat.sh build -x test
             language: system
             pass_filenames: false
             files: \.(java|gradle|properties)$
 
         -   id: gradle-test
             name: Run Tests
-            entry: cmd /c gradlew.bat test
+            entry: sh dev/gradlew_compat.sh test
             language: system
             pass_filenames: false
             files: \.java$
@@ -53,7 +53,7 @@ repos:
 
         -   id: check-dco-signoff
             name: Check DCO Sign-off
-            entry: powershell -Command "git log -1 --pretty=%B | Select-String 'Signed-off-by:' -Quiet"
+            entry: sh -c "git log -1 --pretty=%B | grep -q 'Signed-off-by:'"
             language: system
             pass_filenames: false
             stages: [commit-msg]
