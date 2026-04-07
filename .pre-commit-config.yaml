@@ -3,15 +3,15 @@ repos:
       rev: v4.1.0
       hooks:
         -   id: trailing-whitespace
-            exclude: ^(docs/|web/|examples/)|.*\.(md|yaml|yml|sh|ps1|svg)$
+            exclude: ^(docs/|web/|examples/)|.*\.(md|yaml|yml|sh|ps1|svg)$|^api/src/main/resources/marquez/db/migration/
         -   id: end-of-file-fixer
-            exclude: ^(docs/|web/|examples/)|.*\.(md|yaml|yml|sh|ps1|svg)$
+            exclude: ^(docs/|web/|examples/)|.*\.(md|yaml|yml|sh|ps1|svg)$|^api/src/main/resources/marquez/db/migration/
         -   id: check-yaml
             exclude: ^chart/
         -   id: check-added-large-files
         -   id: check-merge-conflict
         -   id: mixed-line-ending
-            exclude: ^(docs/|web/|examples/)
+            exclude: ^(docs/|web/|examples/)|^api/src/main/resources/marquez/db/migration/
 
   -   repo: https://github.com/jguttman94/pre-commit-gradle
       rev: v0.3.0
