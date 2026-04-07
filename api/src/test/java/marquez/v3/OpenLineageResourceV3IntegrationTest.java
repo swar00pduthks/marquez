@@ -691,7 +691,8 @@ public class OpenLineageResourceV3IntegrationTest extends BaseV3IntegrationTest 
     JsonNode graph = MAPPER.readTree(response.body()).path("graph");
 
     // Must contain all 3 nodes
-    boolean hasDs = streamNodes(graph).anyMatch(n -> ds.equals(n.path("data").path("name").asText()));
+    boolean hasDs =
+        streamNodes(graph).anyMatch(n -> ds.equals(n.path("data").path("name").asText()));
     boolean hasJobB =
         streamNodes(graph).anyMatch(n -> jobB.equals(n.path("data").path("name").asText()));
     assertThat(hasDs).as("depth=2 from producer must include dataset").isTrue();
@@ -739,7 +740,8 @@ public class OpenLineageResourceV3IntegrationTest extends BaseV3IntegrationTest 
     assertThat(response.statusCode()).isEqualTo(200);
     JsonNode graph = MAPPER.readTree(response.body()).path("graph");
 
-    boolean hasDs = streamNodes(graph).anyMatch(n -> ds.equals(n.path("data").path("name").asText()));
+    boolean hasDs =
+        streamNodes(graph).anyMatch(n -> ds.equals(n.path("data").path("name").asText()));
     boolean hasJobA =
         streamNodes(graph).anyMatch(n -> jobA.equals(n.path("data").path("name").asText()));
     assertThat(hasDs).as("depth=2 from consumer must include dataset").isTrue();
@@ -760,8 +762,7 @@ public class OpenLineageResourceV3IntegrationTest extends BaseV3IntegrationTest 
     String jobB = "v3-mh-consumer";
     String ds = "v3-mh-dataset";
 
-    HttpResponse<String> response =
-        getV3Lineage("dataset:" + ns + ":" + ds, 2, false).get();
+    HttpResponse<String> response = getV3Lineage("dataset:" + ns + ":" + ds, 2, false).get();
     assertThat(response.statusCode()).isEqualTo(200);
     JsonNode graph = MAPPER.readTree(response.body()).path("graph");
 
@@ -776,12 +777,8 @@ public class OpenLineageResourceV3IntegrationTest extends BaseV3IntegrationTest 
     boolean dsHasOutEdgeToJobB =
         streamNodes(dsNode.get().path("outEdges"))
             .anyMatch(e -> e.path("destination").asText().contains(jobB));
-    assertThat(dsHasInEdgeFromJobA)
-        .as("Dataset inEdges must include producer job A")
-        .isTrue();
-    assertThat(dsHasOutEdgeToJobB)
-        .as("Dataset outEdges must include consumer job B")
-        .isTrue();
+    assertThat(dsHasInEdgeFromJobA).as("Dataset inEdges must include producer job A").isTrue();
+    assertThat(dsHasOutEdgeToJobB).as("Dataset outEdges must include consumer job B").isTrue();
   }
 
   // ===========================================================================

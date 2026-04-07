@@ -24,14 +24,26 @@
 -- (i.e., AGE extension is not installed). The DO block guards against that case.
 
 DO $$
+DECLARE
+  graph_exists boolean;
 BEGIN
-  -- Only run if AGE is installed and marquez_graph exists
-  IF EXISTS (
-    SELECT 1 FROM pg_extension WHERE extname = 'age'
-  ) AND EXISTS (
-    SELECT 1 FROM ag_catalog.ag_graph WHERE name = 'marquez_graph'
-  ) THEN
+  -- Guard 1: AGE extension must be installed (safe to check via pg_extension — no schema needed)
+  IF NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'age') THEN
+    RAISE NOTICE 'AGE extension not found - skipping index creation.';
+    RETURN;
+  END IF;
 
+  -- Guard 2: marquez_graph must exist. Use dynamic SQL so that ag_catalog.ag_graph is only
+  -- resolved at runtime after confirming AGE is present (avoids "relation does not exist"
+  -- when ag_catalog schema is absent on plain Postgres instances).
+  EXECUTE 'SELECT EXISTS(SELECT 1 FROM ag_catalog.ag_graph WHERE name = ''marquez_graph'')'
+    INTO graph_exists;
+  IF NOT graph_exists THEN
+    RAISE NOTICE 'marquez_graph not found - skipping index creation.';
+    RETURN;
+  END IF;
+
+  BEGIN
     -- Drop old GIN indexes that won't be used for equality lookups
     DROP INDEX IF EXISTS marquez_graph.idx_age_job_props;
     DROP INDEX IF EXISTS marquez_graph.idx_age_dataset_props;
@@ -75,9 +87,8 @@ BEGIN
              ON marquez_graph."Source" ((properties->>''name''))';
 
     RAISE NOTICE 'AGE BTREE indexes created successfully on marquez_graph labels.';
-
-  ELSE
-    RAISE NOTICE 'AGE extension or marquez_graph not found - skipping index creation.';
-  END IF;
+  EXCEPTION WHEN OTHERS THEN
+    RAISE NOTICE 'AGE index creation skipped or partial: %', SQLERRM;
+  END;
 END;
 $$;

@@ -5,5 +5,3 @@ CREATE TABLE jobs_tag_mapping (
   tagged_at    TIMESTAMPTZ NOT NULL,
   PRIMARY KEY (tag_uuid, job_uuid)
 );
-
-

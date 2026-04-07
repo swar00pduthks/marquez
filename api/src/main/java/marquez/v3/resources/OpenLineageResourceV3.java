@@ -187,8 +187,8 @@ public class OpenLineageResourceV3 {
   // ---------------------------------------------------------------------------
 
   /**
-   * Queries lineage for a Job or Dataset node using a BFS that alternates between {@code
-   * PRODUCES} and {@code INPUT_TO} edges each hop.
+   * Queries lineage for a Job or Dataset node using a BFS that alternates between {@code PRODUCES}
+   * and {@code INPUT_TO} edges each hop.
    *
    * <p>Single-type variable-length traversal ({@code [:PRODUCES*1..2]}) misses cross-type paths
    * like {@code Job-[PRODUCES]->Dataset-[INPUT_TO]->Job} because the second hop needs a different
@@ -452,21 +452,22 @@ public class OpenLineageResourceV3 {
     // Find the top-level ancestor
     String ancestorId = findRootAncestor(conn, runId);
 
-    String paramsJson = MAPPER.writeValueAsString(Map.of("parentId", ancestorId));
+    // AGE does not reliably support *0.. (zero-length paths include start node in some versions).
+    // Use two separate queries: one for the ancestor itself, one for its children via *1..
+    String ancestorParamsJson = MAPPER.writeValueAsString(Map.of("runId", ancestorId));
 
-    // Collect all descendant runs
-    String childRunsSql =
+    // Query 1: fetch the ancestor Run node itself
+    String ancestorSql =
         String.format(
             "SELECT agtype_to_json(n) "
                 + "FROM %scypher('marquez_graph', $$ "
-                + "MATCH (parent:Run {runId: $parentId})-[:HAS_CHILD_RUN*0..]->(c:Run) "
-                + "RETURN properties(c) "
+                + "MATCH (r:Run {runId: $runId}) RETURN properties(r) "
                 + "$$, ?) as (n %sagtype)",
             GraphDao.prefix(), GraphDao.prefix());
 
     List<JsonNode> allRuns = new ArrayList<>();
-    try (PreparedStatement ps = conn.prepareStatement(childRunsSql)) {
-      ps.setObject(1, GraphDao.createAgtype(paramsJson));
+    try (PreparedStatement ps = conn.prepareStatement(ancestorSql)) {
+      ps.setObject(1, GraphDao.createAgtype(ancestorParamsJson));
       try (ResultSet rs = ps.executeQuery()) {
         while (rs.next()) {
           allRuns.add(MAPPER.readTree(rs.getString(1)));
@@ -476,6 +477,26 @@ public class OpenLineageResourceV3 {
 
     if (allRuns.isEmpty()) {
       return Response.status(Response.Status.NOT_FOUND).build();
+    }
+
+    // Query 2: fetch all descendant child runs via HAS_CHILD_RUN*1..
+    String childParamsJson = MAPPER.writeValueAsString(Map.of("parentId", ancestorId));
+    String childRunsSql =
+        String.format(
+            "SELECT agtype_to_json(n) "
+                + "FROM %scypher('marquez_graph', $$ "
+                + "MATCH (parent:Run {runId: $parentId})-[:HAS_CHILD_RUN*1..]->(c:Run) "
+                + "RETURN properties(c) "
+                + "$$, ?) as (n %sagtype)",
+            GraphDao.prefix(), GraphDao.prefix());
+
+    try (PreparedStatement ps = conn.prepareStatement(childRunsSql)) {
+      ps.setObject(1, GraphDao.createAgtype(childParamsJson));
+      try (ResultSet rs = ps.executeQuery()) {
+        while (rs.next()) {
+          allRuns.add(MAPPER.readTree(rs.getString(1)));
+        }
+      }
     }
 
     // Aggregate state across all runs
@@ -492,16 +513,23 @@ public class OpenLineageResourceV3 {
       }
     }
 
-    // Build aggregated response matching V1 shape
-    ObjectNode aggregated = MAPPER.createObjectNode();
-    aggregated.put("runId", ancestorId);
-    aggregated.put("state", aggregatedState);
-    aggregated.put("aggregatedToParentRun", true);
-    aggregated.put("childRunCount", allRuns.size());
-    aggregated.set("inputs", deduplicateDatasetVersions(allInputs));
-    aggregated.set("outputs", deduplicateDatasetVersions(allOutputs));
+    // Build aggregated run data node
+    ObjectNode aggregatedData = MAPPER.createObjectNode();
+    aggregatedData.put("id", ancestorId);
+    aggregatedData.put("runId", ancestorId);
+    aggregatedData.put("state", aggregatedState);
+    aggregatedData.put("aggregatedToParentRun", true);
+    aggregatedData.put("childRunCount", allRuns.size());
+    aggregatedData.set("inputs", deduplicateDatasetVersions(allInputs));
+    aggregatedData.set("outputs", deduplicateDatasetVersions(allOutputs));
 
-    return Response.ok(Map.of("run", aggregated)).build();
+    // Wrap in graph format so callers can use the same graph traversal as other lineage endpoints
+    ObjectNode runGraphNode = MAPPER.createObjectNode();
+    runGraphNode.put("id", "run:" + ancestorId);
+    runGraphNode.put("type", "run");
+    runGraphNode.set("data", aggregatedData);
+
+    return Response.ok(Map.of("graph", MAPPER.createArrayNode().add(runGraphNode))).build();
   }
 
   /**
@@ -645,7 +673,10 @@ public class OpenLineageResourceV3 {
     }
   }
 
-  /** Fetches a single node by label and FQN, registering it in {@code nodesMap} and {@code idToUiId}. */
+  /**
+   * Fetches a single node by label and FQN, registering it in {@code nodesMap} and {@code
+   * idToUiId}.
+   */
   private void fetchAndRegisterNode(
       Connection conn,
       String label,
@@ -884,8 +915,8 @@ public class OpenLineageResourceV3 {
       }
     }
 
-    if (hasFail) return "FAILED";
-    if (hasAbort) return "ABORTED";
+    if (hasFail) return "FAIL";
+    if (hasAbort) return "ABORT";
     if (hasRunning) return "RUNNING";
     if (hasComplete) return "COMPLETE";
     return "RUNNING";

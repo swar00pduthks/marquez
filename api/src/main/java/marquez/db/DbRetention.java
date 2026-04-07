@@ -643,7 +643,7 @@ public final class DbRetention {
           DELETE FROM dataset_version_denormalized dvd
           WHERE NOT EXISTS (
               SELECT 1 FROM dataset_versions dv
-              WHERE dv.uuid = dvd.uuid AND dv.namespace_uuid = dvd.namespace_uuid
+              WHERE dv.uuid = dvd.uuid
           )
           """)
                   .execute();
