@@ -33,15 +33,23 @@ BEGIN
     RETURN;
   END IF;
 
-  -- Load the AGE shared library into this session so ag_catalog types and functions
-  -- are available. Flyway connections do not call LOAD 'age' automatically.
-  EXECUTE 'LOAD ''age''';
-  EXECUTE 'SET search_path = ag_catalog, "$user", public';
+  -- NOTE: Do NOT call LOAD 'age' here. PostgreSQL restricts LOAD to superusers unless
+  -- the library is in $libdir/plugins/. The marquez role is a non-superuser so it would
+  -- get "access to library is not allowed". AGE is loaded at server start via
+  -- shared_preload_libraries = 'age' in postgresql.conf — no explicit LOAD needed.
 
-  -- Guard 2: marquez_graph must exist. The label tables (e.g. marquez_graph."Job") are
+  -- Guard 2: marquez_graph must exist. ag_catalog.ag_graph is a plain PostgreSQL table
+  -- accessible when AGE is loaded via shared_preload_libraries and marquez has USAGE on
+  -- ag_catalog (granted in init-db.sh). The label tables (e.g. marquez_graph."Job") are
   -- created lazily on first vertex insert, so this migration is a no-op on fresh installs.
-  EXECUTE 'SELECT EXISTS(SELECT 1 FROM ag_catalog.ag_graph WHERE name = ''marquez_graph'')'
-    INTO graph_exists;
+  BEGIN
+    EXECUTE 'SELECT EXISTS(SELECT 1 FROM ag_catalog.ag_graph WHERE name = ''marquez_graph'')'
+      INTO graph_exists;
+  EXCEPTION WHEN OTHERS THEN
+    RAISE NOTICE 'ag_catalog not accessible (AGE may not be in shared_preload_libraries or '
+                 'marquez lacks USAGE on ag_catalog): % — skipping index creation.', SQLERRM;
+    RETURN;
+  END;
   IF NOT graph_exists THEN
     RAISE NOTICE 'marquez_graph not found - skipping index creation.';
     RETURN;
