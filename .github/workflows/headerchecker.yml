@@ -34,6 +34,9 @@ jobs:
           readarray -t files <<<"$(jq -r '.[]' <<<'${{ steps.files.outputs.added_modified }}')"
           for file in ${files[@]}; do
             if [[ ($file == *".java") ]]; then
+              if [ ! -f "$file" ]; then
+                continue
+              fi
               if ! grep -q Copyright "$file"; then
                 ok=0
                 echo "Copyright header not found in $file"
