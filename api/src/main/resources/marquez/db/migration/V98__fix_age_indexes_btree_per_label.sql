@@ -33,18 +33,15 @@ BEGIN
     RETURN;
   END IF;
 
-  -- Guard 2: marquez_graph must exist. Use dynamic SQL so that ag_catalog.ag_graph is only
-  -- resolved at runtime after confirming AGE is present (avoids "relation does not exist"
-  -- when ag_catalog schema is absent on plain Postgres instances).
-  -- Wrap in its own exception block: if ag_catalog is not accessible (e.g. AGE not loaded
-  -- in this session), treat as "graph not found" and skip rather than failing the migration.
-  BEGIN
-    EXECUTE 'SELECT EXISTS(SELECT 1 FROM ag_catalog.ag_graph WHERE name = ''marquez_graph'')'
-      INTO graph_exists;
-  EXCEPTION WHEN OTHERS THEN
-    RAISE NOTICE 'ag_catalog not accessible (AGE may not be loaded): % - skipping index creation.', SQLERRM;
-    RETURN;
-  END;
+  -- Load the AGE shared library into this session so ag_catalog types and functions
+  -- are available. Flyway connections do not call LOAD 'age' automatically.
+  EXECUTE 'LOAD ''age''';
+  EXECUTE 'SET search_path = ag_catalog, "$user", public';
+
+  -- Guard 2: marquez_graph must exist. The label tables (e.g. marquez_graph."Job") are
+  -- created lazily on first vertex insert, so this migration is a no-op on fresh installs.
+  EXECUTE 'SELECT EXISTS(SELECT 1 FROM ag_catalog.ag_graph WHERE name = ''marquez_graph'')'
+    INTO graph_exists;
   IF NOT graph_exists THEN
     RAISE NOTICE 'marquez_graph not found - skipping index creation.';
     RETURN;
