@@ -36,8 +36,15 @@ BEGIN
   -- Guard 2: marquez_graph must exist. Use dynamic SQL so that ag_catalog.ag_graph is only
   -- resolved at runtime after confirming AGE is present (avoids "relation does not exist"
   -- when ag_catalog schema is absent on plain Postgres instances).
-  EXECUTE 'SELECT EXISTS(SELECT 1 FROM ag_catalog.ag_graph WHERE name = ''marquez_graph'')'
-    INTO graph_exists;
+  -- Wrap in its own exception block: if ag_catalog is not accessible (e.g. AGE not loaded
+  -- in this session), treat as "graph not found" and skip rather than failing the migration.
+  BEGIN
+    EXECUTE 'SELECT EXISTS(SELECT 1 FROM ag_catalog.ag_graph WHERE name = ''marquez_graph'')'
+      INTO graph_exists;
+  EXCEPTION WHEN OTHERS THEN
+    RAISE NOTICE 'ag_catalog not accessible (AGE may not be loaded): % - skipping index creation.', SQLERRM;
+    RETURN;
+  END;
   IF NOT graph_exists THEN
     RAISE NOTICE 'marquez_graph not found - skipping index creation.';
     RETURN;
