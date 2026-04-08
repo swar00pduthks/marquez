@@ -10,11 +10,23 @@ export const responseTimeWithoutFacets = new Trend('response_time_without_facets
 export const responseSizeWithFacets = new Trend('response_size_with_facets');
 export const responseSizeWithoutFacets = new Trend('response_size_without_facets');
 
-// Load run UUIDs from metadata file
+// Load run UUIDs from metadata file.
+// Only include runs that have at least one output dataset — these are the only runs with
+// traversable lineage. Runs that only have lifecycle events (START/COMPLETE) with no
+// dataset I/O are not in lineage_events and return 404 from GET /lineage.
 const runUuids = new SharedArray('runUuids', function () {
   const metadata = JSON.parse(open('./metadata.json'));
-  // Extract run UUIDs from metadata
-  return metadata.map(event => event.run?.runId).filter(id => id !== undefined);
+  const withOutputs = new Set(
+    metadata
+      .filter(event => event.outputs && event.outputs.length > 0)
+      .map(event => event.run?.runId)
+      .filter(id => id !== undefined)
+  );
+  // Fall back to all run UUIDs if none have outputs (e.g. generated test data has no outputs)
+  if (withOutputs.size === 0) {
+    return [...new Set(metadata.map(e => e.run?.runId).filter(id => id !== undefined))];
+  }
+  return [...withOutputs];
 });
 
 // Configuration options
@@ -148,8 +160,8 @@ function textSummary(data, options) {
   summary += `${indent}  Request Rate: ${data.metrics.http_reqs.values.rate.toFixed(2)}/s\n`;
   summary += `${indent}  Failed: ${(data.metrics.http_req_failed.values.rate * 100).toFixed(2)}%\n`;
   summary += `${indent}  Duration (avg): ${data.metrics.http_req_duration.values.avg.toFixed(2)}ms\n`;
-  summary += `${indent}  Duration (p95): ${data.metrics.http_req_duration.values['p(95)'].toFixed(2)}ms\n`;
-  summary += `${indent}  Duration (p99): ${data.metrics.http_req_duration.values['p(99)'].toFixed(2)}ms\n`;
+  summary += `${indent}  Duration (p95): ${(data.metrics.http_req_duration.values['p(95)'] ?? 0).toFixed(2)}ms\n`;
+  summary += `${indent}  Duration (p99): ${(data.metrics.http_req_duration.values['p(99)'] ?? 0).toFixed(2)}ms\n`;
   summary += `${indent}  Duration (max): ${data.metrics.http_req_duration.values.max.toFixed(2)}ms\n\n`;
 
   // Without facets metrics
