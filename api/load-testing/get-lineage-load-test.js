@@ -69,9 +69,40 @@ export const options = {
   },
 };
 
-export default function () {
+// Probe live API for run UUIDs with output datasets — more reliable than metadata filtering.
+// Returns null if API is unreachable; default function falls back to SharedArray in that case.
+export function setup() {
+  const baseUrl = __ENV.MARQUEZ_URL || 'http://localhost:8080';
+  const response = http.get(`${baseUrl}/api/v1/events/lineage?limit=500`, {
+    headers: { Accept: 'application/json' },
+    timeout: '30s',
+  });
+  if (response.status !== 200) {
+    return { apiRunUuids: [] };
+  }
+  try {
+    const body = JSON.parse(response.body);
+    const events = body.events || [];
+    const ids = [...new Set(
+      events
+        .filter(e => e.outputs && e.outputs.length > 0)
+        .map(e => e.run && e.run.runId)
+        .filter(id => id)
+    )];
+    return { apiRunUuids: ids };
+  } catch (_) {
+    return { apiRunUuids: [] };
+  }
+}
+
+export default function (data) {
+  // Prefer live API-probed UUIDs (populated by setup()); fall back to metadata-derived set.
+  const uuids = (data && data.apiRunUuids && data.apiRunUuids.length > 0)
+    ? data.apiRunUuids
+    : runUuids;
+
   // Select a random run UUID
-  const runUuid = runUuids[Math.floor(Math.random() * runUuids.length)];
+  const runUuid = uuids[Math.floor(Math.random() * uuids.length)];
 
   const baseUrl = __ENV.MARQUEZ_URL || 'http://localhost:8080';
   const depth = __ENV.LINEAGE_DEPTH || 20;

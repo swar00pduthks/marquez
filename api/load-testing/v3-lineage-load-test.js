@@ -27,6 +27,31 @@ const runUuids = new SharedArray('runUuids', function () {
   return [...withOutputs];
 });
 
+// Probe live API for run UUIDs with output datasets — more reliable than metadata filtering.
+export function setup() {
+  const baseUrl = (__ENV.MARQUEZ_URL || 'http://localhost:8080').replace(/\/$/, '');
+  const response = http.get(`${baseUrl}/api/v1/events/lineage?limit=500`, {
+    headers: { Accept: 'application/json' },
+    timeout: '30s',
+  });
+  if (response.status !== 200) {
+    return { apiRunUuids: [] };
+  }
+  try {
+    const body = JSON.parse(response.body);
+    const events = body.events || [];
+    const ids = [...new Set(
+      events
+        .filter(e => e.outputs && e.outputs.length > 0)
+        .map(e => e.run && e.run.runId)
+        .filter(id => id)
+    )];
+    return { apiRunUuids: ids };
+  } catch (_) {
+    return { apiRunUuids: [] };
+  }
+}
+
 export const options = {
   vus: Number(__ENV.VUS || 25),
   duration: __ENV.DURATION || '5m',
@@ -37,8 +62,12 @@ export const options = {
   },
 };
 
-export default function () {
-  const runUuid = runUuids[Math.floor(Math.random() * runUuids.length)];
+export default function (data) {
+  // Prefer live API-probed UUIDs; fall back to metadata-derived set.
+  const uuids = (data && data.apiRunUuids && data.apiRunUuids.length > 0)
+    ? data.apiRunUuids
+    : runUuids;
+  const runUuid = uuids[Math.floor(Math.random() * uuids.length)];
   const nodeId = encodeURIComponent(`run:${runUuid}`);
   const url = `${BASE_URL}/api/v3/lineage?nodeId=${nodeId}&depth=${DEPTH}`;
 
