@@ -129,7 +129,8 @@ public final class MarquezApp extends Application<MarquezConfig> {
     log.info("Running startup actions...");
 
     try {
-      DbMigration.migrateDbOrError(config.getFlywayFactory(), source, config.isMigrateOnStartup());
+      DbMigration.migrateDbOrError(
+          config.getFlywayFactory(), source, config.isMigrateOnStartup(), config.isAgeEnabled());
     } catch (FlywayException errorOnDbMigrate) {
       log.info("Stopping app...");
       onFatalError(errorOnDbMigrate);
@@ -234,54 +235,58 @@ public final class MarquezApp extends Application<MarquezConfig> {
 
     // Register V3 Graph API Resources conditionally to prevent crashing standard V1 databases
     final AtomicBoolean ageEnabled = new AtomicBoolean(false);
-    log.info("Starting V3 Graph API registration check...");
-    try {
-      jdbi.useHandle(
-          handle -> {
-            java.sql.Connection conn = handle.getConnection();
-            try (java.sql.Statement stmt = conn.createStatement()) {
-              log.info("Attempting to verify/create AGE extension...");
-              try {
-                stmt.execute("CREATE EXTENSION IF NOT EXISTS age");
-                log.info("Finished CREATE EXTENSION command.");
-              } catch (Exception e) {
-                log.info(
-                    "Note: CREATE EXTENSION IF NOT EXISTS age message (standard on Azure/non-superuser): {}",
-                    e.getMessage());
-              }
+    if (config.isAgeEnabled()) {
+      log.info("Starting V3 Graph API registration check...");
+      try {
+        jdbi.useHandle(
+            handle -> {
+              java.sql.Connection conn = handle.getConnection();
+              try (java.sql.Statement stmt = conn.createStatement()) {
+                log.info("Attempting to verify/create AGE extension...");
+                try {
+                  stmt.execute("CREATE EXTENSION IF NOT EXISTS age");
+                  log.info("Finished CREATE EXTENSION command.");
+                } catch (Exception e) {
+                  log.info(
+                      "Note: CREATE EXTENSION IF NOT EXISTS age message (standard on Azure/non-superuser): {}",
+                      e.getMessage());
+                }
 
-              log.info("Attempting to LOAD 'age'...");
-              try {
-                stmt.execute("LOAD 'age'");
-                log.info("Successfully LOADed 'age'.");
-              } catch (Exception e) {
-                log.info(
-                    "Note: LOAD 'age' failed, but continuing as it may be preloaded: {}",
-                    e.getMessage());
-              }
+                log.info("Attempting to LOAD 'age'...");
+                try {
+                  stmt.execute("LOAD 'age'");
+                  log.info("Successfully LOADed 'age'.");
+                } catch (Exception e) {
+                  log.info(
+                      "Note: LOAD 'age' failed, but continuing as it may be preloaded: {}",
+                      e.getMessage());
+                }
 
-              log.info("Attempting to set search_path for AGE...");
-              try {
-                stmt.execute("SET search_path = ag_catalog, \"$user\", public");
-                log.info("Successfully set search_path for AGE.");
-              } catch (Exception e) {
-                log.info("Note: SET search_path failed, but continuing: {}", e.getMessage());
-              }
+                log.info("Attempting to set search_path for AGE...");
+                try {
+                  stmt.execute("SET search_path = ag_catalog, \"$user\", public");
+                  log.info("Successfully set search_path for AGE.");
+                } catch (Exception e) {
+                  log.info("Note: SET search_path failed, but continuing: {}", e.getMessage());
+                }
 
-              // Final check: confirm AGE extension exists in database
-              try (java.sql.ResultSet rs =
-                  stmt.executeQuery("SELECT 1 FROM pg_extension WHERE extname = 'age'")) {
-                ageEnabled.set(rs.next());
+                // Final check: confirm AGE extension exists in database
+                try (java.sql.ResultSet rs =
+                    stmt.executeQuery("SELECT 1 FROM pg_extension WHERE extname = 'age'")) {
+                  ageEnabled.set(rs.next());
+                }
               }
-            }
-          });
-      if (ageEnabled.get()) {
-        log.info("Marquez V3 initialization complete (ageEnabled=true).");
-      } else {
-        log.info("Marquez V3 initialization complete (ageEnabled=false).");
+            });
+        if (ageEnabled.get()) {
+          log.info("Marquez V3 initialization complete (ageEnabled=true).");
+        } else {
+          log.info("Marquez V3 initialization complete (ageEnabled=false).");
+        }
+      } catch (Exception e) {
+        log.warn("Failed V3 check. V3 Graph API will be disabled. Reason: {}", e.getMessage(), e);
       }
-    } catch (Exception e) {
-      log.warn("Failed V3 check. V3 Graph API will be disabled. Reason: {}", e.getMessage(), e);
+    } else {
+      log.info("AGE disabled by configuration (ageEnabled=false). Skipping V3 Graph API.");
     }
 
     if (ageEnabled.get()) {

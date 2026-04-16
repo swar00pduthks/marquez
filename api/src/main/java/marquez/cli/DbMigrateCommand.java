@@ -37,6 +37,7 @@ public class DbMigrateCommand extends ConfiguredCommand<MarquezConfig> {
     final ManagedDataSource source =
         sourceFactory.build(bootstrap.getMetricRegistry(), "MarquezApp-source");
 
-    DbMigration.migrateDbOrError(configuration.getFlywayFactory(), source, true);
+    DbMigration.migrateDbOrError(
+        configuration.getFlywayFactory(), source, true, configuration.isAgeEnabled());
   }
 }

@@ -474,32 +474,35 @@ public interface DatasetVersionDao extends BaseDao {
   @SqlUpdate("UPDATE dataset_versions SET fields = :fields WHERE uuid = :uuid")
   void updateFields(UUID uuid, PGobject fields);
 
-  // --- v2 Denormalized Table Methods (placed at end for standards) ---
+  // --- v2 View-based Methods (placed at end for standards) ---
+  // Uses dataset_versions_view_v2 which encapsulates:
+  //   - dataset_version_denormalized (fields, schema_location, lifecycle_state)
+  //   - dataset_denormalized (type, name, physical_name, namespace_name, source_name,
+  //                           description, pre-aggregated tags[])
+  //   - dataset_versions (run_uuid for createdByRun, dataset_schema_version_uuid)
+  //   - datasets fallback for correctness when denorm row is missing
+  // Eliminates: stream_versions join, datasets_tag_mapping subquery, datasets_view overhead.
   @SqlQuery(
       """
-            SELECT d.type, d.name, d.physical_name, d.namespace_name, d.source_name, d.description,
-                   dv.lifecycle_state, dv.created_at, dv.uuid AS current_version_uuid, dv.version,
-                   dv.dataset_schema_version_uuid, dv.fields, dv.run_uuid AS createdByRunUuid,
-                   sv.schema_location, t.tags,
-                   JSONB_AGG(df.facet ORDER BY df.lineage_event_time ASC) AS facets
-            FROM dataset_versions dv
-            LEFT JOIN datasets_view d ON d.uuid = dv.dataset_uuid
-            LEFT JOIN stream_versions AS sv ON sv.dataset_version_uuid = dv.uuid
-            LEFT JOIN (
-                SELECT ARRAY_AGG(t.name) AS tags, m.dataset_uuid
-                FROM tags AS t
-                INNER JOIN datasets_tag_mapping AS m ON m.tag_uuid = t.uuid
-                GROUP BY m.dataset_uuid
-            ) t ON t.dataset_uuid = dv.dataset_uuid
-            LEFT JOIN dataset_facets_view df ON df.dataset_version_uuid = dv.uuid
+            SELECT v2.type, v2.name, v2.physical_name, v2.namespace_name,
+                   v2.source_name, v2.description,
+                   v2.lifecycle_state, v2.created_at,
+                   v2.uuid AS current_version_uuid, v2.version,
+                   v2.dataset_schema_version_uuid, v2.fields,
+                   v2.run_uuid AS createdByRunUuid,
+                   v2.schema_location, v2.tags,
+                   JSONB_AGG(df.facet ORDER BY df.lineage_event_time ASC)
+                       FILTER (WHERE df.facet IS NOT NULL) AS facets
+            FROM dataset_versions_view_v2 v2
+            LEFT JOIN dataset_facets_view df ON df.dataset_version_uuid = v2.uuid
                 AND (df.type ILIKE 'dataset' OR df.type ILIKE 'unknown' OR df.type ILIKE 'input')
                 <facetFilter>
-            WHERE dv.dataset_uuid = :datasetUuid
-            GROUP BY d.type, d.name, d.physical_name, d.namespace_name, d.source_name, d.description,
-                dv.lifecycle_state, dv.created_at, dv.uuid, dv.version,
-                dv.dataset_schema_version_uuid, dv.fields, dv.run_uuid,
-                sv.schema_location, t.tags
-            ORDER BY dv.created_at DESC
+            WHERE v2.dataset_uuid = :datasetUuid
+            GROUP BY v2.type, v2.name, v2.physical_name, v2.namespace_name,
+                v2.source_name, v2.description, v2.lifecycle_state, v2.created_at,
+                v2.uuid, v2.version, v2.dataset_schema_version_uuid, v2.fields,
+                v2.run_uuid, v2.schema_location, v2.tags
+            ORDER BY v2.created_at DESC
             LIMIT :limit
             OFFSET :offset
             """)
@@ -528,28 +531,24 @@ public interface DatasetVersionDao extends BaseDao {
 
   @SqlQuery(
       """
-            SELECT d.type, d.name, d.physical_name, d.namespace_name, d.source_name, d.description,
-                   dv.lifecycle_state, dv.created_at, dv.uuid AS current_version_uuid, dv.version,
-                   dv.dataset_schema_version_uuid, dv.fields, dv.run_uuid AS createdByRunUuid,
-                   sv.schema_location, t.tags,
-                   JSONB_AGG(df.facet ORDER BY df.lineage_event_time ASC) AS facets
-            FROM dataset_versions dv
-            LEFT JOIN datasets_view d ON d.uuid = dv.dataset_uuid
-            LEFT JOIN stream_versions AS sv ON sv.dataset_version_uuid = dv.uuid
-            LEFT JOIN (
-                SELECT ARRAY_AGG(t.name) AS tags, m.dataset_uuid
-                FROM tags AS t
-                INNER JOIN datasets_tag_mapping AS m ON m.tag_uuid = t.uuid
-                GROUP BY m.dataset_uuid
-            ) t ON t.dataset_uuid = dv.dataset_uuid
-            LEFT JOIN dataset_facets_view df ON df.dataset_version_uuid = dv.uuid
+            SELECT v2.type, v2.name, v2.physical_name, v2.namespace_name,
+                   v2.source_name, v2.description,
+                   v2.lifecycle_state, v2.created_at,
+                   v2.uuid AS current_version_uuid, v2.version,
+                   v2.dataset_schema_version_uuid, v2.fields,
+                   v2.run_uuid AS createdByRunUuid,
+                   v2.schema_location, v2.tags,
+                   JSONB_AGG(df.facet ORDER BY df.lineage_event_time ASC)
+                       FILTER (WHERE df.facet IS NOT NULL) AS facets
+            FROM dataset_versions_view_v2 v2
+            LEFT JOIN dataset_facets_view df ON df.dataset_version_uuid = v2.uuid
                 AND (df.type ILIKE 'dataset' OR df.type ILIKE 'unknown' OR df.type ILIKE 'input')
                 <facetFilter>
-            WHERE dv.uuid = CAST(:version AS uuid)
-            GROUP BY d.type, d.name, d.physical_name, d.namespace_name, d.source_name, d.description,
-                dv.lifecycle_state, dv.created_at, dv.uuid, dv.version,
-                dv.dataset_schema_version_uuid, dv.fields, dv.run_uuid,
-                sv.schema_location, t.tags
+            WHERE v2.uuid = CAST(:version AS uuid)
+            GROUP BY v2.type, v2.name, v2.physical_name, v2.namespace_name,
+                v2.source_name, v2.description, v2.lifecycle_state, v2.created_at,
+                v2.uuid, v2.version, v2.dataset_schema_version_uuid, v2.fields,
+                v2.run_uuid, v2.schema_location, v2.tags
             """)
   Optional<DatasetVersion> findDatasetVersionByVersionV2(
       @org.jdbi.v3.sqlobject.customizer.Bind("version") String version,

@@ -46,6 +46,10 @@ marquez:
   ## Indicates if Flyway database migration will execute upon deployment
   ##
   migrateOnStartup: true
+  ## Enables Apache AGE graph extension features (V3 Graph API).
+  ## Default: false — safe for all standard Postgres deployments (no WARNING noise, no overhead).
+  ## Set to true only when the AGE extension is installed in your PostgreSQL server.
+  ageEnabled: false
   ## Marquez will run using this hostname
   ##
   hostname: localhost

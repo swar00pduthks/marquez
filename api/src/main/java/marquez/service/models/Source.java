@@ -29,7 +29,7 @@ public class Source {
 
   @NonNull Instant createdAt;
   @NonNull Instant updatedAt;
-  @NonNull URI connectionUrl;
+  @Nullable URI connectionUrl;
   @Nullable String description;
 
   public Optional<String> getDescription() {

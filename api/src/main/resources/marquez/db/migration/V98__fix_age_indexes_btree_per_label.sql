@@ -27,6 +27,12 @@ DO $$
 DECLARE
   graph_exists boolean;
 BEGIN
+  -- Outer guard: skip entirely when ageEnabled=false (Flyway placeholder).
+  IF '${ageEnabled}' = 'false' THEN
+    RAISE NOTICE 'V98: ageEnabled=false — skipping index creation.';
+    RETURN;
+  END IF;
+
   -- Guard 1: AGE extension must be installed (safe to check via pg_extension — no schema needed)
   IF NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'age') THEN
     RAISE NOTICE 'AGE extension not found - skipping index creation.';

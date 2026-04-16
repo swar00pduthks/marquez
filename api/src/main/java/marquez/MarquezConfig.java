@@ -26,9 +26,18 @@ import marquez.tracing.SentryConfig;
 @NoArgsConstructor
 public class MarquezConfig extends Configuration {
   private static final boolean DEFAULT_MIGRATE_ON_STARTUP = true;
+  private static final boolean DEFAULT_AGE_ENABLED = false;
   private static final ImmutableSet<Tag> DEFAULT_TAGS = ImmutableSet.of();
 
   @Getter private boolean migrateOnStartup = DEFAULT_MIGRATE_ON_STARTUP;
+
+  /**
+   * Controls whether Apache AGE graph extension features are enabled. Set to {@code true} only on
+   * PostgreSQL deployments with the AGE extension installed to enable V3 Graph API features.
+   * Default: {@code false} — safe for all standard Postgres deployments with zero WARNING noise.
+   */
+  @Getter @Setter private boolean ageEnabled = DEFAULT_AGE_ENABLED;
+
   @Getter private ImmutableSet<Tag> tags = DEFAULT_TAGS;
 
   @Getter

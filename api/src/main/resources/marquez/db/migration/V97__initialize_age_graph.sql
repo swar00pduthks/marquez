@@ -25,6 +25,12 @@ DECLARE
   v_label      text;
   e_label      text;
 BEGIN
+  -- Outer guard: skip entirely when ageEnabled=false (Flyway placeholder).
+  IF '${ageEnabled}' = 'false' THEN
+    RAISE NOTICE 'V97: ageEnabled=false — skipping graph initialisation.';
+    RETURN;
+  END IF;
+
   -- Guard 1: AGE extension must be installed.
   IF NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'age') THEN
     RAISE NOTICE 'V97: AGE extension not installed — skipping graph initialisation.';
