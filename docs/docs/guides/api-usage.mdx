@@ -248,6 +248,22 @@ The response includes the full lineage graph with upstream and downstream nodes.
 curl "http://localhost:5000/api/v1/lineage?nodeId=dataset:analytics.daily_event_summary"
 ```
 
+### Get the Upstream Lineage for a Run
+
+Retrieve the upstream lineage for a specific run. This recursively walks: run → dataset version it read from → the run that produced it.
+
+```bash
+curl "http://localhost:5000/api/v1/runlineage/upstream?runId=a1b2c3d4-e5f6-7890-abcd-ef1234567890&depth=10"
+```
+
+### Aggregate Lineage to Parent Run
+
+When jobs use parent/child run hierarchies (e.g. Airflow DAGs with tasks), use `aggregateToParentRun=true` to collapse child runs into the parent run in the lineage graph:
+
+```bash
+curl "http://localhost:5000/api/v1/lineage?nodeId=job:analytics.aggregate_daily_events&aggregateToParentRun=true"
+```
+
 ### Control Lineage Depth
 
 Limit the depth of the lineage graph traversal:
@@ -256,10 +272,123 @@ Limit the depth of the lineage graph traversal:
 curl "http://localhost:5000/api/v1/lineage?nodeId=job:analytics.aggregate_daily_events&depth=3"
 ```
 
+### Include Facets in Lineage Response
+
+Request specific facets to be included in the lineage response:
+
+```bash
+curl "http://localhost:5000/api/v1/lineage?nodeId=job:analytics.aggregate_daily_events&includeFacets=schema&includeFacets=documentation"
+```
+
 ### Get Column-Level Lineage
 
 ```bash
 curl "http://localhost:5000/api/v1/column-lineage?nodeId=dataset:analytics.daily_event_summary"
+```
+
+### List Lineage Events
+
+Browse lineage events with time-range filtering and pagination:
+
+```bash
+curl "http://localhost:5000/api/v1/events/lineage?limit=50&sortDirection=desc"
+```
+
+Filter by time range:
+
+```bash
+curl "http://localhost:5000/api/v1/events/lineage?after=2024-01-01T00:00:00%2B00:00&before=2024-02-01T00:00:00%2B00:00&limit=100"
+```
+
+## V2 API
+
+This repository includes a V2 API surface that provides enhanced dataset, job, and lineage responses with richer metadata.
+
+### V2 Lineage (with aggregateToParentRun)
+
+```bash
+curl "http://localhost:5000/api/v2/lineage?nodeId=job:analytics.aggregate_daily_events&depth=20&aggregateToParentRun=true"
+```
+
+### V2 Datasets (with facets)
+
+```bash
+curl "http://localhost:5000/api/v2/namespaces/analytics/datasets"
+```
+
+Get a specific dataset with facets:
+
+```bash
+curl "http://localhost:5000/api/v2/namespaces/analytics/datasets/user_events?includeFacets=schema"
+```
+
+### V2 Jobs (with facets)
+
+```bash
+curl "http://localhost:5000/api/v2/namespaces/analytics/jobs"
+```
+
+### V2 Dataset Versions
+
+```bash
+curl "http://localhost:5000/api/v2/namespaces/analytics/datasets/user_events/versions"
+```
+
+## V3 API (Graph-Powered)
+
+The V3 API uses Apache AGE (a graph extension for PostgreSQL) to provide graph-native lineage queries. It stores lineage as a property graph with nodes (Jobs, Runs, Datasets, DatasetVersions, Fields) and edges (CONSUMES_VERSION, PRODUCES_VERSION, HAS_PARENT, etc.).
+
+### V3 Lineage Graph
+
+```bash
+curl "http://localhost:5000/api/v3/lineage?nodeId=job:analytics.aggregate_daily_events&depth=5"
+```
+
+With parent-run aggregation:
+
+```bash
+curl "http://localhost:5000/api/v3/lineage?nodeId=job:analytics.aggregate_daily_events&aggregateToParentRun=true"
+```
+
+### V3 Post Lineage Events
+
+```bash
+curl -X POST http://localhost:5000/api/v3/lineage \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "eventType": "COMPLETE",
+    "eventTime": "2024-01-15T10:05:30.000Z",
+    "run": {
+      "runId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+    },
+    "job": {
+      "namespace": "analytics",
+      "name": "aggregate_daily_events"
+    },
+    "inputs": [{"namespace": "analytics", "name": "user_events"}],
+    "outputs": [{"namespace": "analytics", "name": "daily_event_summary"}],
+    "producer": "https://my-scheduler.example.com",
+    "schemaURL": "https://openlineage.io/spec/2-0-2/OpenLineage.json#/definitions/RunEvent"
+  }'
+```
+
+### V3 Namespaces, Jobs, Datasets, Runs
+
+```bash
+# List namespaces
+curl http://localhost:5000/api/v3/namespaces
+
+# List jobs in a namespace
+curl http://localhost:5000/api/v3/namespaces/analytics/jobs
+
+# List datasets in a namespace
+curl http://localhost:5000/api/v3/namespaces/analytics/datasets
+
+# List runs
+curl http://localhost:5000/api/v3/jobs/runs?limit=50
+
+# Column-level lineage
+curl "http://localhost:5000/api/v3/column-lineage?nodeId=dataset:analytics.daily_event_summary"
 ```
 
 ## Searching Metadata
@@ -343,8 +472,8 @@ Error responses include a JSON body with details:
 
 Marquez provides official client libraries for programmatic access:
 
-- **[Java Client](https://github.com/MarquezProject/marquez/tree/main/clients/java)** — For JVM-based applications.
-- **[Python Client](https://github.com/MarquezProject/marquez/tree/main/clients/python)** — For Python scripts and applications.
+- **[Java Client](https://github.com/swar00pduthks/marquez/tree/main/clients/java)** — For JVM-based applications.
+- **[Python Client](https://github.com/swar00pduthks/marquez/tree/main/clients/python)** — For Python scripts and applications.
 
 ## Next Steps
 
