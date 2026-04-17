@@ -122,7 +122,7 @@ To avoid expensive JOIN queries on the critical read path, Marquez maintains **d
 
 **How denormalized tables are populated:**
 
-1. An OpenLineage event arrives at `POST /api/v1/lineage`.
+1. An OpenLineage event arrives at `POST /api/v1/lineage` (V3 events at `POST /api/v3/lineage` use the graph path instead — see below).
 2. `OpenLineageService` processes the event, upserting core relational tables (namespaces, datasets, jobs, runs).
 3. After each event, `OpenLineageService` calls `DenormalizedLineageService.populateDenormalizedEntitiesForEvent()` to incrementally upsert the specific job and dataset records into `dataset_denormalized`, `dataset_version_denormalized`, and `job_denormalized`.
 4. For terminal run states (`COMPLETE`, `FAIL`, `ABORT`), it also calls `DenormalizedLineageService.populateLineageForRun()` to populate `run_lineage_denormalized` and `run_parent_lineage_denormalized`.
@@ -160,8 +160,9 @@ When an event is posted to `POST /api/v3/lineage`, the `OpenLineageResourceV3` m
 | `HAS_FIELD` | DatasetVersion → DatasetField | Dataset schema fields |
 | `APPLIES_TRANSFORMATION` | Run → DatasetField | Column-level lineage |
 
-V3 lineage queries use **Cypher** (the graph query language) to traverse the `marquez_graph`, enabling depth-bounded multi-hop queries such as:
+V3 lineage queries use **Cypher** (the graph query language) to traverse the `marquez_graph`, enabling depth-bounded multi-hop queries. Cypher is executed inside PostgreSQL via the AGE `cypher()` SQL function:
 ```sql
+-- Cypher query executed via the Apache AGE SQL wrapper
 SELECT * FROM cypher('marquez_graph', $$
   MATCH path = (a)-[*1..10]-(b) WHERE a.fqn = 'analytics:my_job'
   RETURN path
@@ -303,7 +304,7 @@ V3 endpoints use Cypher queries against the `marquez_graph` for native graph tra
 | **Datasets** | `GET /api/v3/namespaces/{ns}/datasets` | Datasets from graph |
 | **Jobs** | `GET /api/v3/namespaces/{ns}/jobs` | Jobs from graph |
 | **Runs** | `GET /api/v3/jobs/runs` | Runs from graph |
-| **Column Lineage** | `GET /api/v3/column-lineage` | Column-level lineage via `DERIVED_FROM` edges |
+| **Column Lineage** | `GET /api/v3/column-lineage` | Column-level lineage via `APPLIES_TRANSFORMATION` and `HAS_FIELD` edges |
 | **Sources** | `GET /api/v3/sources` | Sources from graph |
 | **Tags** | `GET /api/v3/tags` | Tags from graph |
 
