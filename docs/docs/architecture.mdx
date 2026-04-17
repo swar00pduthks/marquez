@@ -10,7 +10,7 @@ This document provides a comprehensive overview of Marquez's architecture, inclu
 
 ## System Architecture
 
-Marquez follows a **12-factor application** design and is composed of three main layers:
+Marquez follows a **12-factor application** design and is composed of three main layers, with a **dual-storage architecture**: relational tables for CRUD operations and an **Apache AGE graph layer** for high-performance lineage traversal.
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
@@ -26,37 +26,46 @@ Marquez follows a **12-factor application** design and is composed of three main
            │                 │                 │
            ▼                 ▼                 ▼
      ┌─────────────────────────────────────────────┐
-     │           OpenLineage Events (HTTP)          │
-     │               POST /api/v1/lineage           │
+     │        OpenLineage Events (HTTP)             │
+     │  POST /api/v1/lineage  (V1 relational)       │
+     │  POST /api/v3/lineage  (V3 graph-powered)    │
      └──────────────────────┬──────────────────────┘
                             │
                             ▼
-     ┌─────────────────────────────────────────────┐
-     │            Marquez HTTP API Server            │
-     │                (Dropwizard)                   │
-     │                                               │
-     │  ┌─────────────┐  ┌──────────────────────┐   │
-     │  │  REST API    │  │  OpenLineage Handler │   │
-     │  │  Controllers │  │  (Event Processing)  │   │
-     │  └──────┬──────┘  └──────────┬───────────┘   │
-     │         │                    │                 │
-     │         ▼                    ▼                 │
-     │  ┌──────────────────────────────────────┐     │
-     │  │         Service Layer                 │     │
-     │  │  (Namespace, Dataset, Job, Run, etc.) │     │
-     │  └──────────────┬───────────────────────┘     │
-     │                 │                              │
-     │                 ▼                              │
-     │  ┌──────────────────────────────────────┐     │
-     │  │       Data Access Layer (JDBI/SQL)    │     │
-     │  └──────────────┬───────────────────────┘     │
-     └─────────────────┼──────────────────────────────┘
-                       │
-                       ▼
-          ┌────────────────────────┐
-          │      PostgreSQL        │
-          │   (Metadata Store)     │
-          └────────────────────────┘
+     ┌─────────────────────────────────────────────────────┐
+     │              Marquez HTTP API Server                  │
+     │                  (Dropwizard)                         │
+     │                                                       │
+     │  ┌───────────────┐  ┌────────────────────────────┐   │
+     │  │  V1/V2 REST    │  │  V3 Graph-Powered Resources│   │
+     │  │  Controllers   │  │  (Cypher-based queries)    │   │
+     │  └───────┬───────┘  └──────────┬─────────────────┘   │
+     │          │                     │                      │
+     │          ▼                     ▼                      │
+     │  ┌──────────────────────────────────────────────┐    │
+     │  │            Service Layer                      │    │
+     │  │   OpenLineageService → DenormalizedLineage    │    │
+     │  │                        Service                │    │
+     │  └───────────┬────────────────────┬─────────────┘    │
+     │              │                    │                    │
+     │              ▼                    ▼                    │
+     │  ┌──────────────────┐  ┌────────────────────────┐    │
+     │  │ JDBI/SQL DAO     │  │ GraphDao (AGE/Cypher)  │    │
+     │  │ (Relational)     │  │ (Graph operations)     │    │
+     │  └────────┬─────────┘  └──────────┬─────────────┘    │
+     └───────────┼───────────────────────┼──────────────────┘
+                 │                       │
+                 ▼                       ▼
+     ┌───────────────────────────────────────────────┐
+     │              PostgreSQL                        │
+     │                                                │
+     │  ┌──────────────┐  ┌────────────────────────┐ │
+     │  │  Relational   │  │  Apache AGE Extension  │ │
+     │  │  Tables +     │  │  (Graph: marquez_graph)│ │
+     │  │  Denormalized │  │  Nodes: Namespace, Job,│ │
+     │  │  Tables       │  │  Dataset, Run, etc.    │ │
+     │  └──────────────┘  └────────────────────────┘ │
+     └───────────────────────────────────────────────┘
 
      ┌─────────────────────────────────────────────┐
      │            Marquez Web UI                     │
@@ -75,16 +84,20 @@ Marquez follows a **12-factor application** design and is composed of three main
 
 The API server is the heart of Marquez. Built on the [Dropwizard](https://www.dropwizard.io) framework, it provides:
 
-- **REST API** — CRUD operations for namespaces, datasets, jobs, runs, and sources.
-- **OpenLineage Event Handler** — Ingests [OpenLineage](https://openlineage.io) events, extracts metadata, and stores lineage information.
+- **V1 REST API** — CRUD operations for namespaces, datasets, jobs, runs, and sources.
+- **V2 REST API** — Enhanced read endpoints backed by denormalized tables for faster queries.
+- **V3 Graph API** — Apache AGE-powered endpoints using Cypher for native graph lineage traversal.
+- **OpenLineage Event Handler** — Ingests [OpenLineage](https://openlineage.io) events, extracts metadata, and stores lineage information in both relational and graph storage.
 - **Search** — Full-text search across datasets and jobs.
-- **Lineage Queries** — Graph-based queries for upstream and downstream dependency traversal.
+- **Lineage Queries** — Supports `aggregateToParentRun` (collapse child runs into parent), `includeFacets` (selective facet inclusion), and `depth` (traversal depth control).
 
 **Key configuration** is managed through the `marquez.yml` file, which controls database connections, server ports, logging, and optional features.
 
-### 2. PostgreSQL Database
+### 2. PostgreSQL Database (Relational + Graph)
 
-All metadata is stored in PostgreSQL. Marquez uses [Flyway](https://flywaydb.org) for schema migrations, ensuring safe and versioned database changes. The schema includes tables for:
+All metadata is stored in PostgreSQL. Marquez uses [Flyway](https://flywaydb.org) for schema migrations, ensuring safe and versioned database changes. The database uses two storage paradigms side-by-side:
+
+#### Core Relational Tables
 
 | Table Group | Purpose |
 |---|---|
@@ -94,6 +107,66 @@ All metadata is stored in PostgreSQL. Marquez uses [Flyway](https://flywaydb.org
 | `runs`, `run_args` | Job execution records and parameters |
 | `lineage_events` | Raw OpenLineage events for replay and auditing |
 | `dataset_facets`, `run_facets`, `job_facets` | Extensible metadata facets |
+
+#### Denormalized Tables (Performance Layer)
+
+To avoid expensive JOIN queries on the critical read path, Marquez maintains **denormalized tables** that flatten commonly-queried data into pre-joined structures. These tables are populated automatically by the `DenormalizedLineageService` during event ingestion.
+
+| Denormalized Table | Contents | Partitioning |
+|---|---|---|
+| `dataset_denormalized` | Flattened dataset metadata (name, namespace, source, tags, version, schema, lifecycle) | Hash by `namespace_uuid` (8 partitions) |
+| `dataset_version_denormalized` | Flattened dataset version metadata (fields as JSONB, facets, schema_location) | Hash by `namespace_uuid` (8 partitions) |
+| `job_denormalized` | Flattened job metadata (name, namespace, tags, input/output UUIDs, parent job) | Hash by `namespace_uuid` (8 partitions) |
+| `run_lineage_denormalized` | Pre-joined run + job + input/output dataset data for lineage queries | Range by `run_date` (monthly partitions) |
+| `run_parent_lineage_denormalized` | Same as above but collapsed to parent runs (for `aggregateToParentRun`) | Range by `run_date` (monthly partitions) |
+
+**How denormalized tables are populated:**
+
+1. An OpenLineage event arrives at `POST /api/v1/lineage`.
+2. `OpenLineageService` processes the event, upserting core relational tables (namespaces, datasets, jobs, runs).
+3. After each event, `OpenLineageService` calls `DenormalizedLineageService.populateDenormalizedEntitiesForEvent()` to incrementally upsert the specific job and dataset records into `dataset_denormalized`, `dataset_version_denormalized`, and `job_denormalized`.
+4. For terminal run states (`COMPLETE`, `FAIL`, `ABORT`), it also calls `DenormalizedLineageService.populateLineageForRun()` to populate `run_lineage_denormalized` and `run_parent_lineage_denormalized`.
+5. A `PartitionManagementService` automatically creates monthly partitions for the range-partitioned lineage tables.
+
+#### Apache AGE Graph Tables (V3 API)
+
+The V3 API uses [Apache AGE](https://age.apache.org/), a PostgreSQL extension that adds graph database capabilities. On startup, `MarquezApp` initializes the `marquez_graph` via `GraphDao.initGraph()`, which creates the graph in the `ag_catalog` if it doesn't exist.
+
+When an event is posted to `POST /api/v3/lineage`, the `OpenLineageResourceV3` maps the OpenLineage event into graph nodes and edges inside a single transaction:
+
+| Node Label | Match Key | Properties |
+|---|---|---|
+| `Source` | `name` | name, type |
+| `Namespace` | `name` | name |
+| `Job` | `fqn` | name, namespace, fqn, facets |
+| `JobVersion` | `uuid` | uuid, version, jobContext |
+| `Dataset` | `fqn` | name, namespace, fqn, facets |
+| `DatasetVersion` | `uuid` | uuid, datasetFqn |
+| `DatasetField` | `id` | id, name, type |
+| `Run` | `uuid` | uuid, state, runArgs |
+| `RunState` | `uuid` | uuid, state |
+
+| Edge Label | From → To | Purpose |
+|---|---|---|
+| `HAS_NAMESPACE` | Source → Namespace | Source contains namespace |
+| `HAS_JOB` | Namespace → Job | Namespace contains job |
+| `HAS_DATASET` | Namespace → Dataset | Namespace contains dataset |
+| `HAS_VERSION` | Job → JobVersion, Dataset → DatasetVersion | Entity versioning |
+| `HAS_RUN` | JobVersion → Run | Job version executed a run |
+| `HAS_STATE` | Run → RunState | Run state transitions |
+| `HAS_PARENT` | Run → Run | Child-to-parent run hierarchy (for `aggregateToParentRun`) |
+| `CONSUMES_VERSION` | Run → DatasetVersion | Run reads from dataset version |
+| `PRODUCES_VERSION` | Run → DatasetVersion | Run writes to dataset version |
+| `HAS_FIELD` | DatasetVersion → DatasetField | Dataset schema fields |
+| `APPLIES_TRANSFORMATION` | Run → DatasetField | Column-level lineage |
+
+V3 lineage queries use **Cypher** (the graph query language) to traverse the `marquez_graph`, enabling depth-bounded multi-hop queries such as:
+```sql
+SELECT * FROM cypher('marquez_graph', $$
+  MATCH path = (a)-[*1..10]-(b) WHERE a.fqn = 'analytics:my_job'
+  RETURN path
+$$) as (path agtype);
+```
 
 ### 3. Marquez Web UI
 
@@ -160,7 +233,9 @@ Marquez supports [OpenLineage facets](https://openlineage.io/docs/spec/facets/) 
 
 ## Event Processing Pipeline
 
-When an OpenLineage event is received:
+### V1/V2 Path (Relational + Denormalized)
+
+When an OpenLineage event is received at `POST /api/v1/lineage`:
 
 1. **Validation** — The event is validated against the OpenLineage spec.
 2. **Namespace Resolution** — The namespace is created or resolved.
@@ -170,10 +245,25 @@ When an OpenLineage event is received:
 6. **Run State Update** — The run's state is transitioned (e.g., `RUNNING` → `COMPLETED`).
 7. **Lineage Update** — The lineage graph is updated with new edges.
 8. **Event Storage** — The raw event is stored for replay and auditing.
+9. **Denormalized Population** — `DenormalizedLineageService` incrementally upserts changed entities into `dataset_denormalized`, `dataset_version_denormalized`, and `job_denormalized`.
+10. **Run Lineage Population** — For terminal events, `run_lineage_denormalized` and `run_parent_lineage_denormalized` are populated with the full pre-joined run + job + dataset rows.
+
+### V3 Path (Graph-Powered)
+
+When an OpenLineage event is received at `POST /api/v3/lineage`:
+
+1. **Validation** — The event is validated for required `job` and `run` fields.
+2. **Single Transaction** — All graph mutations happen inside one JDBI transaction for atomicity.
+3. **Node Upsert** — `GraphDao.upsertNode()` creates or updates nodes using Cypher `MERGE` statements (`Source`, `Namespace`, `Job`, `JobVersion`, `Run`, `RunState`, `Dataset`, `DatasetVersion`, `DatasetField`).
+4. **Edge Upsert** — `GraphDao.upsertEdge()` creates edges between nodes (`HAS_NAMESPACE`, `HAS_JOB`, `CONSUMES_VERSION`, `PRODUCES_VERSION`, `HAS_PARENT`, etc.).
+5. **Parent Run Linking** — If the run has a parent run facet, a `HAS_PARENT` edge is created between child and parent `Run` nodes, enabling `aggregateToParentRun` queries.
+6. **Column Lineage** — Output dataset fields are created as `DatasetField` nodes with `HAS_FIELD` and `APPLIES_TRANSFORMATION` edges for column-level lineage.
 
 ## API Endpoints
 
-The Marquez API is organized into these resource groups:
+Marquez exposes three API versions. V1 and V2 use traditional SQL queries; V3 uses Apache AGE graph traversal.
+
+### V1 API (Core)
 
 | Resource | Endpoints | Description |
 |---|---|---|
@@ -183,10 +273,39 @@ The Marquez API is organized into these resource groups:
 | **Jobs** | `GET /api/v1/namespaces/{ns}/jobs` | Query jobs |
 | **Runs** | `GET/POST /api/v1/jobs/{job}/runs` | Manage and query runs |
 | **Search** | `GET /api/v1/search` | Full-text search |
-| **Lineage Graph** | `GET /api/v1/lineage` | Query lineage graph |
+| **Lineage Graph** | `GET /api/v1/lineage` | Query lineage graph (supports `aggregateToParentRun`, `includeFacets`, `depth`) |
+| **Run Lineage** | `GET /api/v1/runlineage/upstream` | Upstream run lineage with recursive traversal |
 | **Column Lineage** | `GET /api/v1/column-lineage` | Query column-level lineage |
+| **Lineage Events** | `GET /api/v1/events/lineage` | List lineage events with time-range filtering and pagination |
 | **Tags** | `GET/PUT /api/v1/tags` | Manage tags |
 | **Sources** | `GET/PUT /api/v1/sources` | Manage data sources |
+
+### V2 API (Enhanced, Denormalized-Table Backed)
+
+V2 endpoints read from the denormalized tables for faster query performance.
+
+| Resource | Endpoints | Description |
+|---|---|---|
+| **Lineage** | `GET /api/v2/lineage` | Enhanced lineage with `aggregateToParentRun` and `depth` |
+| **Datasets** | `GET /api/v2/namespaces/{ns}/datasets` | Datasets with facets from denormalized tables |
+| **Jobs** | `GET /api/v2/namespaces/{ns}/jobs` | Jobs with I/O from denormalized tables |
+| **Dataset Versions** | `GET /api/v2/namespaces/{ns}/datasets/{ds}/versions` | Dataset versions with facets |
+
+### V3 API (Graph-Powered, Apache AGE)
+
+V3 endpoints use Cypher queries against the `marquez_graph` for native graph traversal.
+
+| Resource | Endpoints | Description |
+|---|---|---|
+| **Lineage** | `GET /api/v3/lineage` | Graph-powered lineage (Cypher traversal, `aggregateToParentRun`, `depth`) |
+| **Events** | `POST /api/v3/lineage` | Ingest events into the graph (creates nodes + edges) |
+| **Namespaces** | `GET /api/v3/namespaces` | List/get namespaces from graph |
+| **Datasets** | `GET /api/v3/namespaces/{ns}/datasets` | Datasets from graph |
+| **Jobs** | `GET /api/v3/namespaces/{ns}/jobs` | Jobs from graph |
+| **Runs** | `GET /api/v3/jobs/runs` | Runs from graph |
+| **Column Lineage** | `GET /api/v3/column-lineage` | Column-level lineage via `DERIVED_FROM` edges |
+| **Sources** | `GET /api/v3/sources` | Sources from graph |
+| **Tags** | `GET /api/v3/tags` | Tags from graph |
 
 For the complete API reference, see the [Metadata API documentation](/docs/api/marquez).
 
@@ -215,8 +334,9 @@ Recommended for production deployments:
 |---|---|
 | API Framework | [Dropwizard](https://www.dropwizard.io) (Java) |
 | Database | [PostgreSQL](https://www.postgresql.org) 14+ |
+| Graph Engine | [Apache AGE](https://age.apache.org/) (Cypher queries inside PostgreSQL) |
 | Database Migrations | [Flyway](https://flywaydb.org) |
-| Data Access | [JDBI](https://jdbi.org) |
+| Data Access | [JDBI](https://jdbi.org) + `GraphDao` (AGE/Cypher) |
 | Web UI | [React](https://reactjs.org) + [TypeScript](https://www.typescriptlang.org) |
 | Build System | [Gradle](https://gradle.org) |
 | Containerization | [Docker](https://www.docker.com) |
