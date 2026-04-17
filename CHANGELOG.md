@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased](https://github.com/swar00pduthks/marquez/compare/0.52.41...HEAD)
+## [0.52.43](https://github.com/swar00pduthks/marquez/compare/0.52.41...0.52.43)
 
 ### Added
 
