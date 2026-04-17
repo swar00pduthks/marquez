@@ -474,35 +474,17 @@ public interface DatasetVersionDao extends BaseDao {
   @SqlUpdate("UPDATE dataset_versions SET fields = :fields WHERE uuid = :uuid")
   void updateFields(UUID uuid, PGobject fields);
 
-  // --- v2 View-based Methods (placed at end for standards) ---
-  // Uses dataset_versions_view_v2 which encapsulates:
-  //   - dataset_version_denormalized (fields, schema_location, lifecycle_state)
-  //   - dataset_denormalized (type, name, physical_name, namespace_name, source_name,
-  //                           description, pre-aggregated tags[])
-  //   - dataset_versions (run_uuid for createdByRun, dataset_schema_version_uuid)
-  //   - datasets fallback for correctness when denorm row is missing
-  // Eliminates: stream_versions join, datasets_tag_mapping subquery, datasets_view overhead.
+  // --- v2 Denormalized Table Methods (placed at end for standards) ---
   @SqlQuery(
       """
-            SELECT v2.type, v2.name, v2.physical_name, v2.namespace_name,
-                   v2.source_name, v2.description,
-                   v2.lifecycle_state, v2.created_at,
-                   v2.uuid AS current_version_uuid, v2.version,
-                   v2.dataset_schema_version_uuid, v2.fields,
-                   v2.run_uuid AS createdByRunUuid,
-                   v2.schema_location, v2.tags,
-                   JSONB_AGG(df.facet ORDER BY df.lineage_event_time ASC)
-                       FILTER (WHERE df.facet IS NOT NULL) AS facets
-            FROM dataset_versions_view_v2 v2
-            LEFT JOIN dataset_facets_view df ON df.dataset_version_uuid = v2.uuid
+            SELECT *, JSONB_AGG(df.facet ORDER BY df.lineage_event_time ASC) AS facets
+            FROM dataset_versions dv
+            LEFT JOIN dataset_facets df ON df.dataset_version_uuid = dv.uuid
                 AND (df.type ILIKE 'dataset' OR df.type ILIKE 'unknown' OR df.type ILIKE 'input')
                 <facetFilter>
-            WHERE v2.dataset_uuid = :datasetUuid
-            GROUP BY v2.type, v2.name, v2.physical_name, v2.namespace_name,
-                v2.source_name, v2.description, v2.lifecycle_state, v2.created_at,
-                v2.uuid, v2.version, v2.dataset_schema_version_uuid, v2.fields,
-                v2.run_uuid, v2.schema_location, v2.tags
-            ORDER BY v2.created_at DESC
+            WHERE dv.dataset_uuid = :datasetUuid
+            GROUP BY dv.uuid, dv.created_at, dv.dataset_uuid, dv.version, dv.dataset_schema_version_uuid, dv.run_uuid, dv.fields, dv.namespace_name, dv.dataset_name, dv.lifecycle_state
+            ORDER BY dv.created_at DESC
             LIMIT :limit
             OFFSET :offset
             """)
@@ -515,40 +497,25 @@ public interface DatasetVersionDao extends BaseDao {
   default List<DatasetVersion> findAllDatasetVersionsV2(
       UUID datasetUuid, int limit, int offset, java.util.Set<String> includeFacets) {
     String facetFilter = "";
-    if (includeFacets != null) {
-      java.util.Set<String> filtered =
-          includeFacets.stream().filter(f -> f != null && !f.isBlank()).collect(Collectors.toSet());
-      if (!filtered.isEmpty()) {
-        String inClause =
-            filtered.stream()
-                .map(f -> "'" + f.replace("'", "''") + "'")
-                .collect(Collectors.joining(", "));
-        facetFilter = " AND df.name IN (" + inClause + ") ";
-      }
+    if (includeFacets != null && !includeFacets.isEmpty()) {
+      String inClause =
+          includeFacets.stream()
+              .map(f -> "'" + f.replace("'", "''") + "'")
+              .collect(Collectors.joining(", "));
+      facetFilter = " AND df.name IN (" + inClause + ") ";
     }
     return findAllDatasetVersionsV2(datasetUuid, limit, offset, facetFilter);
   }
 
   @SqlQuery(
       """
-            SELECT v2.type, v2.name, v2.physical_name, v2.namespace_name,
-                   v2.source_name, v2.description,
-                   v2.lifecycle_state, v2.created_at,
-                   v2.uuid AS current_version_uuid, v2.version,
-                   v2.dataset_schema_version_uuid, v2.fields,
-                   v2.run_uuid AS createdByRunUuid,
-                   v2.schema_location, v2.tags,
-                   JSONB_AGG(df.facet ORDER BY df.lineage_event_time ASC)
-                       FILTER (WHERE df.facet IS NOT NULL) AS facets
-            FROM dataset_versions_view_v2 v2
-            LEFT JOIN dataset_facets_view df ON df.dataset_version_uuid = v2.uuid
+            SELECT *, JSONB_AGG(df.facet ORDER BY df.lineage_event_time ASC) AS facets
+            FROM dataset_versions dv
+            LEFT JOIN dataset_facets df ON df.dataset_version_uuid = dv.uuid
                 AND (df.type ILIKE 'dataset' OR df.type ILIKE 'unknown' OR df.type ILIKE 'input')
                 <facetFilter>
-            WHERE v2.uuid = CAST(:version AS uuid)
-            GROUP BY v2.type, v2.name, v2.physical_name, v2.namespace_name,
-                v2.source_name, v2.description, v2.lifecycle_state, v2.created_at,
-                v2.uuid, v2.version, v2.dataset_schema_version_uuid, v2.fields,
-                v2.run_uuid, v2.schema_location, v2.tags
+            WHERE dv.version = :version
+            GROUP BY dv.uuid, dv.created_at, dv.dataset_uuid, dv.version, dv.dataset_schema_version_uuid, dv.run_uuid, dv.fields, dv.namespace_name, dv.dataset_name, dv.lifecycle_state
             """)
   Optional<DatasetVersion> findDatasetVersionByVersionV2(
       @org.jdbi.v3.sqlobject.customizer.Bind("version") String version,
@@ -557,16 +524,12 @@ public interface DatasetVersionDao extends BaseDao {
   default Optional<DatasetVersion> findDatasetVersionByVersionV2(
       UUID datasetUuid, String version, java.util.Set<String> includeFacets) {
     String facetFilter = "";
-    if (includeFacets != null) {
-      java.util.Set<String> filtered =
-          includeFacets.stream().filter(f -> f != null && !f.isBlank()).collect(Collectors.toSet());
-      if (!filtered.isEmpty()) {
-        String inClause =
-            filtered.stream()
-                .map(f -> "'" + f.replace("'", "''") + "'")
-                .collect(Collectors.joining(", "));
-        facetFilter = " AND df.name IN (" + inClause + ") ";
-      }
+    if (includeFacets != null && !includeFacets.isEmpty()) {
+      String inClause =
+          includeFacets.stream()
+              .map(f -> "'" + f.replace("'", "''") + "'")
+              .collect(Collectors.joining(", "));
+      facetFilter = " AND df.name IN (" + inClause + ") ";
     }
     return findDatasetVersionByVersionV2(version, facetFilter);
   }

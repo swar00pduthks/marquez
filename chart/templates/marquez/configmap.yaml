@@ -46,8 +46,6 @@ data:
 
     # Enables database migration on startup (default: true)
     migrateOnStartup: ${MIGRATE_ON_STARTUP}
-    # Enables Apache AGE graph extension features (V3 Graph API)
-    ageEnabled: ${MARQUEZ_AGE_ENABLED}
     logging:
       level: ${LOG_LEVEL}
       appenders:

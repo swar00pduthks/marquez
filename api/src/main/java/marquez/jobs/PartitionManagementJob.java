@@ -73,20 +73,12 @@ public class PartitionManagementJob extends AbstractScheduledService implements 
       log.info("Running partition management to ensure future partitions exist...");
 
       LocalDate today = LocalDate.now();
-
-      // Backfill: also cover the past 3 months to catch any partitions that were
-      // missed if the server was down or first deployed after V82's last partition
-      // (2025-12). Without this, months like 2026-01 and 2026-02 are never created
-      // because the job only creates from LocalDate.now() forward.
-      LocalDate startDate = today.minusMonths(3);
-      int totalMonths = monthsAhead + 3;
-
-      partitionManagementService.createPartitionsForPeriod(startDate, totalMonths);
+      // Create partitions from current month for the next N months
+      partitionManagementService.createPartitionsForPeriod(today, monthsAhead);
 
       log.info(
-          "Partition management completed successfully. Ensured partitions exist from {} for {} months.",
-          startDate,
-          totalMonths);
+          "Partition management completed successfully. Ensured partitions exist for the next {} months.",
+          monthsAhead);
 
     } catch (Exception error) {
       log.error("Failed to create partitions. Will retry on next scheduled run.", error);

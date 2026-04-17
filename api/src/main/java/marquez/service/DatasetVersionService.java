@@ -15,41 +15,14 @@ public class DatasetVersionService extends DelegatingDaos.DelegatingDatasetVersi
     this.datasetVersionDao = baseDao.createDatasetVersionDao();
   }
 
-  /**
-   * V2 list: fetches from denormalized table then hydrates createdByRun the same way V1's
-   * findByWithRun() does — matches V1 response shape exactly.
-   */
   public java.util.List<marquez.service.models.DatasetVersion> findAllDatasetVersionsV2(
       java.util.UUID datasetUuid, int limit, int offset, java.util.Set<String> includeFacets) {
-    java.util.List<marquez.service.models.DatasetVersion> versions =
-        datasetVersionDao.findAllDatasetVersionsV2(datasetUuid, limit, offset, includeFacets);
-    versions.forEach(
-        ver -> {
-          if (ver.getCreatedByRunUuid() != null) {
-            datasetVersionDao
-                .createRunDao()
-                .findRunByUuid(ver.getCreatedByRunUuid())
-                .ifPresent(ver::setCreatedByRun);
-          }
-        });
-    return versions;
+    return datasetVersionDao.findAllDatasetVersionsV2(datasetUuid, limit, offset, includeFacets);
   }
 
-  /** V2 single version: same createdByRun hydration as above. */
   public java.util.Optional<marquez.service.models.DatasetVersion> findDatasetVersionByVersionV2(
       java.util.UUID datasetUuid, String version, java.util.Set<String> includeFacets) {
-    java.util.Optional<marquez.service.models.DatasetVersion> v =
-        datasetVersionDao.findDatasetVersionByVersionV2(datasetUuid, version, includeFacets);
-    v.ifPresent(
-        ver -> {
-          if (ver.getCreatedByRunUuid() != null) {
-            datasetVersionDao
-                .createRunDao()
-                .findRunByUuid(ver.getCreatedByRunUuid())
-                .ifPresent(ver::setCreatedByRun);
-          }
-        });
-    return v;
+    return datasetVersionDao.findDatasetVersionByVersionV2(datasetUuid, version, includeFacets);
   }
 
   private static String buildFacetFilter(java.util.Set<String> includeFacets) {

@@ -23,7 +23,6 @@ import io.prometheus.client.servlet.jakarta.exporter.MetricsServlet;
 import io.sentry.Sentry;
 import jakarta.servlet.DispatcherType;
 import java.util.EnumSet;
-import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.NonNull;
 import lombok.extern.slf4j.Slf4j;
 import marquez.api.filter.JobRedirectFilter;
@@ -35,13 +34,9 @@ import marquez.cli.MetadataCommand;
 import marquez.cli.SeedCommand;
 import marquez.common.Utils;
 import marquez.db.DbMigration;
-import marquez.jobs.BackfillConfig;
-import marquez.jobs.BackfillOrchestrator;
 import marquez.jobs.DbRetentionJob;
 import marquez.jobs.MaterializeViewRefresherJob;
 import marquez.jobs.PartitionManagementJob;
-import marquez.jobs.backfill.DenormV1BackfillJob;
-import marquez.jobs.backfill.GraphV1BackfillJob;
 import marquez.logging.DelegatingSqlLogger;
 import marquez.logging.LabelledSqlLogger;
 import marquez.logging.LoggingMdcFilter;
@@ -71,10 +66,10 @@ public final class MarquezApp extends Application<MarquezConfig> {
   private static final String PROMETHEUS_ENDPOINT = "/metrics";
   private static final String PROMETHEUS_ENDPOINT_V2 = "/v2beta/metrics";
 
-  private static Jdbi jdbiInstance; // Static reference for testing
+  private static Jdbi jdbiInstanceForTesting;
 
-  public static Jdbi getJdbiInstanceForTesting() { // Static getter for testing
-    return jdbiInstance;
+  public static Jdbi getJdbiInstanceForTesting() {
+    return jdbiInstanceForTesting;
   }
 
   public static void main(final String[] args) throws Exception {
@@ -129,8 +124,7 @@ public final class MarquezApp extends Application<MarquezConfig> {
     log.info("Running startup actions...");
 
     try {
-      DbMigration.migrateDbOrError(
-          config.getFlywayFactory(), source, config.isMigrateOnStartup(), config.isAgeEnabled());
+      DbMigration.migrateDbOrError(config.getFlywayFactory(), source, config.isMigrateOnStartup());
     } catch (FlywayException errorOnDbMigrate) {
       log.info("Stopping app...");
       onFatalError(errorOnDbMigrate);
@@ -152,7 +146,7 @@ public final class MarquezApp extends Application<MarquezConfig> {
     }
 
     final Jdbi jdbi = newJdbi(config, env, source);
-    jdbiInstance = jdbi; // Assign to static field
+    jdbiInstanceForTesting = jdbi;
 
     final MarquezContext marquezContext =
         MarquezContext.builder()
@@ -219,111 +213,32 @@ public final class MarquezApp extends Application<MarquezConfig> {
 
     final Jdbi jdbi = context.getJdbi();
 
-    // Build orchestrator early so both AGE-dependent and relational backfill jobs can register
-    BackfillConfig backfillConfig = config.getBackfill();
-    final BackfillOrchestrator backfillOrchestrator =
-        (backfillConfig != null
-                && backfillConfig.getEnabledVersions() != null
-                && !backfillConfig.getEnabledVersions().isEmpty())
-            ? new BackfillOrchestrator(backfillConfig)
-            : null;
-
-    // DENORM_V1 only needs the relational DB — register it regardless of AGE availability
-    if (backfillOrchestrator != null) {
-      backfillOrchestrator.register(new DenormV1BackfillJob(jdbi, backfillConfig));
+    // Register V2 Graph API Resources conditionally to prevent crashing standard V1 databases
+    boolean ageEnabled = false;
+    try {
+      jdbi.useHandle(
+          handle -> {
+            handle.execute("CREATE EXTENSION IF NOT EXISTS age");
+            handle.execute("LOAD 'age'; SET search_path = ag_catalog, \"$user\", public;");
+          });
+      ageEnabled = true;
+    } catch (Exception e) {
+      log.warn(
+          "Failed to create or load AGE extension on startup. V2 Graph API will be disabled on this instance.");
     }
 
-    // Register V3 Graph API Resources conditionally to prevent crashing standard V1 databases
-    final AtomicBoolean ageEnabled = new AtomicBoolean(false);
-    if (config.isAgeEnabled()) {
-      log.info("Starting V3 Graph API registration check...");
-      try {
-        jdbi.useHandle(
-            handle -> {
-              java.sql.Connection conn = handle.getConnection();
-              try (java.sql.Statement stmt = conn.createStatement()) {
-                log.info("Attempting to verify/create AGE extension...");
-                try {
-                  stmt.execute("CREATE EXTENSION IF NOT EXISTS age");
-                  log.info("Finished CREATE EXTENSION command.");
-                } catch (Exception e) {
-                  log.info(
-                      "Note: CREATE EXTENSION IF NOT EXISTS age message (standard on Azure/non-superuser): {}",
-                      e.getMessage());
-                }
-
-                log.info("Attempting to LOAD 'age'...");
-                try {
-                  stmt.execute("LOAD 'age'");
-                  log.info("Successfully LOADed 'age'.");
-                } catch (Exception e) {
-                  log.info(
-                      "Note: LOAD 'age' failed, but continuing as it may be preloaded: {}",
-                      e.getMessage());
-                }
-
-                log.info("Attempting to set search_path for AGE...");
-                try {
-                  stmt.execute("SET search_path = ag_catalog, \"$user\", public");
-                  log.info("Successfully set search_path for AGE.");
-                } catch (Exception e) {
-                  log.info("Note: SET search_path failed, but continuing: {}", e.getMessage());
-                }
-
-                // Final check: confirm AGE extension exists in database
-                try (java.sql.ResultSet rs =
-                    stmt.executeQuery("SELECT 1 FROM pg_extension WHERE extname = 'age'")) {
-                  ageEnabled.set(rs.next());
-                }
-              }
-            });
-        if (ageEnabled.get()) {
-          log.info("Marquez V3 initialization complete (ageEnabled=true).");
-        } else {
-          log.info("Marquez V3 initialization complete (ageEnabled=false).");
-        }
-      } catch (Exception e) {
-        log.warn("Failed V3 check. V3 Graph API will be disabled. Reason: {}", e.getMessage(), e);
-      }
-    } else {
-      log.info("AGE disabled by configuration (ageEnabled=false). Skipping V3 Graph API.");
-    }
-
-    if (ageEnabled.get()) {
+    if (ageEnabled) {
       marquez.v3.db.GraphDao graphDao = new marquez.v3.db.GraphDao();
       graphDao.initGraph(jdbi, "marquez_graph");
-      marquez.v3.db.GraphWriter graphWriter = new marquez.v3.db.GraphWriter(graphDao);
 
-      // Wire graph writes into the V1 service path (fire-and-forget)
-      context.getOpenLineageService().enableGraphWrites(graphWriter, jdbi);
-
-      env.jersey()
-          .register(
-              new marquez.v3.resources.OpenLineageResourceV3(
-                  jdbi, graphWriter, context.getOpenLineageService()));
+      env.jersey().register(new marquez.v3.resources.OpenLineageResourceV3(jdbi, graphDao));
       env.jersey().register(new marquez.v3.resources.DatasetResourceV3(jdbi));
-      env.jersey().register(new marquez.v3.resources.NamespaceDatasetResourceV3(jdbi));
       env.jersey().register(new marquez.v3.resources.NamespaceResourceV3(jdbi));
       env.jersey().register(new marquez.v3.resources.JobResourceV3(jdbi));
-      env.jersey().register(new marquez.v3.resources.NamespaceJobResourceV3(jdbi));
-      env.jersey().register(new marquez.v3.resources.EventsResourceV3(jdbi));
       env.jersey().register(new marquez.v3.resources.RunResourceV3(jdbi));
       env.jersey().register(new marquez.v3.resources.TagResourceV3(jdbi));
       env.jersey().register(new marquez.v3.resources.SourceResourceV3(jdbi));
       env.jersey().register(new marquez.v3.resources.ColumnLineageResourceV3(jdbi));
-      env.jersey().register(new marquez.v3.resources.StatsResourceV3(context.getStatsService()));
-
-      // GRAPH_V1 requires AGE — only register it here when AGE is confirmed available
-      if (backfillOrchestrator != null) {
-        backfillOrchestrator.register(new GraphV1BackfillJob(jdbi, graphWriter, backfillConfig));
-      }
-    }
-
-    // Manage the orchestrator lifecycle after all jobs are registered
-    if (backfillOrchestrator != null) {
-      env.lifecycle().manage(backfillOrchestrator);
-      log.info(
-          "BackfillOrchestrator registered with versions: {}", backfillConfig.getEnabledVersions());
     }
 
     if (config.getGraphql().isEnabled()) {

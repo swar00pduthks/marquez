@@ -8,7 +8,6 @@ package marquez.common.api;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.JsonNode;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.net.http.HttpRequest;
@@ -48,12 +47,6 @@ public class DatasetResourceV2IntegrationTest extends BaseIntegrationTest {
     JdbiUtils.cleanDatabase(staticAppJdbi);
   }
 
-  /** V2 list endpoints return {"datasets":[...], "totalCount":N}. Extract the array. */
-  private List<Dataset> parseV2DatasetList(String body) throws Exception {
-    JsonNode root = Utils.getMapper().readTree(body);
-    return Utils.getMapper().readerForListOf(Dataset.class).readValue(root.get("datasets"));
-  }
-
   private void populateDenormalizedForNamespace(String namespaceName) {
     Jdbi staticAppJdbi = MarquezApp.getJdbiInstanceForTesting();
     PartitionManagementService partitionManagementService =
@@ -78,7 +71,7 @@ public class DatasetResourceV2IntegrationTest extends BaseIntegrationTest {
 
     assertThat(response.statusCode()).isEqualTo(200);
 
-    List<Dataset> datasets = parseV2DatasetList(response.body());
+    List<Dataset> datasets = Utils.fromJson(response.body(), new TypeReference<List<Dataset>>() {});
     assertThat(datasets).hasSizeGreaterThanOrEqualTo(2);
 
     List<String> datasetNames = datasets.stream().map(Dataset::getName).toList();
@@ -101,7 +94,7 @@ public class DatasetResourceV2IntegrationTest extends BaseIntegrationTest {
     HttpResponse<String> response1 = http2.send(request1, HttpResponse.BodyHandlers.ofString());
 
     assertThat(response1.statusCode()).isEqualTo(200);
-    List<Dataset> page1 = parseV2DatasetList(response1.body());
+    List<Dataset> page1 = Utils.fromJson(response1.body(), new TypeReference<List<Dataset>>() {});
     assertThat(page1).hasSize(5);
 
     // Second page
@@ -111,7 +104,7 @@ public class DatasetResourceV2IntegrationTest extends BaseIntegrationTest {
     HttpResponse<String> response2 = http2.send(request2, HttpResponse.BodyHandlers.ofString());
 
     assertThat(response2.statusCode()).isEqualTo(200);
-    List<Dataset> page2 = parseV2DatasetList(response2.body());
+    List<Dataset> page2 = Utils.fromJson(response2.body(), new TypeReference<List<Dataset>>() {});
     assertThat(page2).hasSize(5);
 
     // Verify no overlap
@@ -201,7 +194,7 @@ public class DatasetResourceV2IntegrationTest extends BaseIntegrationTest {
     HttpResponse<String> response = http2.send(request, HttpResponse.BodyHandlers.ofString());
 
     assertThat(response.statusCode()).isEqualTo(200);
-    List<Dataset> datasets = parseV2DatasetList(response.body());
+    List<Dataset> datasets = Utils.fromJson(response.body(), new TypeReference<List<Dataset>>() {});
 
     // V2 should return datasets ordered by name.
     assertThat(datasets).isNotEmpty();

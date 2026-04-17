@@ -16,10 +16,6 @@ import jakarta.ws.rs.core.Response;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
-import java.util.UUID;
-import marquez.common.models.DatasetName;
-import marquez.common.models.NamespaceName;
-import marquez.service.ColumnLineageService;
 import marquez.service.DatasetService;
 import marquez.service.ServiceFactory;
 import marquez.service.models.Dataset;
@@ -31,54 +27,44 @@ import org.mockito.MockitoAnnotations;
 class DatasetResourceTest {
   @Mock ServiceFactory serviceFactory;
   @Mock DatasetService datasetService;
-  @Mock ColumnLineageService columnLineageService;
   DatasetResource resource;
 
   @BeforeEach
   void setUp() {
     MockitoAnnotations.openMocks(this);
     when(serviceFactory.getDatasetService()).thenReturn(datasetService);
-    when(serviceFactory.getColumnLineageService()).thenReturn(columnLineageService);
     resource = new DatasetResource(serviceFactory);
   }
 
   @Test
   void testListDatasets_returnsOk() {
-    UUID nsUuid = UUID.randomUUID();
+    java.util.UUID nsUuid = java.util.UUID.randomUUID();
     List<Dataset> datasets = Collections.emptyList();
-    NamespaceName ns = NamespaceName.of("testns");
     when(datasetService.findNamespaceUuidByName(eq("testns"))).thenReturn(Optional.of(nsUuid));
     when(datasetService.findAllDatasetsV2(eq(nsUuid), anyInt(), anyInt(), anySet()))
         .thenReturn(datasets);
-    when(datasetService.countDatasets(eq("testns"))).thenReturn(0);
-    Response response = resource.list(ns, 100, 0, Collections.emptySet());
+    Response response = resource.listDatasets("testns", 100, 0, Collections.emptySet());
     assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
   }
 
   @Test
   void testGetDataset_found() {
-    UUID nsUuid = UUID.randomUUID();
+    java.util.UUID nsUuid = java.util.UUID.randomUUID();
     Dataset ds = mock(Dataset.class);
-    NamespaceName ns = NamespaceName.of("testns");
-    DatasetName dsName = DatasetName.of("ds");
     when(datasetService.findNamespaceUuidByName(eq("testns"))).thenReturn(Optional.of(nsUuid));
     when(datasetService.findDatasetByNameV2(eq(nsUuid), eq("ds"), anySet()))
         .thenReturn(Optional.of(ds));
-    Response response = resource.getDataset(ns, dsName, Collections.emptySet());
+    Response response = resource.getDataset("testns", "ds", Collections.emptySet());
     assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
   }
 
   @Test
   void testGetDataset_notFound() {
-    UUID nsUuid = UUID.randomUUID();
-    NamespaceName ns = NamespaceName.of("testns");
-    DatasetName dsName = DatasetName.of("ds");
+    java.util.UUID nsUuid = java.util.UUID.randomUUID();
     when(datasetService.findNamespaceUuidByName(eq("testns"))).thenReturn(Optional.of(nsUuid));
     when(datasetService.findDatasetByNameV2(eq(nsUuid), eq("ds"), anySet()))
         .thenReturn(Optional.empty());
-    // Should throw DatasetNotFoundException (which is a NotFoundException → 404)
-    org.junit.jupiter.api.Assertions.assertThrows(
-        marquez.api.exceptions.DatasetNotFoundException.class,
-        () -> resource.getDataset(ns, dsName, Collections.emptySet()));
+    Response response = resource.getDataset("testns", "ds", Collections.emptySet());
+    assertEquals(Response.Status.NOT_FOUND.getStatusCode(), response.getStatus());
   }
 }

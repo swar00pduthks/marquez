@@ -5,13 +5,8 @@
 
 package marquez.api.v2;
 
-import com.codahale.metrics.annotation.ExceptionMetered;
-import com.codahale.metrics.annotation.ResponseMetered;
-import com.codahale.metrics.annotation.Timed;
-import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.ws.rs.DefaultValue;
 import jakarta.ws.rs.GET;
-import jakarta.ws.rs.NotFoundException;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
@@ -19,81 +14,64 @@ import jakarta.ws.rs.QueryParam;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
-import lombok.NonNull;
-import lombok.Value;
 import marquez.api.BaseResource;
-import marquez.api.exceptions.DatasetNotFoundException;
-import marquez.api.exceptions.NamespaceNotFoundException;
-import marquez.common.models.DatasetName;
-import marquez.common.models.NamespaceName;
 import marquez.service.ServiceFactory;
 import marquez.service.models.DatasetVersion;
 
 @Path("/api/v2/namespaces/{namespace}/datasets/{dataset}/versions")
 @Produces(MediaType.APPLICATION_JSON)
 public class DatasetVersionResource extends BaseResource {
-
-  public DatasetVersionResource(@NonNull ServiceFactory serviceFactory) {
+  public DatasetVersionResource(ServiceFactory serviceFactory) {
     super(serviceFactory);
   }
 
-  private UUID requireNamespaceUuid(NamespaceName namespaceName) {
-    return datasetService
-        .findNamespaceUuidByName(namespaceName.getValue())
-        .orElseThrow(() -> new NamespaceNotFoundException(namespaceName));
-  }
-
-  private UUID requireDatasetUuid(UUID namespaceUuid, DatasetName datasetName) {
-    return datasetService
-        .findDatasetUuidByName(namespaceUuid, datasetName.getValue())
-        .orElseThrow(() -> new DatasetNotFoundException(datasetName));
-  }
-
-  @Timed
-  @ResponseMetered
-  @ExceptionMetered
   @GET
   public Response listDatasetVersions(
-      @PathParam("namespace") NamespaceName namespaceName,
-      @PathParam("dataset") DatasetName datasetName,
+      @PathParam("namespace") String namespace,
+      @PathParam("dataset") String dataset,
       @QueryParam("limit") @DefaultValue("100") int limit,
       @QueryParam("offset") @DefaultValue("0") int offset,
       @QueryParam("includeFacets") @DefaultValue("") Set<String> includeFacets) {
-    UUID namespaceUuid = requireNamespaceUuid(namespaceName);
-    UUID datasetUuid = requireDatasetUuid(namespaceUuid, datasetName);
+    Optional<UUID> nsUuidOpt = datasetService.findNamespaceUuidByName(namespace);
+    if (nsUuidOpt.isEmpty()) {
+      return Response.status(Response.Status.NOT_FOUND).entity("Namespace not found").build();
+    }
+    UUID namespaceUuid = nsUuidOpt.get();
+    Optional<UUID> dsUuidOpt = datasetService.findDatasetUuidByName(namespaceUuid, dataset);
+    if (dsUuidOpt.isEmpty()) {
+      return Response.status(Response.Status.NOT_FOUND).entity("Dataset not found").build();
+    }
+    UUID datasetUuid = dsUuidOpt.get();
     List<DatasetVersion> versions =
         datasetVersionService.findAllDatasetVersionsV2(datasetUuid, limit, offset, includeFacets);
-    return Response.ok(new DatasetVersions(versions, versions.size())).build();
+    return Response.ok(versions).build();
   }
 
-  @Timed
-  @ResponseMetered
-  @ExceptionMetered
   @GET
   @Path("/{version}")
   public Response getDatasetVersion(
-      @PathParam("namespace") NamespaceName namespaceName,
-      @PathParam("dataset") DatasetName datasetName,
+      @PathParam("namespace") String namespace,
+      @PathParam("dataset") String dataset,
       @PathParam("version") String version,
       @QueryParam("includeFacets") @DefaultValue("") Set<String> includeFacets) {
-    UUID namespaceUuid = requireNamespaceUuid(namespaceName);
-    UUID datasetUuid = requireDatasetUuid(namespaceUuid, datasetName);
-    DatasetVersion dv =
-        datasetVersionService
-            .findDatasetVersionByVersionV2(datasetUuid, version, includeFacets)
-            .orElseThrow(() -> new NotFoundException("Dataset version not found: " + version));
-    return Response.ok(dv).build();
-  }
-
-  @Value
-  static class DatasetVersions {
-    @NonNull
-    @JsonProperty("versions")
-    List<DatasetVersion> value;
-
-    @JsonProperty("totalCount")
-    int totalCount;
+    Optional<UUID> nsUuidOpt = datasetService.findNamespaceUuidByName(namespace);
+    if (nsUuidOpt.isEmpty()) {
+      return Response.status(Response.Status.NOT_FOUND).entity("Namespace not found").build();
+    }
+    UUID namespaceUuid = nsUuidOpt.get();
+    Optional<UUID> dsUuidOpt = datasetService.findDatasetUuidByName(namespaceUuid, dataset);
+    if (dsUuidOpt.isEmpty()) {
+      return Response.status(Response.Status.NOT_FOUND).entity("Dataset not found").build();
+    }
+    UUID datasetUuid = dsUuidOpt.get();
+    Optional<DatasetVersion> versionOpt =
+        datasetVersionService.findDatasetVersionByVersionV2(datasetUuid, version, includeFacets);
+    if (versionOpt.isEmpty()) {
+      return Response.status(Response.Status.NOT_FOUND).entity("Dataset version not found").build();
+    }
+    return Response.ok(versionOpt.get()).build();
   }
 }

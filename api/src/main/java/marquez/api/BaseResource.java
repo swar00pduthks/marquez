@@ -71,37 +71,36 @@ public class BaseResource {
     this.columnLineageService = serviceFactory.getColumnLineageService();
   }
 
-  protected void throwIfNotExists(@NonNull NamespaceName namespaceName) {
+  void throwIfNotExists(@NonNull NamespaceName namespaceName) {
     if (!namespaceService.exists(namespaceName.getValue())) {
       throw new NamespaceNotFoundException(namespaceName);
     }
   }
 
-  protected void throwIfNotExists(@NonNull DatasetId datasetId) {
+  void throwIfNotExists(@NonNull DatasetId datasetId) {
     throwIfNotExists(datasetId.getNamespace(), datasetId.getName());
   }
 
-  protected void throwIfNotExists(
-      @NonNull NamespaceName namespaceName, @NonNull DatasetName datasetName) {
+  void throwIfNotExists(@NonNull NamespaceName namespaceName, @NonNull DatasetName datasetName) {
     if (!datasetService.exists(namespaceName.getValue(), datasetName.getValue())) {
       throw new DatasetNotFoundException(datasetName);
     }
   }
 
-  protected void throwIfSourceNotExists(SourceName sourceName) {
+  void throwIfSourceNotExists(SourceName sourceName) {
     if (!sourceService.exists(sourceName.getValue())) {
       throw new SourceNotFoundException(sourceName);
     }
   }
 
-  protected void throwIfNotExists(@NonNull DatasetFieldId datasetFieldId) {
+  void throwIfNotExists(@NonNull DatasetFieldId datasetFieldId) {
     throwIfNotExists(
         datasetFieldId.getDatasetId().getNamespace(),
         datasetFieldId.getDatasetId().getName(),
         datasetFieldId.getFieldName());
   }
 
-  protected void throwIfNotExists(
+  void throwIfNotExists(
       @NonNull NamespaceName namespaceName,
       @NonNull DatasetName datasetName,
       @NonNull FieldName fieldName) {
@@ -111,17 +110,17 @@ public class BaseResource {
     }
   }
 
-  protected void throwIfNotExists(@NonNull JobId jobId) {
+  void throwIfNotExists(@NonNull JobId jobId) {
     throwIfNotExists(jobId.getNamespace(), jobId.getName());
   }
 
-  protected void throwIfNotExists(@NonNull NamespaceName namespaceName, @NonNull JobName jobName) {
+  void throwIfNotExists(@NonNull NamespaceName namespaceName, @NonNull JobName jobName) {
     if (!jobService.exists(namespaceName.getValue(), jobName.getValue())) {
       throw new JobNotFoundException(jobName);
     }
   }
 
-  protected void throwIfExists(
+  void throwIfExists(
       @NonNull NamespaceName namespaceName, @NonNull JobName jobName, @Nullable RunId runId) {
     if (runId != null) {
       if (runService.exists(runId.getValue())) {
@@ -130,13 +129,13 @@ public class BaseResource {
     }
   }
 
-  protected void throwIfNotExists(@NonNull RunId runId) {
+  void throwIfNotExists(@NonNull RunId runId) {
     if (!runService.exists(runId.getValue())) {
       throw new RunNotFoundException(runId);
     }
   }
 
-  protected void throwIfJobDoesNotMatchRun(RunId runId, String namespaceName, String jobName) {
+  void throwIfJobDoesNotMatchRun(RunId runId, String namespaceName, String jobName) {
     Optional<Run> runRow = runService.findRunByUuid(runId.getValue());
     if (runRow.isEmpty()) {
       throw new RunNotFoundException(runId);
@@ -147,7 +146,7 @@ public class BaseResource {
     }
   }
 
-  protected void throwIfDatasetsNotExist(ImmutableSet<DatasetId> datasets) {
+  void throwIfDatasetsNotExist(ImmutableSet<DatasetId> datasets) {
     for (DatasetId datasetId : datasets) {
       if (!datasetService.exists(
           datasetId.getNamespace().getValue(), datasetId.getName().getValue())) {
@@ -170,7 +169,7 @@ public class BaseResource {
     }
   }
 
-  protected URI locationFor(@NonNull UriInfo uriInfo, @NonNull Run run) {
+  URI locationFor(@NonNull UriInfo uriInfo, @NonNull Run run) {
     return uriInfo
         .getBaseUriBuilder()
         .path(JobResource.class)

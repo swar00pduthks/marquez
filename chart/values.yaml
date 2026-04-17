@@ -20,7 +20,7 @@ marquez:
   image:
     registry: docker.io
     repository: swar00pduth/marquez
-    tag: 0.52.43
+    tag: 0.52.41
     pullPolicy: IfNotPresent
   ## Name of the existing secret containing credentials for the Marquez installation.
   ## When this is specified, it will take precedence over the values configured in the 'db' section.
@@ -46,10 +46,6 @@ marquez:
   ## Indicates if Flyway database migration will execute upon deployment
   ##
   migrateOnStartup: true
-  ## Enables Apache AGE graph extension features (V3 Graph API).
-  ## Default: false — safe for all standard Postgres deployments (no WARNING noise, no overhead).
-  ## Set to true only when the AGE extension is installed in your PostgreSQL server.
-  ageEnabled: false
   ## Marquez will run using this hostname
   ##
   hostname: localhost
@@ -93,7 +89,7 @@ web:
   image:
     registry: docker.io
     repository: swar00pduth/marquez-web
-    tag: 0.52.43
+    tag: 0.52.41
     pullPolicy: IfNotPresent
   ## Marquez website will run on this port
   ##

@@ -20,9 +20,6 @@ import org.jdbi.v3.sqlobject.config.RegisterRowMapper;
 import org.jdbi.v3.sqlobject.statement.SqlQuery;
 import org.jdbi.v3.sqlobject.transaction.Transaction;
 
-// SourceRowMapper → SourceRow (used by upsert/upsertOrDefault RETURNING * methods).
-// SourceMapper   → Source   (used by findBy/findAll read methods).
-// JDBI v3 resolves the mapper by declared return type so both can coexist.
 @RegisterRowMapper(SourceRowMapper.class)
 @RegisterRowMapper(SourceMapper.class)
 public interface SourceDao {

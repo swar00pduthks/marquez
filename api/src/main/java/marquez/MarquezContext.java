@@ -110,11 +110,6 @@ public final class MarquezContext {
   @Getter private final marquez.api.v2.DatasetVersionResource v2DatasetVersionResource;
   @Getter private final marquez.api.v2.JobResource v2JobResource;
   @Getter private final marquez.api.v2.LineageResource v2LineageResource;
-  @Getter private final marquez.api.v2.NamespaceResource v2NamespaceResource;
-  @Getter private final marquez.api.v2.SourceResource v2SourceResource;
-  @Getter private final marquez.api.v2.TagResource v2TagResource;
-  @Getter private final marquez.api.v2.StatsResource v2StatsResource;
-  @Getter private final marquez.api.v2.ColumnLineageResource v2ColumnLineageResource;
   @Getter private final SearchResource searchResource;
   @Getter private final StatsResource opsResource;
   @Getter private final ImmutableList<Object> resources;
@@ -198,14 +193,8 @@ public final class MarquezContext {
     this.v2BetasearchResource = new marquez.api.v2beta.SearchResource(serviceFactory);
     this.v2DatasetResource = new marquez.api.v2.DatasetResource(serviceFactory);
     this.v2DatasetVersionResource = new DatasetVersionResource(serviceFactory);
-    this.v2JobResource =
-        new marquez.api.v2.JobResource(serviceFactory, jobVersionDao, jobFacetsDao, runFacetsDao);
+    this.v2JobResource = new marquez.api.v2.JobResource(serviceFactory);
     this.v2LineageResource = new marquez.api.v2.LineageResource(serviceFactory);
-    this.v2NamespaceResource = new marquez.api.v2.NamespaceResource(serviceFactory);
-    this.v2SourceResource = new marquez.api.v2.SourceResource(serviceFactory);
-    this.v2TagResource = new marquez.api.v2.TagResource(serviceFactory);
-    this.v2StatsResource = new marquez.api.v2.StatsResource(serviceFactory);
-    this.v2ColumnLineageResource = new marquez.api.v2.ColumnLineageResource(serviceFactory);
 
     this.resources =
         ImmutableList.of(
@@ -224,11 +213,6 @@ public final class MarquezContext {
             v2DatasetVersionResource,
             v2JobResource,
             v2LineageResource,
-            v2NamespaceResource,
-            v2SourceResource,
-            v2TagResource,
-            v2StatsResource,
-            v2ColumnLineageResource,
             opsResource);
 
     final MarquezGraphqlServletBuilder servlet = new MarquezGraphqlServletBuilder();

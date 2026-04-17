@@ -54,7 +54,7 @@ public abstract class Dataset {
   @Nullable private final String description;
   @Nullable private final UUID currentVersion;
   @Getter @Setter @Nullable private List<ColumnLineage> columnLineage;
-  @Getter @Setter ImmutableMap<String, Object> facets;
+  @Getter ImmutableMap<String, Object> facets;
   @Getter private final boolean isDeleted;
 
   public Dataset(

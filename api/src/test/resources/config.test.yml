@@ -16,9 +16,6 @@ flyway:
   connectRetries: 2
   validateMigrationNaming: true
 
-# V3 integration tests use the apache/age Postgres container — AGE is available.
-ageEnabled: true
-
 tags:
   - name: PII
     description: Personally identifiable information

@@ -53,11 +53,6 @@ db:
 # Enables database migration on startup (default: true)
 migrateOnStartup: ${MIGRATE_ON_STARTUP:-true}
 
-# Enables Apache AGE graph extension features (V3 Graph API).
-# Default: false — safe for all standard PostgreSQL deployments (no WARNINGs, no overhead).
-# Set to true only when the AGE extension is installed in your PostgreSQL server.
-# ageEnabled: ${MARQUEZ_AGE_ENABLED:-false}
-
 # Enabled the Graphql endpoint
 graphql:
   enabled: ${GRAPHQL_ENABLED:-true}

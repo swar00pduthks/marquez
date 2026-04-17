@@ -106,46 +106,16 @@ public class DatasetService extends DelegatingDaos.DelegatingDatasetDao {
 
   public List<Dataset> findAllDatasetsV2(
       UUID namespaceUuid, int limit, int offset, Set<String> includeFacets) {
-    List<Dataset> datasets =
-        datasetDao.findAllDatasetsV2(namespaceUuid, limit, offset, includeFacets);
-    // Enrich facets from normalized tables: the denormalized table's current_version_uuid
-    // can be stale so SQL-level facet joins may miss data. We post-hydrate via V1 path.
-    datasets.forEach(
-        ds -> {
-          if (ds.getFacets() == null || ds.getFacets().isEmpty()) {
-            datasetDao
-                .findDatasetByName(ds.getNamespace().getValue(), ds.getName().getValue())
-                .filter(v1 -> v1.getFacets() != null && !v1.getFacets().isEmpty())
-                .ifPresent(v1 -> ds.setFacets(v1.getFacets()));
-          }
-        });
-    return datasets;
+    return datasetDao.findAllDatasetsV2(namespaceUuid, limit, offset, includeFacets);
   }
 
   public Optional<Dataset> findDatasetByNameV2(
       UUID namespaceUuid, String datasetName, Set<String> includeFacets) {
-    Optional<Dataset> result =
-        datasetDao.findDatasetByNameV2(namespaceUuid, datasetName, includeFacets);
-    // Enrich facets from normalized tables (same reason as findAllDatasetsV2)
-    result
-        .filter(ds -> ds.getFacets() == null || ds.getFacets().isEmpty())
-        .ifPresent(
-            ds ->
-                datasetDao
-                    .findDatasetByName(ds.getNamespace().getValue(), datasetName)
-                    .filter(v1 -> v1.getFacets() != null && !v1.getFacets().isEmpty())
-                    .ifPresent(v1 -> ds.setFacets(v1.getFacets())));
-    return result;
+    return datasetDao.findDatasetByNameV2(namespaceUuid, datasetName, includeFacets);
   }
 
-  /** V1 count — backed by normalized datasets_view. */
   public int countDatasets(String namespaceName) {
     return datasetDao.countFor(namespaceName);
-  }
-
-  /** V2 count — backed by datasets_view_v2 (consistent with V2 list query). */
-  public int countDatasetsV2(String namespaceName) {
-    return datasetDao.countForV2(namespaceName);
   }
 
   public List<Dataset> findAllWithTags(

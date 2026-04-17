@@ -107,41 +107,4 @@ public final class FlywayFactory {
         .defaultSchema(schema)
         .load();
   }
-
-  /**
-   * Builds a {@link Flyway} instance with the {@code ageEnabled} SQL placeholder injected. When
-   * {@code ageEnabled=false}, the AGE-related migrations (V95, V97, V98) become instant no-ops
-   * without any SQL extension checks or WARNING log noise.
-   */
-  public Flyway build(@NonNull DataSource source, boolean ageEnabled) {
-    return Flyway.configure()
-        .dataSource(source)
-        .connectRetries(connectRetries)
-        .initSql(initSql)
-        .baselineOnMigrate(baselineOnMigrate)
-        .group(group)
-        .installedBy(installedBy)
-        .mixed(mixed)
-        .ignoreMissingMigrations(ignoreMissingMigrations)
-        .ignoreIgnoredMigrations(ignoreIgnoredMigrations)
-        .ignorePendingMigrations(ignorePendingMigrations)
-        .ignoreFutureMigrations(ignoreFutureMigrations)
-        .validateMigrationNaming(validateMigrationNaming)
-        .validateOnMigrate(validateOnMigrate)
-        .cleanOnValidationError(cleanOnValidationError)
-        .cleanDisabled(cleanDisabled)
-        .outOfOrder(outOfOrder)
-        .locations(locations.stream().toArray(String[]::new))
-        .encoding(encoding)
-        .table(table)
-        .tablespace(tablespace)
-        .placeholderReplacement(true)
-        .placeholders(ImmutableMap.of("ageEnabled", String.valueOf(ageEnabled)))
-        .placeholderPrefix(placeholderPrefix)
-        .placeholderSuffix(placeholderSuffix)
-        .sqlMigrationPrefix(sqlMigrationPrefix)
-        .repeatableSqlMigrationPrefix(repeatableSqlMigrationPrefix)
-        .defaultSchema(schema)
-        .load();
-  }
 }
