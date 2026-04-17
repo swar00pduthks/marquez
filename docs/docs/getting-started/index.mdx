@@ -1,0 +1,67 @@
+---
+title: Getting Started
+sidebar_position: 0
+description: Welcome to Marquez — your starting point for metadata management, data lineage, and data ecosystem observability.
+---
+
+# Getting Started with Marquez
+
+Welcome to **Marquez**, an open-source metadata service for the collection, aggregation, and visualization of a data ecosystem's metadata. Marquez provides end-to-end visibility into data pipelines by tracking lineage, schema changes, and job execution history.
+
+## Why Marquez?
+
+| Capability | Description |
+|---|---|
+| **Data Lineage** | Trace upstream and downstream dependencies across jobs and datasets automatically. |
+| **Metadata Versioning** | Track schema changes and dataset versions over time for auditing and troubleshooting. |
+| **OpenLineage Native** | Built on the [OpenLineage](https://openlineage.io) standard — an open framework for data lineage collection. |
+| **Rich Web UI** | Explore lineage graphs, job run histories, and dataset metadata in a modern web interface. |
+| **REST API** | Programmatic access to all metadata via a well-documented HTTP API. |
+| **Multi-Scheduler Support** | Works with Apache Airflow, dbt, Spark, Flink, and other data tools through OpenLineage integrations. |
+
+## Choose Your Path
+
+### 🚀 Quickstart
+
+Get Marquez running locally in under 5 minutes using Docker.
+
+**[Start Now →](/docs/quickstart)**
+
+### 🏗️ Architecture
+
+Understand Marquez's components, data model, and integration points.
+
+**[Learn More →](/docs/architecture)**
+
+### 📖 How-To Guides
+
+Step-by-step guides for common tasks and integrations.
+
+**[Explore Guides →](/docs/guides/sandbox-setup)**
+
+## Key Concepts
+
+Before diving in, familiarize yourself with these core concepts:
+
+### Namespaces
+A **namespace** is a logical grouping for datasets and jobs. Namespaces help organize metadata by team, project, or environment (e.g., `production`, `staging`, `analytics-team`).
+
+### Datasets
+A **dataset** represents a table, file, or stream in your data ecosystem. Marquez tracks dataset schemas, owners, descriptions, and version history.
+
+### Jobs
+A **job** represents a data transformation or pipeline step. Jobs have inputs (consumed datasets) and outputs (produced datasets), forming the basis of lineage tracking.
+
+### Runs
+A **run** is a single execution of a job. Each run records its start time, end time, status (running, completed, failed, aborted), and the specific dataset versions consumed and produced.
+
+### Lineage
+**Lineage** is the graph of dependencies between jobs and datasets. It answers questions like: *"What datasets does this job consume?"*, *"What downstream jobs are affected if this dataset's schema changes?"*, and *"What was the last successful run that produced this dataset?"*
+
+## Next Steps
+
+1. **[Quickstart Guide](/docs/quickstart)** — Get Marquez running locally with sample data.
+2. **[Architecture Overview](/docs/architecture)** — Understand how Marquez works under the hood.
+3. **[API Reference](/docs/api/marquez)** — Explore the full HTTP API.
+4. **[Deployment Guide](/docs/deployment/)** — Deploy Marquez to production.
+5. **[Tutorials](/docs/tutorials/airflow_tutorial)** — Follow hands-on tutorials for specific use cases.

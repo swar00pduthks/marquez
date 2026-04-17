@@ -97,7 +97,7 @@ const config = {
             image: 'img/marquez-social-card.jpg',
             navbar: {
                 logo: {
-                    alt: 'My Site Logo',
+                    alt: 'Marquez Logo',
                     src: 'img/logo-lfai.svg',
                 },
                 items: [
@@ -107,6 +107,11 @@ const config = {
                         sidebarId: 'tutorialSidebar',
                         position: 'left',
                         label: 'Docs',
+                    },
+                    {
+                        to: '/docs/quickstart',
+                        label: 'Quickstart',
+                        position: 'left',
                     },
                     {to: '/blog', label: 'Blog', position: 'left'},
                     {to: '/resources', label: 'Resources', position: 'left'},
@@ -129,8 +134,37 @@ const config = {
                         title: 'Get Started',
                         items: [
                             {
+                                label: 'Getting Started',
+                                to: '/docs/getting-started',
+                            },
+                            {
                                 label: 'Quickstart',
                                 to: '/docs/quickstart',
+                            },
+                            {
+                                label: 'Architecture',
+                                to: '/docs/architecture',
+                            },
+                        ],
+                    },
+                    {
+                        title: 'Guides',
+                        items: [
+                            {
+                                label: 'Sandbox Setup',
+                                to: '/docs/guides/sandbox-setup',
+                            },
+                            {
+                                label: 'API Usage',
+                                to: '/docs/guides/api-usage',
+                            },
+                            {
+                                label: 'Custom Integrations',
+                                to: '/docs/guides/custom-integrations',
+                            },
+                            {
+                                label: 'Deployment',
+                                to: '/docs/deployment/',
                             },
                         ],
                     },
@@ -161,6 +195,10 @@ const config = {
                             {
                                 label: 'GitHub',
                                 href: 'https://github.com/swar00pduthks/marquez',
+                            },
+                            {
+                                label: 'Marquez vs. Alternatives',
+                                to: '/docs/comparison',
                             },
                         ],
                     },

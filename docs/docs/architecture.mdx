@@ -1,0 +1,231 @@
+---
+title: Architecture Overview
+sidebar_position: 2
+description: A comprehensive overview of Marquez's architecture, components, data model, and integration points.
+---
+
+# Architecture Overview
+
+This document provides a comprehensive overview of Marquez's architecture, including its core components, data model, event processing pipeline, and integration points. Understanding the architecture will help you plan deployments, build integrations, and troubleshoot issues.
+
+## System Architecture
+
+Marquez follows a **12-factor application** design and is composed of three main layers:
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│                      Data Sources                            │
+│  (Airflow, Spark, dbt, Flink, custom producers)              │
+│                                                              │
+│   ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │
+│   │  OpenLineage  │  │  OpenLineage  │  │  OpenLineage  │     │
+│   │  Integration  │  │  Integration  │  │  Integration  │     │
+│   └──────┬───────┘  └──────┬───────┘  └──────┬───────┘      │
+│          │                 │                 │               │
+└──────────┼─────────────────┼─────────────────┼───────────────┘
+           │                 │                 │
+           ▼                 ▼                 ▼
+     ┌─────────────────────────────────────────────┐
+     │           OpenLineage Events (HTTP)          │
+     │               POST /api/v1/lineage           │
+     └──────────────────────┬──────────────────────┘
+                            │
+                            ▼
+     ┌─────────────────────────────────────────────┐
+     │            Marquez HTTP API Server            │
+     │                (Dropwizard)                   │
+     │                                               │
+     │  ┌─────────────┐  ┌──────────────────────┐   │
+     │  │  REST API    │  │  OpenLineage Handler │   │
+     │  │  Controllers │  │  (Event Processing)  │   │
+     │  └──────┬──────┘  └──────────┬───────────┘   │
+     │         │                    │                 │
+     │         ▼                    ▼                 │
+     │  ┌──────────────────────────────────────┐     │
+     │  │         Service Layer                 │     │
+     │  │  (Namespace, Dataset, Job, Run, etc.) │     │
+     │  └──────────────┬───────────────────────┘     │
+     │                 │                              │
+     │                 ▼                              │
+     │  ┌──────────────────────────────────────┐     │
+     │  │       Data Access Layer (JDBI/SQL)    │     │
+     │  └──────────────┬───────────────────────┘     │
+     └─────────────────┼──────────────────────────────┘
+                       │
+                       ▼
+          ┌────────────────────────┐
+          │      PostgreSQL        │
+          │   (Metadata Store)     │
+          └────────────────────────┘
+
+     ┌─────────────────────────────────────────────┐
+     │            Marquez Web UI                     │
+     │             (React/TypeScript)                │
+     │                                               │
+     │  ┌───────────┐  ┌────────────┐  ┌─────────┐  │
+     │  │  Lineage   │  │   Dataset  │  │   Job   │  │
+     │  │  Graph     │  │   Explorer │  │  Viewer │  │
+     │  └───────────┘  └────────────┘  └─────────┘  │
+     └─────────────────────────────────────────────┘
+```
+
+## Core Components
+
+### 1. Marquez HTTP API Server
+
+The API server is the heart of Marquez. Built on the [Dropwizard](https://www.dropwizard.io) framework, it provides:
+
+- **REST API** — CRUD operations for namespaces, datasets, jobs, runs, and sources.
+- **OpenLineage Event Handler** — Ingests [OpenLineage](https://openlineage.io) events, extracts metadata, and stores lineage information.
+- **Search** — Full-text search across datasets and jobs.
+- **Lineage Queries** — Graph-based queries for upstream and downstream dependency traversal.
+
+**Key configuration** is managed through the `marquez.yml` file, which controls database connections, server ports, logging, and optional features.
+
+### 2. PostgreSQL Database
+
+All metadata is stored in PostgreSQL. Marquez uses [Flyway](https://flywaydb.org) for schema migrations, ensuring safe and versioned database changes. The schema includes tables for:
+
+| Table Group | Purpose |
+|---|---|
+| `namespaces` | Logical groupings for datasets and jobs |
+| `datasets`, `dataset_versions` | Dataset metadata and version history |
+| `jobs`, `job_versions` | Job definitions and version history |
+| `runs`, `run_args` | Job execution records and parameters |
+| `lineage_events` | Raw OpenLineage events for replay and auditing |
+| `dataset_facets`, `run_facets`, `job_facets` | Extensible metadata facets |
+
+### 3. Marquez Web UI
+
+The web UI is a React/TypeScript single-page application that provides:
+
+- **Lineage Graph** — Interactive DAG visualization of job-dataset dependencies.
+- **Dataset Explorer** — Browse datasets, view schemas, and track version history.
+- **Job Viewer** — Inspect job metadata, run history, and input/output datasets.
+- **Search** — Find datasets and jobs by name or namespace.
+
+### 4. OpenLineage Integrations
+
+Marquez collects metadata through [OpenLineage](https://openlineage.io) integrations. These integrations emit standardized lineage events from various data tools:
+
+| Integration | Description |
+|---|---|
+| **Apache Airflow** | Automatically captures lineage from DAG task runs via the `openlineage-airflow` package. |
+| **Apache Spark** | Tracks Spark job inputs, outputs, and execution metadata via the `openlineage-spark` library. |
+| **dbt** | Collects model lineage and metadata from dbt runs. |
+| **Apache Flink** | Captures streaming job lineage. |
+| **Great Expectations** | Sends data quality results as dataset facets. |
+| **Custom Producers** | Any system can emit OpenLineage events via the HTTP API. |
+
+## Data Model
+
+Marquez's data model is built around these core entities and their relationships:
+
+```
+Namespace
+  ├── Dataset (versioned)
+  │     ├── Fields (schema)
+  │     ├── Tags
+  │     ├── Facets (extensible metadata)
+  │     └── Versions (immutable snapshots)
+  │
+  └── Job (versioned)
+        ├── Input Datasets
+        ├── Output Datasets
+        ├── Facets (extensible metadata)
+        ├── Versions (immutable snapshots)
+        └── Runs
+              ├── Run Arguments
+              ├── Facets (extensible metadata)
+              └── State Transitions (NEW → RUNNING → COMPLETED/FAILED/ABORTED)
+```
+
+### Metadata Versioning
+
+Every time a dataset schema changes or a job's inputs/outputs change, Marquez creates a new **version**. This enables:
+
+- **Schema change tracking** — Compare any two versions of a dataset's schema.
+- **Audit trails** — See exactly when and how metadata changed.
+- **Impact analysis** — Determine which job runs were affected by a schema change.
+
+### Facets (Extensible Metadata)
+
+Marquez supports [OpenLineage facets](https://openlineage.io/docs/spec/facets/) for attaching arbitrary metadata to datasets, jobs, and runs. Common facets include:
+
+- **Schema facet** — Column names, types, and descriptions.
+- **Data quality facet** — Assertions and metrics from tools like Great Expectations.
+- **SQL facet** — The SQL query executed by a job.
+- **Source code facet** — Links to the source code for a job.
+- **Ownership facet** — Dataset or job owners.
+
+## Event Processing Pipeline
+
+When an OpenLineage event is received:
+
+1. **Validation** — The event is validated against the OpenLineage spec.
+2. **Namespace Resolution** — The namespace is created or resolved.
+3. **Source Registration** — Data sources (databases, object stores) are registered.
+4. **Dataset Upsert** — Datasets are created or updated; new versions are created if schemas change.
+5. **Job Upsert** — Jobs are created or updated; new versions are created if inputs/outputs change.
+6. **Run State Update** — The run's state is transitioned (e.g., `RUNNING` → `COMPLETED`).
+7. **Lineage Update** — The lineage graph is updated with new edges.
+8. **Event Storage** — The raw event is stored for replay and auditing.
+
+## API Endpoints
+
+The Marquez API is organized into these resource groups:
+
+| Resource | Endpoints | Description |
+|---|---|---|
+| **Lineage** | `POST /api/v1/lineage` | Ingest OpenLineage events |
+| **Namespaces** | `GET/PUT /api/v1/namespaces` | Manage namespaces |
+| **Datasets** | `GET/PUT/DELETE /api/v1/namespaces/{ns}/datasets` | Manage datasets |
+| **Jobs** | `GET /api/v1/namespaces/{ns}/jobs` | Query jobs |
+| **Runs** | `GET/POST /api/v1/jobs/{job}/runs` | Manage and query runs |
+| **Search** | `GET /api/v1/search` | Full-text search |
+| **Lineage Graph** | `GET /api/v1/lineage` | Query lineage graph |
+| **Column Lineage** | `GET /api/v1/column-lineage` | Query column-level lineage |
+| **Tags** | `GET/PUT /api/v1/tags` | Manage tags |
+| **Sources** | `GET/PUT /api/v1/sources` | Manage data sources |
+
+For the complete API reference, see the [Metadata API documentation](/docs/api/marquez).
+
+## Deployment Topologies
+
+Marquez supports several deployment topologies:
+
+### Development (Docker Compose)
+
+Best for local development and evaluation:
+- All components run in Docker containers.
+- Uses an embedded PostgreSQL container.
+- Single command to start: `./docker/up.sh`
+
+### Production (Kubernetes)
+
+Recommended for production deployments:
+- Marquez API and Web UI deployed as Kubernetes pods via Helm chart.
+- External PostgreSQL (e.g., AWS RDS, Cloud SQL) for durability and scalability.
+- Horizontal scaling of API pods behind a load balancer.
+- See the [Deployment Guide](/docs/deployment/) for details.
+
+## Technology Stack
+
+| Layer | Technology |
+|---|---|
+| API Framework | [Dropwizard](https://www.dropwizard.io) (Java) |
+| Database | [PostgreSQL](https://www.postgresql.org) 14+ |
+| Database Migrations | [Flyway](https://flywaydb.org) |
+| Data Access | [JDBI](https://jdbi.org) |
+| Web UI | [React](https://reactjs.org) + [TypeScript](https://www.typescriptlang.org) |
+| Build System | [Gradle](https://gradle.org) |
+| Containerization | [Docker](https://www.docker.com) |
+| Orchestration | [Kubernetes](https://kubernetes.io) + [Helm](https://helm.sh) |
+| Lineage Standard | [OpenLineage](https://openlineage.io) |
+
+## Next Steps
+
+- **[Quickstart](/docs/quickstart)** — Get Marquez running locally.
+- **[Deployment Guide](/docs/deployment/)** — Deploy Marquez in production.
+- **[API Reference](/docs/api/marquez)** — Explore all API endpoints.
+- **[How-To Guides](/docs/guides/sandbox-setup)** — Practical guides for common tasks.

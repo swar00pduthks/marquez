@@ -1,0 +1,235 @@
+---
+title: Sandbox Setup
+sidebar_position: 1
+description: Set up a local Marquez sandbox environment for development, testing, and experimentation.
+---
+
+import Tabs from '@theme/Tabs'; import TabItem from '@theme/TabItem';
+
+# Sandbox Setup Guide
+
+This guide walks you through setting up a fully functional Marquez sandbox on your local machine. The sandbox includes the Marquez API server, Web UI, PostgreSQL database, and sample metadata — everything you need to explore Marquez's capabilities.
+
+## Prerequisites
+
+<Tabs groupId="os">
+<TabItem value="macos" label="MacOS/Linux">
+
+- [Docker 17.05+](https://docs.docker.com/install)
+- [Docker Compose](https://docs.docker.com/compose/install)
+- [curl](https://curl.se) (usually pre-installed)
+- At least **2 GB** of available RAM for Docker
+
+</TabItem>
+<TabItem value="windows" label="Windows">
+
+- [Git Bash](https://gitforwindows.org/)
+- [Docker 17.05+](https://docs.docker.com/install)
+- [Docker Compose](https://docs.docker.com/compose/install)
+- [curl](https://curl.se) or [Invoke-WebRequest](https://docs.microsoft.com/en-us/powershell/module/microsoft.powershell.utility/invoke-webrequest)
+- At least **2 GB** of available RAM for Docker
+
+</TabItem>
+</Tabs>
+
+## Step 1: Clone the Repository
+
+<Tabs groupId="os">
+<TabItem value="macos" label="MacOS/Linux">
+
+```bash
+git clone https://github.com/MarquezProject/marquez.git
+cd marquez
+```
+
+</TabItem>
+<TabItem value="windows" label="Windows">
+
+```bash
+git config --global core.autocrlf false
+git clone https://github.com/MarquezProject/marquez.git
+cd marquez
+```
+
+</TabItem>
+</Tabs>
+
+## Step 2: Start the Sandbox
+
+Start Marquez with sample lineage metadata pre-loaded:
+
+<Tabs groupId="os">
+<TabItem value="macos" label="MacOS/Linux">
+
+```bash
+./docker/up.sh --seed
+```
+
+</TabItem>
+<TabItem value="windows" label="Windows">
+
+```bash
+sh ./docker/up.sh --seed
+```
+
+</TabItem>
+</Tabs>
+
+This command starts three services:
+- **Marquez API** — Available at `http://localhost:5000`
+- **Marquez Web UI** — Available at `http://localhost:3000`
+- **PostgreSQL** — Available at `localhost:5432`
+
+> **Note (MacOS):** Port 5000 is reserved on recent macOS versions. Use `./docker/up.sh --seed --api-port 9000` to run the API on port 9000 instead.
+
+Wait for all services to start (approximately 30–60 seconds). You should see log output indicating the services are ready.
+
+## Step 3: Verify the Sandbox
+
+### Check the API
+
+```bash
+curl http://localhost:5000/api/v1/namespaces
+```
+
+You should see a JSON response listing the available namespaces, including the sample `food_delivery` namespace.
+
+### Check the Web UI
+
+Open [http://localhost:3000](http://localhost:3000) in your browser. You should see the Marquez Web UI with sample jobs and datasets in the lineage graph.
+
+## Step 4: Explore Sample Data
+
+The sandbox comes pre-loaded with a **Food Delivery** sample dataset that includes:
+
+- **Namespace:** `food_delivery`
+- **Jobs:** ETL jobs like `etl_delivery_7_days`, `etl_orders_7_days`, etc.
+- **Datasets:** Tables like `public.delivery_7_days`, `public.orders_7_days`, etc.
+
+### Browse the Lineage Graph
+
+1. Open the Web UI at [http://localhost:3000](http://localhost:3000).
+2. Use the search bar to find `etl_delivery_7_days`.
+3. Click on the job to view its lineage graph, showing upstream and downstream dependencies.
+
+### Query the API
+
+List all datasets in the `food_delivery` namespace:
+
+```bash
+curl http://localhost:5000/api/v1/namespaces/food_delivery/datasets | python -m json.tool
+```
+
+Get lineage for a specific job:
+
+```bash
+curl "http://localhost:5000/api/v1/lineage?nodeId=job:food_delivery.etl_delivery_7_days" | python -m json.tool
+```
+
+## Step 5: Send Your Own Metadata
+
+Now that the sandbox is running, try sending your own OpenLineage events:
+
+### Send a Simple Lineage Event
+
+```bash
+curl -X POST http://localhost:5000/api/v1/lineage \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "eventType": "COMPLETE",
+    "eventTime": "2024-01-01T00:00:00.000Z",
+    "run": {
+      "runId": "d46e465b-d358-4d32-83d4-df660ff614dd"
+    },
+    "job": {
+      "namespace": "my_namespace",
+      "name": "my_etl_job"
+    },
+    "inputs": [
+      {
+        "namespace": "my_namespace",
+        "name": "raw_data_table",
+        "facets": {
+          "schema": {
+            "_producer": "https://my-producer.example.com",
+            "_schemaURL": "https://openlineage.io/spec/facets/1-0-0/SchemaDatasetFacet.json",
+            "fields": [
+              {"name": "id", "type": "INTEGER"},
+              {"name": "name", "type": "VARCHAR"},
+              {"name": "created_at", "type": "TIMESTAMP"}
+            ]
+          }
+        }
+      }
+    ],
+    "outputs": [
+      {
+        "namespace": "my_namespace",
+        "name": "processed_data_table",
+        "facets": {
+          "schema": {
+            "_producer": "https://my-producer.example.com",
+            "_schemaURL": "https://openlineage.io/spec/facets/1-0-0/SchemaDatasetFacet.json",
+            "fields": [
+              {"name": "id", "type": "INTEGER"},
+              {"name": "full_name", "type": "VARCHAR"},
+              {"name": "processed_at", "type": "TIMESTAMP"}
+            ]
+          }
+        }
+      }
+    ],
+    "producer": "https://my-producer.example.com",
+    "schemaURL": "https://openlineage.io/spec/2-0-2/OpenLineage.json#/definitions/RunEvent"
+  }'
+```
+
+After sending this event, refresh the Web UI and search for `my_etl_job` to see the lineage graph you just created.
+
+## Sandbox Management
+
+### Stop the Sandbox
+
+```bash
+./docker/down.sh
+```
+
+### Reset the Sandbox
+
+To stop and remove all data, then start fresh:
+
+```bash
+./docker/down.sh
+./docker/up.sh --seed
+```
+
+### View Logs
+
+```bash
+docker-compose logs -f marquez
+docker-compose logs -f marquez-web
+```
+
+### Build from Source
+
+To build Marquez from source instead of using pre-built images:
+
+```bash
+./docker/up.sh --seed --build
+```
+
+## Troubleshooting
+
+| Issue | Solution |
+|---|---|
+| Port 5000 is in use (macOS) | Use `--api-port 9000` flag |
+| Services fail to start | Ensure Docker has at least 2 GB of RAM allocated |
+| Database connection errors | Wait 30 seconds and retry — PostgreSQL may still be initializing |
+| Web UI shows no data | Ensure you used the `--seed` flag when starting |
+| Permission denied on `./docker/up.sh` | Run `chmod +x ./docker/up.sh` |
+
+## Next Steps
+
+- **[API Usage Guide](/docs/guides/api-usage)** — Learn to query and write metadata programmatically.
+- **[Airflow Integration Tutorial](/docs/tutorials/airflow_tutorial)** — Connect Apache Airflow to Marquez.
+- **[Deployment Guide](/docs/deployment/)** — Deploy Marquez to production.
