@@ -18,8 +18,10 @@ public final class PostgresContainer extends PostgreSQLContainer<PostgresContain
   private String host;
   private int port;
 
+  private static final String AGE_IMAGE = "apache/age:release_PG14_1.5.0";
+
   private PostgresContainer() {
-    super(DockerImageName.parse("apache/age:release_PG14_1.5.0").asCompatibleSubstituteFor("postgres"));
+    super(DockerImageName.parse(AGE_IMAGE).asCompatibleSubstituteFor("postgres"));
   }
 
   public static PostgresContainer create(String name) {
