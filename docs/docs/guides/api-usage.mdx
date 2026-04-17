@@ -124,7 +124,7 @@ curl -X POST http://localhost:5000/api/v1/lineage \
     "eventType": "START",
     "eventTime": "2024-01-15T10:00:00.000Z",
     "run": {
-      "runId": "a]1b2c3d4-e5f6-7890-abcd-ef1234567890"
+      "runId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
     },
     "job": {
       "namespace": "analytics",
@@ -200,7 +200,16 @@ curl -X POST http://localhost:5000/api/v1/lineage \
     "eventType": "FAIL",
     "eventTime": "2024-01-15T10:02:15.000Z",
     "run": {
-      "runId": "b2c3d4e5-f6a7-8901-bcde-f12345678901"
+      "runId": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
+      "facets": {
+        "errorMessage": {
+          "_producer": "https://my-scheduler.example.com",
+          "_schemaURL": "https://openlineage.io/spec/facets/1-0-0/ErrorMessageRunFacet.json",
+          "message": "Connection to database timed out",
+          "programmingLanguage": "PYTHON",
+          "stackTrace": "Traceback (most recent call last):\n  File \"etl.py\", line 42\n    ConnectionError: timeout"
+        }
+      }
     },
     "job": {
       "namespace": "analytics",
@@ -218,18 +227,6 @@ curl -X POST http://localhost:5000/api/v1/lineage \
         "name": "daily_event_summary"
       }
     ],
-    "run": {
-      "runId": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
-      "facets": {
-        "errorMessage": {
-          "_producer": "https://my-scheduler.example.com",
-          "_schemaURL": "https://openlineage.io/spec/facets/1-0-0/ErrorMessageRunFacet.json",
-          "message": "Connection to database timed out",
-          "programmingLanguage": "PYTHON",
-          "stackTrace": "Traceback (most recent call last):\n  File \"etl.py\", line 42\n    ConnectionError: timeout"
-        }
-      }
-    },
     "producer": "https://my-scheduler.example.com",
     "schemaURL": "https://openlineage.io/spec/2-0-2/OpenLineage.json#/definitions/RunEvent"
   }'
