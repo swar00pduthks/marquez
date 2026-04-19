@@ -47,9 +47,9 @@ marquez:
   ##
   migrateOnStartup: true
   ## Enables Apache AGE graph extension features (V3 Graph API).
-  ## Default: false — safe for all standard Postgres deployments (no WARNING noise, no overhead).
-  ## Set to true only when the AGE extension is installed in your PostgreSQL server.
-  ageEnabled: false
+  ## Default: true for v3-beta deployments (AGE is assumed installed).
+  ## Set to false to run against a standard Postgres without AGE — V3 endpoints will 404.
+  ageEnabled: true
   ## Marquez will run using this hostname
   ##
   hostname: localhost

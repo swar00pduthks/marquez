@@ -15,6 +15,10 @@ db:
 
 migrateOnStartup: true
 
+# Apache AGE graph extension toggle. Default true for v3-beta deployments.
+# Set MARQUEZ_AGE_ENABLED=false at deploy time to disable.
+ageEnabled: ${MARQUEZ_AGE_ENABLED:-true}
+
 graphql:
   enabled: true
 
