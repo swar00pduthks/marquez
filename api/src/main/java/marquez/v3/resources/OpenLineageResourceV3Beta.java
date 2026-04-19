@@ -103,7 +103,8 @@ public class OpenLineageResourceV3Beta {
                 + "    edges: final_edges "
                 + "} AS result "
                 + "$$, ?) as (result %sagtype)",
-            GraphDao.prefix() + "agtype_to_json(result)",
+            // agtype_to_json lives in marquez_v3 (created by V103), NOT ag_catalog.
+            "marquez_v3.agtype_to_json(result)",
             GraphDao.prefix(),
             d,
             edgeType != null ? edgeType : "",
