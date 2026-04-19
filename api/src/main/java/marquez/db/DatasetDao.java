@@ -217,8 +217,13 @@ public interface DatasetDao extends BaseDao {
   @SqlQuery("SELECT count(*) FROM datasets_view")
   int count();
 
+  // V1 count — uses normalized datasets_view (shared with V1 list query)
   @SqlQuery("SELECT count(*) FROM datasets_view AS j WHERE j.namespace_name = :namespaceName")
   int countFor(String namespaceName);
+
+  // V2 count — uses datasets_view_v2 (consistent with V2 list query which reads from denorm)
+  @SqlQuery("SELECT count(*) FROM datasets_view_v2 WHERE namespace_name = :namespaceName")
+  int countForV2(String namespaceName);
 
   default List<Dataset> findAllWithTags(String namespaceName, int limit, int offset) {
     List<Dataset> datasets = findAll(namespaceName, limit, offset);
@@ -499,15 +504,20 @@ public interface DatasetDao extends BaseDao {
     Instant taggedAt;
   }
 
-  // --- v2 Denormalized Table Methods (placed at end for standards) ---
+  // --- v2 View-based Methods (placed at end for standards) ---
+  //
+  // Uses datasets_view_v2 which encapsulates dataset_denormalized (primary, partitioned) +
+  // datasets fallback. Pre-aggregated tags[] avoids datasets_tag_mapping subquery.
+  // Facets aggregated per dataset_uuid (latest per facet name) — mirrors V1 behaviour and
+  // avoids stale current_version_uuid joins (denorm updated asynchronously).
   @SqlQuery(
       """
       WITH facets_t AS
-          (SELECT df.dataset_version_uuid,
+          (SELECT df.dataset_uuid,
                   df.facet,
                   df."name",
                   df.created_at,
-                  rank() OVER (PARTITION BY df.dataset_version_uuid, "name"
+                  rank() OVER (PARTITION BY df.dataset_uuid, "name"
                                ORDER BY created_at DESC) AS r
           FROM dataset_facets AS df
           WHERE df.facet IS NOT NULL
@@ -516,8 +526,8 @@ public interface DatasetDao extends BaseDao {
                   OR df.type ILIKE 'input')
              <facetFilter>
              AND df.dataset_uuid IN
-               (SELECT UUID
-                FROM dataset_denormalized
+               (SELECT uuid
+                FROM datasets_view_v2
                 WHERE namespace_uuid = :namespaceUuid
                 ORDER BY name
                 LIMIT :limit
@@ -538,18 +548,22 @@ public interface DatasetDao extends BaseDao {
           d.schema_location,
           d.lifecycle_state,
           dvd.fields,
-          JSONB_AGG(f.facet) AS facets,
+          JSONB_AGG(f.facet) FILTER (WHERE f.facet IS NOT NULL) AS facets,
           d.namespace_name,
           d.source_name
-      FROM dataset_denormalized d
-      LEFT JOIN dataset_version_denormalized dvd ON d.current_version_uuid = dvd.uuid AND d.namespace_uuid = dvd.namespace_uuid
+      FROM datasets_view_v2 d
+      LEFT JOIN dataset_version_denormalized dvd
+          ON d.current_version_uuid = dvd.uuid AND d.namespace_uuid = dvd.namespace_uuid
       LEFT JOIN (
-          SELECT dataset_version_uuid, facet
+          SELECT dataset_uuid, facet
           FROM facets_t
           WHERE r = 1
-      ) f ON f.dataset_version_uuid = d.current_version_uuid
+      ) f ON f.dataset_uuid = d.uuid
       WHERE d.namespace_uuid = :namespaceUuid
-      GROUP BY d.uuid, d.type, d.created_at, d.updated_at, d.last_modified_at, d.is_deleted, d.namespace_uuid, d.source_uuid, d.name, d.physical_name, d.description, d.current_version_uuid, d.tags, d.lifecycle_state, d.schema_location, dvd.fields, d.namespace_name, d.source_name
+      GROUP BY d.uuid, d.type, d.created_at, d.updated_at, d.last_modified_at, d.is_deleted,
+          d.namespace_uuid, d.source_uuid, d.name, d.physical_name, d.description,
+          d.current_version_uuid, d.tags, d.lifecycle_state, d.schema_location, dvd.fields,
+          d.namespace_name, d.source_name
       ORDER BY d.name
       LIMIT :limit
       OFFSET :offset
@@ -591,16 +605,27 @@ public interface DatasetDao extends BaseDao {
           d.schema_location,
           d.lifecycle_state,
           dvd.fields,
-          JSONB_AGG(df.facet ORDER BY df.lineage_event_time ASC) AS facets,
+          f.facets,
           d.namespace_name,
           d.source_name
-      FROM dataset_denormalized d
-      LEFT JOIN dataset_version_denormalized dvd ON d.current_version_uuid = dvd.uuid AND d.namespace_uuid = dvd.namespace_uuid
-      LEFT JOIN dataset_facets df ON df.dataset_version_uuid = d.current_version_uuid
-          AND (df.type ILIKE 'dataset' OR df.type ILIKE 'unknown' OR df.type ILIKE 'input')
-          <facetFilter>
+      FROM datasets_view_v2 d
+      LEFT JOIN dataset_version_denormalized dvd
+          ON d.current_version_uuid = dvd.uuid AND d.namespace_uuid = dvd.namespace_uuid
+      LEFT JOIN (
+          SELECT df.dataset_uuid,
+                 JSONB_AGG(df.facet ORDER BY df.lineage_event_time ASC)
+                     FILTER (WHERE df.facet IS NOT NULL) AS facets
+          FROM dataset_facets df
+          WHERE df.facet IS NOT NULL
+            AND (df.type ILIKE 'dataset' OR df.type ILIKE 'unknown' OR df.type ILIKE 'input')
+            <facetFilter>
+          GROUP BY df.dataset_uuid
+      ) f ON f.dataset_uuid = d.uuid
       WHERE d.namespace_uuid = :namespaceUuid AND d.name = :datasetName
-      GROUP BY d.uuid, d.type, d.created_at, d.updated_at, d.last_modified_at, d.is_deleted, d.namespace_uuid, d.source_uuid, d.name, d.physical_name, d.description, d.current_version_uuid, d.tags, d.lifecycle_state, d.schema_location, dvd.fields, d.namespace_name, d.source_name
+      GROUP BY d.uuid, d.type, d.created_at, d.updated_at, d.last_modified_at, d.is_deleted,
+          d.namespace_uuid, d.source_uuid, d.name, d.physical_name, d.description,
+          d.current_version_uuid, d.tags, d.lifecycle_state, d.schema_location, dvd.fields,
+          d.namespace_name, d.source_name, f.facets
       """)
   Optional<Dataset> findDatasetByNameV2(
       @org.jdbi.v3.sqlobject.customizer.Bind("namespaceUuid") UUID namespaceUuid,

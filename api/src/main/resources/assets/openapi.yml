@@ -870,7 +870,89 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Job'
+  /api/v3/namespaces:
+    get:
+      operationId: getNamespacesV3
+      parameters:
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      summary: List all namespaces (V3 Graph)
+      description: Returns a list of namespaces using the V3 Graph backend.
+      tags:
+        - Namespaces V3
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NamespaceList'
+
+  /api/v3/namespaces/{namespace}/jobs:
+    get:
+      operationId: getNamespaceJobsV3
+      parameters:
+        - $ref: '#/components/parameters/namespace'
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      summary: List all jobs for a namespace (V3 Graph)
+      description: Returns a list of jobs for a namespace using the V3 Graph backend.
+      tags:
+        - Jobs V3
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobList'
+
+  /api/v3/namespaces/{namespace}/datasets:
+    get:
+      operationId: getNamespaceDatasetsV3
+      parameters:
+        - $ref: '#/components/parameters/namespace'
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      summary: List all datasets for a namespace (V3 Graph)
+      description: Returns a list of datasets for a namespace using the V3 Graph backend.
+      tags:
+        - Datasets V3
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DatasetList'
+
+  /api/v3/lineage:
+    get:
+      operationId: getLineageV3
+      parameters:
+        - $ref: '#/components/parameters/nodeId'
+        - $ref: '#/components/parameters/depth'
+      tags:
+        - Lineage V3
+      summary: Get a lineage graph (V3 Graph)
+      description: Returns a lineage graph for the specified node using the V3 Apache AGE backend.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LineageGraph'
+
+  /api/v3/stats/lineage-events:
+    get:
+      operationId: getLineageEventsStatsV3
+      tags:
+        - Stats V3
+      summary: Get lineage events statistics (V3 Graph)
+      responses:
+        '200':
+          description: OK
 
 components:
   parameters:

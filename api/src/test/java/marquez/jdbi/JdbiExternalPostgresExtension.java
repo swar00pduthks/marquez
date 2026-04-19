@@ -99,7 +99,11 @@ public abstract class JdbiExternalPostgresExtension
           Flyway.configure()
               .dataSource(getDataSource())
               .locations(migration.paths.toArray(new String[0]))
-              .schemas(migration.schemas.toArray(new String[0]));
+              .schemas(migration.schemas.toArray(new String[0]))
+              // Inject ageEnabled=true so ${ageEnabled} placeholder in V95/V97/V98 is resolved.
+              // Test containers run vanilla Postgres (no AGE), so the migrations are safe no-ops.
+              .placeholderReplacement(true)
+              .placeholders(java.util.Map.of("ageEnabled", "true"));
 
       FlywayTarget target = context.getRequiredTestClass().getAnnotation(FlywayTarget.class);
       if (target != null) {

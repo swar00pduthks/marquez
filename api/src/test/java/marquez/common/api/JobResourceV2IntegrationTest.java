@@ -8,6 +8,7 @@ package marquez.common.api;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.net.http.HttpRequest;
@@ -46,6 +47,12 @@ public class JobResourceV2IntegrationTest extends BaseIntegrationTest {
     JdbiUtils.cleanDatabase(staticAppJdbi);
   }
 
+  /** V2 list endpoints return {"jobs":[...], "totalCount":N}. Extract the array. */
+  private List<Job> parseV2JobList(String body) throws Exception {
+    JsonNode root = Utils.getMapper().readTree(body);
+    return Utils.getMapper().readerForListOf(Job.class).readValue(root.get("jobs"));
+  }
+
   private void populateDenormalizedForNamespace(String namespaceName) {
     Jdbi staticAppJdbi = MarquezApp.getJdbiInstanceForTesting();
     PartitionManagementService partitionManagementService =
@@ -70,7 +77,7 @@ public class JobResourceV2IntegrationTest extends BaseIntegrationTest {
 
     assertThat(response.statusCode()).isEqualTo(200);
 
-    List<Job> jobs = Utils.fromJson(response.body(), new TypeReference<List<Job>>() {});
+    List<Job> jobs = parseV2JobList(response.body());
     assertThat(jobs).hasSizeGreaterThanOrEqualTo(2);
 
     List<String> jobNames = jobs.stream().map(j -> j.getName()).toList();
@@ -93,7 +100,7 @@ public class JobResourceV2IntegrationTest extends BaseIntegrationTest {
     HttpResponse<String> response1 = http2.send(request1, HttpResponse.BodyHandlers.ofString());
 
     assertThat(response1.statusCode()).isEqualTo(200);
-    List<Job> page1 = Utils.fromJson(response1.body(), new TypeReference<List<Job>>() {});
+    List<Job> page1 = parseV2JobList(response1.body());
     assertThat(page1).hasSize(5);
 
     // Second page
@@ -103,7 +110,7 @@ public class JobResourceV2IntegrationTest extends BaseIntegrationTest {
     HttpResponse<String> response2 = http2.send(request2, HttpResponse.BodyHandlers.ofString());
 
     assertThat(response2.statusCode()).isEqualTo(200);
-    List<Job> page2 = Utils.fromJson(response2.body(), new TypeReference<List<Job>>() {});
+    List<Job> page2 = parseV2JobList(response2.body());
     assertThat(page2).hasSize(5);
 
     // Verify no overlap
@@ -165,7 +172,7 @@ public class JobResourceV2IntegrationTest extends BaseIntegrationTest {
     HttpResponse<String> response = http2.send(request, HttpResponse.BodyHandlers.ofString());
 
     assertThat(response.statusCode()).isEqualTo(200);
-    List<Job> jobs = Utils.fromJson(response.body(), new TypeReference<List<Job>>() {});
+    List<Job> jobs = parseV2JobList(response.body());
 
     // V2 should return jobs ordered by name
     assertThat(jobs).isNotEmpty();

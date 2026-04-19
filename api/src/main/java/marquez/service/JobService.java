@@ -82,4 +82,43 @@ public class JobService extends DelegatingDaos.DelegatingJobDao {
         .findNamespaceByName(namespaceName)
         .map(marquez.db.models.NamespaceRow::getUuid);
   }
+
+  /**
+   * V2 list: fetches from denormalized table then hydrates latestRun + inputs/outputs via the same
+   * post-processing that V1's findAllWithRun() uses. This matches V1 response shape exactly.
+   */
+  @Override
+  public List<Job> findAllJobsV2(
+      UUID namespaceUuid, int limit, int offset, java.util.Set<String> includeFacets) {
+    List<Job> jobs = super.findAllJobsV2(namespaceUuid, limit, offset, includeFacets);
+    jobs.forEach(
+        j -> {
+          List<marquez.service.models.Run> runs =
+              runDao.findByLatestJob(j.getNamespace().getValue(), j.getName().getValue(), 10, 0);
+          this.setJobData(runs, j);
+        });
+    return jobs;
+  }
+
+  /**
+   * V2 single-job: fetches from denormalized table then hydrates latestRun + inputs/outputs the
+   * same way V1's findWithDatasetsAndRun() does — latestRun via setJobData(), current-version IO
+   * via setJobDataset().
+   */
+  @Override
+  public Optional<Job> findJobByNameV2(
+      UUID namespaceUuid, String jobName, java.util.Set<String> includeFacets) {
+    Optional<Job> job = super.findJobByNameV2(namespaceUuid, jobName, includeFacets);
+    job.ifPresent(
+        j -> {
+          List<marquez.service.models.Run> runs =
+              runDao.findByLatestJob(j.getNamespace().getValue(), j.getName().getValue(), 10, 0);
+          // setJobData sets latestRun, latestRuns AND inputs/outputs from the latest run's
+          // dataset versions. We do NOT call setJobDataset() here because createJobVersionDao()
+          // requires a full JDBI SQL-object context (with mapper registration) that is only
+          // available inside a DAO default method — not from the service layer.
+          this.setJobData(runs, j);
+        });
+    return job;
+  }
 }

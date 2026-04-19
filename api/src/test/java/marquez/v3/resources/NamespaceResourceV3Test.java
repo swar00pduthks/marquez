@@ -14,20 +14,31 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import jakarta.ws.rs.core.Response;
-import java.util.Collections;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.Statement;
 import org.jdbi.v3.core.Handle;
 import org.jdbi.v3.core.HandleCallback;
 import org.jdbi.v3.core.Jdbi;
-import org.jdbi.v3.core.statement.Query;
 import org.junit.jupiter.api.Test;
 
 public class NamespaceResourceV3Test {
 
   @Test
-  public void testListNamespaces() {
+  public void testListNamespaces() throws Exception {
     Jdbi mockJdbi = mock(Jdbi.class);
     Handle mockHandle = mock(Handle.class);
-    Query mockQuery = mock(Query.class);
+    Connection mockConn = mock(Connection.class);
+    PreparedStatement mockPs = mock(PreparedStatement.class);
+    ResultSet mockRs = mock(ResultSet.class);
+    Statement mockStmt = mock(Statement.class);
+
+    when(mockHandle.getConnection()).thenReturn(mockConn);
+    when(mockConn.createStatement()).thenReturn(mockStmt);
+    when(mockConn.prepareStatement(anyString())).thenReturn(mockPs);
+    when(mockPs.executeQuery()).thenReturn(mockRs);
+    when(mockRs.next()).thenReturn(false);
 
     doAnswer(
             invocation -> {
@@ -37,16 +48,40 @@ public class NamespaceResourceV3Test {
         .when(mockJdbi)
         .withHandle(any());
 
-    org.jdbi.v3.core.result.ResultIterable mockResultIterable =
-        mock(org.jdbi.v3.core.result.ResultIterable.class);
-    when(mockHandle.createQuery(anyString())).thenReturn(mockQuery);
-    when(mockQuery.bind(anyString(), any(Object.class))).thenReturn(mockQuery);
-    when(mockQuery.map(any(org.jdbi.v3.core.mapper.RowMapper.class)))
-        .thenReturn(mockResultIterable);
-    when(mockResultIterable.list()).thenReturn(Collections.emptyList());
-
     NamespaceResourceV3 resource = new NamespaceResourceV3(mockJdbi);
     Response response = resource.listNamespaces(10);
+
+    assertNotNull(response);
+    assertEquals(200, response.getStatus());
+  }
+
+  @Test
+  public void testGetNamespace() throws Exception {
+    Jdbi mockJdbi = mock(Jdbi.class);
+    Handle mockHandle = mock(Handle.class);
+    Connection mockConn = mock(Connection.class);
+    PreparedStatement mockPs = mock(PreparedStatement.class);
+    ResultSet mockRs = mock(ResultSet.class);
+
+    Statement mockStmt = mock(Statement.class);
+
+    when(mockHandle.getConnection()).thenReturn(mockConn);
+    when(mockConn.createStatement()).thenReturn(mockStmt);
+    when(mockConn.prepareStatement(anyString())).thenReturn(mockPs);
+    when(mockPs.executeQuery()).thenReturn(mockRs);
+    when(mockRs.next()).thenReturn(true, false);
+    when(mockRs.getString(1)).thenReturn("{\"name\": \"test-ns\"}");
+
+    doAnswer(
+            invocation -> {
+              HandleCallback callback = invocation.getArgument(0);
+              return callback.withHandle(mockHandle);
+            })
+        .when(mockJdbi)
+        .withHandle(any());
+
+    NamespaceResourceV3 resource = new NamespaceResourceV3(mockJdbi);
+    Response response = resource.getNamespace("test-ns");
 
     assertNotNull(response);
     assertEquals(200, response.getStatus());

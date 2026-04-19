@@ -1,10 +1,13 @@
 # Changelog
 
-## [Unreleased](https://github.com/swar00pduthks/marquez/compare/0.52.41...HEAD)
+## [0.52.43](https://github.com/swar00pduthks/marquez/compare/0.52.41...0.52.43)
 
 ### Added
 
-* API: **New V2 API endpoints** for Datasets, DatasetVersions, and Jobs to support high-scale multi-tenant operations.
+* API: **New V2 API endpoints** for Datasets, DatasetVersions, and Jobs to support high-scale multi-tenant operations, backed by denormalized tables (`dataset_denormalized`, `job_denormalized`) for improved list/get performance.
+* API: **V2 companion endpoints** for Namespaces, Sources, Tags, Column Lineage, and Stats — all under `/api/v2/*` — to complete the V2 surface area. These remain read-through to canonical tables (no denormalized backing required).
+* API: **`ageEnabled` configuration flag** to gate Apache AGE graph extension features (V3 Graph API). Default: `false` — safe for all standard PostgreSQL deployments with zero WARNING log noise and zero SQL overhead. Set to `true` only when the AGE extension is installed in your server. Exposed via `marquez.ageEnabled` in `values.yaml`, `MARQUEZ_AGE_ENABLED` env var, and `ageEnabled` key in `marquez.yml`.
+* API: Flyway placeholder-gating for V95/V97/V98 AGE migrations — when `ageEnabled=false`, these become instant no-ops (no `pg_extension` check, no `CREATE EXTENSION`, no graph/index bootstrap).
 * API: **Static Swagger UI** integrated at `/swagger-ui/` for professional API documentation and exploration.
 * API: **High-performance backfill utility** `backfillLineageByDate` in `DenormalizedLineageService` for set-based processing of millions of runs.
 * API: Database migration **V90** - Java migration to backfill denormalized entity tables (datasets, jobs) created in V88.
@@ -44,6 +47,7 @@
 
 ### Changed
 
+* API: **`ageEnabled` now defaults to `false`.** Operators who rely on the V3 Graph API / Apache AGE features must explicitly set `ageEnabled: true` in `marquez.yml` or `marquez.ageEnabled: true` in Helm values. Existing V1/V2 endpoints are **unaffected** — this only gates V3 graph endpoints and the AGE extension bootstrap. This change removes `WARNING: Apache AGE extension binary not found…` noise from the startup logs of standard Postgres deployments.
 * API: Refactored `DenormalizedLineageService` to support partitioned table architecture with automatic partition creation and event-driven population [`1ea6840`](https://github.com/swar00pduthks/marquez/commit/1ea684056497fd7f46d9f3d74772451230f0382c) [@swar00pduthks](https://github.com/swar00pduthks)
 * Build: Updated project structure and test dependencies in build.gradle files [`f809634`](https://github.com/swar00pduthks/marquez/commit/f809634e) [@swar00pduthks](https://github.com/swar00pduthks)
 

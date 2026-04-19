@@ -30,7 +30,7 @@ const webpackProd = {
       __DEVELOPMENT__: JSON.stringify(false),
       __NODE_ENV__: JSON.stringify('production'),
       __REACT_APP_ADVANCED_SEARCH__: process.env.REACT_APP_ADVANCED_SEARCH === 'true',
-      __API_URL__: JSON.stringify('/api/v1'),
+      __API_URL__: JSON.stringify('/api/v3'),
       __API_BETA_URL__: JSON.stringify('/api/v2beta'),
       __TEMP_ACTOR_STR__: JSON.stringify('me'),
       __ROLLBAR__: JSON.stringify(true),

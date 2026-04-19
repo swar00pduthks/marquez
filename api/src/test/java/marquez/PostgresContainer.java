@@ -22,6 +22,7 @@ public final class PostgresContainer extends PostgreSQLContainer<PostgresContain
 
   private PostgresContainer() {
     super(DockerImageName.parse(AGE_IMAGE).asCompatibleSubstituteFor("postgres"));
+    this.setDockerImageName(AGE_IMAGE);
   }
 
   public static PostgresContainer create(String name) {
