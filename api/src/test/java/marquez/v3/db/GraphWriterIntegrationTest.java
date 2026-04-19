@@ -92,6 +92,26 @@ public class GraphWriterIntegrationTest {
     graphDao = new GraphDao();
     graphWriter = new GraphWriter(graphDao);
     graphDao.initGraph(jdbi, GRAPH);
+
+    // This test bypasses Flyway, so manually create the marquez_v3 schema and agtype_to_json
+    // helper function that V103 normally ships. Definition mirrors V103 exactly.
+    jdbi.useHandle(
+        h -> {
+          h.execute("CREATE SCHEMA IF NOT EXISTS marquez_v3");
+          h.execute(
+              "CREATE OR REPLACE FUNCTION marquez_v3.agtype_to_json(val ag_catalog.agtype) "
+                  + "RETURNS json LANGUAGE plpgsql IMMUTABLE AS $func$ "
+                  + "DECLARE txt text; "
+                  + "BEGIN "
+                  + "  IF val IS NULL THEN RETURN NULL; END IF; "
+                  + "  txt := ag_catalog.agtype_out(val)::text; "
+                  + "  txt := regexp_replace(txt, '::[a-z]+', '', 'g'); "
+                  + "  RETURN txt::json; "
+                  + "EXCEPTION WHEN OTHERS THEN "
+                  + "  BEGIN RETURN (val::text)::json; "
+                  + "  EXCEPTION WHEN OTHERS THEN RETURN NULL; END; "
+                  + "END; $func$");
+        });
   }
 
   // ===========================================================================
@@ -366,17 +386,15 @@ public class GraphWriterIntegrationTest {
 
   private String getNodeProperty(String label, String matchKey, String matchValue, String propKey) {
     String literal = GraphDao.toCypherLiteral(matchValue);
+    // cypher() lives in ag_catalog (hence GraphDao.prefix()). agtype_to_json lives in the
+    // marquez_v3 schema (see V103 migration) — qualify it explicitly here rather than relying
+    // on search_path, because this test issues the query on a raw JDBI connection and the
+    // search_path SET from initAgeSession is not always visible on that handle.
     String sql =
         String.format(
-            "SELECT %sagtype_to_json(n) FROM %scypher(cast('%s' as name),"
+            "SELECT marquez_v3.agtype_to_json(n) FROM %scypher(cast('%s' as name),"
                 + " $$ MATCH (n:%s { %s: %s }) RETURN properties(n) $$) AS (n %sagtype)",
-            GraphDao.prefix(),
-            GraphDao.prefix(),
-            GRAPH,
-            label,
-            matchKey,
-            literal,
-            GraphDao.prefix());
+            GraphDao.prefix(), GRAPH, label, matchKey, literal, GraphDao.prefix());
 
     return jdbi.withHandle(
         handle -> {
