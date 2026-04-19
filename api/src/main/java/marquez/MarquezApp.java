@@ -312,8 +312,10 @@ public final class MarquezApp extends Application<MarquezConfig> {
       env.jersey().register(new marquez.v3.resources.SourceResourceV3(jdbi));
       env.jersey().register(new marquez.v3.resources.ColumnLineageResourceV3(jdbi));
       env.jersey().register(new marquez.v3.resources.StatsResourceV3(context.getStatsService()));
-      // V3Beta pure-Cypher lineage endpoint consumed by the marquez-web:v3beta UI bundle
-      env.jersey().register(new marquez.v3.resources.OpenLineageResourceV3Beta(jdbi));
+      // NOTE: OpenLineageResourceV3Beta intentionally NOT registered — its pure-Cypher query
+      // uses `[:INPUT_TO|OUTPUT_FROM*1..N]` edge-type alternation in a variable-length pattern,
+      // which is not supported by Apache AGE. Needs BFS rewrite (alternating single-type hops).
+      // Tracked as a follow-up; UI lineage view via /api/v3beta/lineage will 404 until fixed.
 
       // GRAPH_V1 requires AGE — only register it here when AGE is confirmed available
       if (backfillOrchestrator != null) {
