@@ -312,6 +312,8 @@ public final class MarquezApp extends Application<MarquezConfig> {
       env.jersey().register(new marquez.v3.resources.SourceResourceV3(jdbi));
       env.jersey().register(new marquez.v3.resources.ColumnLineageResourceV3(jdbi));
       env.jersey().register(new marquez.v3.resources.StatsResourceV3(context.getStatsService()));
+      // V3Beta pure-Cypher lineage endpoint consumed by the marquez-web:v3beta UI bundle
+      env.jersey().register(new marquez.v3.resources.OpenLineageResourceV3Beta(jdbi));
 
       // GRAPH_V1 requires AGE — only register it here when AGE is confirmed available
       if (backfillOrchestrator != null) {
