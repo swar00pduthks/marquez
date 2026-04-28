@@ -186,6 +186,9 @@ jobs:
       - VUS=25
       - DURATION=5m
       - LINEAGE_DEPTH=20
+      # Enable Apache AGE so V1 POSTs dual-write to the graph and V3 GET /lineage works.
+      # CI db is the marquez-postgres-age image (docker-compose.db.yml).
+      - MARQUEZ_AGE_ENABLED=true
 
   migrate-db:
     working_directory: ~/marquez
