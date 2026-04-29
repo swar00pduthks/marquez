@@ -84,9 +84,12 @@ export default function (data) {
     'response time < 10s': (r) => r.timings.duration < 10000,
   });
 
-  if (!success) {
-    errorRate.add(1);
-  }
+  // Record EVERY iteration into the Rate metric so the denominator includes
+  // successes, not just failures. Previous pattern (`if (!success) errorRate.add(1)`)
+  // only incremented the numerator — one failure pinned the rate at 100% no
+  // matter how many successes followed, tripping the `rate<0.05` threshold
+  // even when 14k+/14k requests succeeded with healthy 10ms latencies.
+  errorRate.add(!success);
 
   v3ResponseTime.add(response.timings.duration);
   v3ResponseSize.add(response.body ? response.body.length : 0);

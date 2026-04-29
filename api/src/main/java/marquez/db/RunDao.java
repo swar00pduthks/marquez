@@ -664,6 +664,74 @@ public interface RunDao extends BaseDao {
                     """)
   List<Run> findByLatestJob(String namespace, String jobName, int limit, int offset);
 
+  /**
+   * Fast path for V2 GET /api/v2/jobs: locates the latest run for a job by reading directly from
+   * run_lineage_denormalized (V82) instead of the 5-JOIN BASE_FIND_RUN_SQL. Used by JobDao.
+   * findAllWithRun to eliminate the per-job N+1 sub-query.
+   *
+   * <p>Index idx_run_lineage_denorm_job_uuid_created (V105) makes the latest-run lookup an index
+   * scan on the current monthly partition; the outer aggregation only touches rows belonging to
+   * that single run_uuid.
+   *
+   * <p>Tradeoff vs findByLatestJob: dataset_facets are not populated (V79 dropped facets from
+   * run_lineage_denormalized) and run-level facets come from a single join to run_facets_view
+   * scoped to the chosen run. Acceptable for the V2 list view; run-detail page should keep using
+   * findRunByUuid for full fidelity.
+   */
+  @SqlQuery(
+      """
+          WITH latest AS (
+            SELECT rld.run_uuid
+              FROM run_lineage_denormalized rld
+             WHERE rld.namespace_name = :namespace
+               AND rld.job_name = :jobName
+             ORDER BY rld.created_at DESC
+             LIMIT 1
+          ),
+          io AS (
+            SELECT
+              rld.run_uuid,
+              COALESCE(
+                JSONB_AGG(DISTINCT JSONB_BUILD_OBJECT(
+                  'namespace', rld.input_dataset_namespace,
+                  'name',      rld.input_dataset_name,
+                  'version',   rld.input_dataset_version,
+                  'dataset_version_uuid', rld.input_dataset_version_uuid
+                )) FILTER (WHERE rld.input_dataset_version_uuid IS NOT NULL),
+                '[]'::jsonb
+              )::json AS input_versions,
+              COALESCE(
+                JSONB_AGG(DISTINCT JSONB_BUILD_OBJECT(
+                  'namespace', rld.output_dataset_namespace,
+                  'name',      rld.output_dataset_name,
+                  'version',   rld.output_dataset_version,
+                  'dataset_version_uuid', rld.output_dataset_version_uuid
+                )) FILTER (WHERE rld.output_dataset_version_uuid IS NOT NULL),
+                '[]'::jsonb
+              )::json AS output_versions
+            FROM run_lineage_denormalized rld
+            JOIN latest l ON l.run_uuid = rld.run_uuid
+            GROUP BY rld.run_uuid
+          )
+          SELECT
+              r.*,
+              ra.args,
+              jv.version AS job_version,
+              io.input_versions,
+              io.output_versions,
+              (
+                SELECT JSON_AGG(rf.facet ORDER BY rf.lineage_event_time ASC)
+                  FROM run_facets_view rf
+                 WHERE rf.run_uuid = r.uuid
+              ) AS facets,
+              NULL::json AS dataset_facets
+            FROM runs_view r
+            JOIN io ON io.run_uuid = r.uuid
+            LEFT OUTER JOIN run_args ra ON ra.uuid = r.run_args_uuid
+            LEFT OUTER JOIN job_versions jv ON jv.uuid = r.job_version_uuid
+          """)
+  Optional<Run> findLatestRunByJobFromDenorm(String namespace, String jobName);
+
   @SqlQuery(
       BASE_FIND_RUN_SQL_WITH_FACET_FILTER
           + """

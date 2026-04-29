@@ -84,8 +84,14 @@ public class JobService extends DelegatingDaos.DelegatingJobDao {
   }
 
   /**
-   * V2 list: fetches from denormalized table then hydrates latestRun + inputs/outputs via the same
-   * post-processing that V1's findAllWithRun() uses. This matches V1 response shape exactly.
+   * V2 list: fetches from denormalized table then hydrates latestRun + inputs/outputs.
+   *
+   * <p>Per-job hydration uses {@link RunDao#findLatestRunByJobFromDenorm} — a single-row read
+   * against run_lineage_denormalized — instead of the 5-JOIN BASE_FIND_RUN_SQL used by V1. Result
+   * is wrapped in a 1-element list so setJobData populates both latestRun and latestRuns
+   * (latestRuns = [latestRun]). Trade-off vs V1: latestRuns no longer carries up to 10 historical
+   * runs — V2 callers needing run history should use the dedicated runs endpoint. V1 path
+   * (JobDao.findAllWithRun) is untouched.
    */
   @Override
   public List<Job> findAllJobsV2(
@@ -94,16 +100,22 @@ public class JobService extends DelegatingDaos.DelegatingJobDao {
     jobs.forEach(
         j -> {
           List<marquez.service.models.Run> runs =
-              runDao.findByLatestJob(j.getNamespace().getValue(), j.getName().getValue(), 10, 0);
+              runDao
+                  .findLatestRunByJobFromDenorm(j.getNamespace().getValue(), j.getName().getValue())
+                  .map(java.util.List::of)
+                  .orElseGet(java.util.List::of);
           this.setJobData(runs, j);
         });
     return jobs;
   }
 
   /**
-   * V2 single-job: fetches from denormalized table then hydrates latestRun + inputs/outputs the
-   * same way V1's findWithDatasetsAndRun() does — latestRun via setJobData(), current-version IO
-   * via setJobDataset().
+   * V2 single-job: fetches from denormalized table then hydrates latestRun + inputs/outputs.
+   *
+   * <p>Uses the same denorm-backed latest-run lookup as {@link #findAllJobsV2}. We do NOT call
+   * setJobDataset() here because createJobVersionDao() requires a full JDBI SQL-object context
+   * (with mapper registration) that is only available inside a DAO default method — not from the
+   * service layer. V1 single-job path (findWithDatasetsAndRun) is untouched.
    */
   @Override
   public Optional<Job> findJobByNameV2(
@@ -112,11 +124,10 @@ public class JobService extends DelegatingDaos.DelegatingJobDao {
     job.ifPresent(
         j -> {
           List<marquez.service.models.Run> runs =
-              runDao.findByLatestJob(j.getNamespace().getValue(), j.getName().getValue(), 10, 0);
-          // setJobData sets latestRun, latestRuns AND inputs/outputs from the latest run's
-          // dataset versions. We do NOT call setJobDataset() here because createJobVersionDao()
-          // requires a full JDBI SQL-object context (with mapper registration) that is only
-          // available inside a DAO default method — not from the service layer.
+              runDao
+                  .findLatestRunByJobFromDenorm(j.getNamespace().getValue(), j.getName().getValue())
+                  .map(java.util.List::of)
+                  .orElseGet(java.util.List::of);
           this.setJobData(runs, j);
         });
     return job;
