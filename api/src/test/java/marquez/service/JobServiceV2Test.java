@@ -39,14 +39,22 @@ import org.testcontainers.shaded.com.google.common.collect.ImmutableMap;
  *
  * <p>The fast-path change for {@code GET /api/v2/jobs} lives in {@link
  * JobService#findAllJobsV2(UUID, int, int, Set)} and {@link JobService#findJobByNameV2(UUID,
- * String, Set)} — both now use {@link marquez.db.RunDao#findLatestRunByJobFromDenorm} (single-row
- * read against {@code run_lineage_denormalized}) instead of {@code findByLatestJob(... 10, 0)} (5
- * LEFT JOIN). DAO-level tests in {@code RunDaoFromDenormTest} prove the SQL is correct; this class
- * proves the JobService wiring actually calls it and the V2 contract is honoured.
+ * String, Set)} — both now use a two-step denorm fast path:
  *
- * <p>Also enforces backward compatibility: V1 ({@link JobDao#findAllWithRun}) must continue
- * returning up to 10 historical runs per job — a future refactor that consolidates V1 onto the new
- * single-row method would silently break V1 consumers and should fail this suite.
+ * <ol>
+ *   <li>{@link marquez.db.RunDao#findLatestRunUuidsByJobFromDenorm} — index scan on
+ *       run_lineage_denormalized to fetch up to 10 latest run UUIDs.
+ *   <li>{@link marquez.db.RunDao#findRunsByUuids} — single BASE_FIND_RUN_SQL IN-list lookup
+ *       hydrates the runs with full V1 shape (dataset_facets joined on the fly via
+ *       dataset_facets_view; facets are NOT denormalized into run_lineage_denormalized).
+ * </ol>
+ *
+ * <p>This class enforces V1 parity for V2: latestRuns carries up to 10 historical runs and the full
+ * shape returned by V1's {@code findByLatestJob} is preserved. DAO-level tests in {@code
+ * RunDaoFromDenormTest} prove the SQL is correct.
+ *
+ * <p>Also enforces backward compatibility for V1 itself: V1 ({@link JobDao#findAllWithRun}) must
+ * continue returning up to 10 historical runs per job.
  */
 @ExtendWith(MarquezJdbiExternalPostgresExtension.class)
 class JobServiceV2Test {
@@ -87,13 +95,13 @@ class JobServiceV2Test {
   }
 
   /**
-   * Gap 1 — service-layer wiring assertion for V2 list. Seeds 3 runs for one job, then asserts the
-   * V2 list response surfaces exactly that job's latest run AND collapses {@code latestRuns} to a
-   * single-element list (the new V2 contract). If a future refactor reverts JobService.
-   * findAllJobsV2 to the old 10-run lookup, {@code latestRuns.size() == 1} fails immediately.
+   * V1 parity — V2 list must surface the latest run AND populate {@code latestRuns} with all
+   * historical runs (up to 10), exactly like V1. Seeds 3 runs for one job, asserts latestRun points
+   * at the most recent run, and asserts latestRuns carries all 3 (not collapsed to 1 — that would
+   * be a regression from the original perf-only attempt).
    */
   @Test
-  void findAllJobsV2_collapsesLatestRunsToSingleElement_andSurfaceLatestRun() throws Exception {
+  void findAllJobsV2_populatesLatestRunsAtV1Parity() throws Exception {
     String jobName = "v2_listed_job";
     UUID firstRunId = UUID.randomUUID();
     UUID middleRunId = UUID.randomUUID();
@@ -149,16 +157,16 @@ class JobServiceV2Test {
         .isEqualTo(latestRunId);
 
     assertThat(listedJob.getLatestRuns())
-        .as("V2 list contract: latestRuns is now a single-element list, not a 10-element history")
+        .as("V1 parity: latestRuns must carry all 3 historical runs, latest-first")
         .isPresent()
         .get()
         .asList()
-        .hasSize(1);
+        .hasSize(3);
   }
 
   /**
-   * Gap 1 — service-layer wiring assertion for V2 single-job. Mirrors the list-path test but
-   * exercises the {@code findJobByNameV2} override.
+   * V1 parity — V2 single-job mirrors the list-path V1-parity assertion: latestRun populated and
+   * latestRuns carries the (single) historical run, not an empty list and not a phantom-size list.
    */
   @Test
   void findJobByNameV2_returnsLatestRunFromDenorm() {
@@ -188,7 +196,7 @@ class JobServiceV2Test {
         .isPresent();
     assertThat(job.get().getLatestRun().get().getId().getValue()).isEqualTo(latestRunId);
     assertThat(job.get().getLatestRuns())
-        .as("V2 single-job contract: latestRuns is a single-element list")
+        .as("V1 parity: latestRuns populated with the run history (here, 1 run)")
         .isPresent()
         .get()
         .asList()

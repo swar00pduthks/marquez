@@ -318,4 +318,44 @@ public class DatasetResourceV1V2ParityIT extends BaseIntegrationTest {
         .as("V2 GET after create + denorm populate")
         .isEqualTo(200);
   }
+
+  // ---------------------------------------------------------------------------
+  // Structural parity — full response shape compare. Original tests only checked
+  // a hand-picked subset of fields; this catches V1 fields silently dropped from
+  // V2 (the kind of regression that hit jobs.latestRuns / jobs.dataset_facets).
+  // ---------------------------------------------------------------------------
+
+  @Test
+  public void testGetDataset_v1AndV2_fullStructuralParity() throws Exception {
+    client.createDataset(NAMESPACE_NAME, "structural_parity_ds", DB_TABLE_META);
+    populateDenormalized();
+
+    String ns = enc(NAMESPACE_NAME);
+    JsonNode v1 =
+        MAPPER.readTree(
+            httpGet("/api/v1/namespaces/" + ns + "/datasets/structural_parity_ds").body());
+    JsonNode v2 =
+        MAPPER.readTree(
+            httpGet("/api/v2/namespaces/" + ns + "/datasets/structural_parity_ds").body());
+
+    // `lastModifiedAt` and the dataset version surface include UUIDs/timestamps that legitimately
+    // differ across re-runs — the helper's default valueIgnoredKeys covers timestamps, and we
+    // allowlist `currentVersion` because the field is a generated UUID.
+    V1V2ParityAssertions.assertStructurallyEqual(v1, v2);
+  }
+
+  @Test
+  public void testListDatasets_v1AndV2_fullStructuralParity() throws Exception {
+    client.createDataset(NAMESPACE_NAME, "structural_list_ds_a", DB_TABLE_META);
+    client.createDataset(NAMESPACE_NAME, "structural_list_ds_b", DB_TABLE_META);
+    populateDenormalized();
+
+    String ns = enc(NAMESPACE_NAME);
+    JsonNode v1 =
+        MAPPER.readTree(httpGet("/api/v1/namespaces/" + ns + "/datasets?limit=200").body());
+    JsonNode v2 =
+        MAPPER.readTree(httpGet("/api/v2/namespaces/" + ns + "/datasets?limit=200").body());
+
+    V1V2ParityAssertions.assertStructurallyEqual(v1, v2);
+  }
 }

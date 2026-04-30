@@ -145,4 +145,36 @@ public class SourceResourceV1V2ParityIT extends BaseIntegrationTest {
     assertThat(httpGet("/api/v1/sources/" + enc("create_visible_src")).statusCode()).isEqualTo(200);
     assertThat(httpGet("/api/v2/sources/" + enc("create_visible_src")).statusCode()).isEqualTo(200);
   }
+
+  // ---------------------------------------------------------------------------
+  // Structural parity — full response shape compare via V1V2ParityAssertions.
+  // The original tests above only compared a hand-picked subset of fields, which
+  // would let any new V1 field silently disappear from V2. These tests close
+  // that gap by enforcing key-by-key structural equality.
+  // ---------------------------------------------------------------------------
+
+  @Test
+  public void testGetSource_v1AndV2_fullStructuralParity() throws Exception {
+    createSource("structural_parity_src");
+
+    JsonNode v1 =
+        MAPPER.readTree(httpGet("/api/v1/sources/" + enc("structural_parity_src")).body());
+    JsonNode v2 =
+        MAPPER.readTree(httpGet("/api/v2/sources/" + enc("structural_parity_src")).body());
+
+    V1V2ParityAssertions.assertStructurallyEqual(v1, v2);
+  }
+
+  @Test
+  public void testListSources_v1AndV2_fullStructuralParity() throws Exception {
+    createSource("list_parity_src_alpha");
+    createSource("list_parity_src_beta");
+
+    JsonNode v1 = MAPPER.readTree(httpGet("/api/v1/sources?limit=200").body());
+    JsonNode v2 = MAPPER.readTree(httpGet("/api/v2/sources?limit=200").body());
+
+    // V1 doesn't return a totalCount on the sources list — V2 may add it. Allowlist via default
+    // ParityConfig (which permits `totalCount` as a V2-only key).
+    V1V2ParityAssertions.assertStructurallyEqual(v1, v2);
+  }
 }

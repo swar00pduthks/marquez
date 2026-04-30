@@ -118,6 +118,22 @@ public class TagResourceV1V2ParityIT extends BaseIntegrationTest {
     assertThat(v2Names).contains("created_via_v1");
   }
 
+  // ---------------------------------------------------------------------------
+  // Structural parity — full response shape compare. Original tests only matched
+  // tag names; this catches any V1 field silently dropped from V2.
+  // ---------------------------------------------------------------------------
+
+  @Test
+  public void testListTags_v1AndV2_fullStructuralParity() throws Exception {
+    httpPut("/api/v2/tags/structural_tag_alpha", "{\"description\":\"alpha desc\"}");
+    httpPut("/api/v2/tags/structural_tag_beta", "{\"description\":\"beta desc\"}");
+
+    JsonNode v1 = MAPPER.readTree(httpGet("/api/v1/tags?limit=200").body());
+    JsonNode v2 = MAPPER.readTree(httpGet("/api/v2/tags?limit=200").body());
+
+    V1V2ParityAssertions.assertStructurallyEqual(v1, v2);
+  }
+
   @Test
   public void testListTags_v2_paginationIsConsistent() throws Exception {
     for (int i = 0; i < 6; i++) {

@@ -285,6 +285,41 @@ public class NamespaceResourceV1V2ParityIT extends BaseIntegrationTest {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Structural parity — full response shape compare. Closes the gap left by the
+  // original "core fields must match" tests that only checked name/ownerName.
+  // ---------------------------------------------------------------------------
+
+  @Test
+  public void testGetNamespace_v1AndV2_fullStructuralParity() throws Exception {
+    client.createNamespace(
+        "structural_parity_ns",
+        NamespaceMeta.builder()
+            .ownerName(OWNER_NAME)
+            .description("structural-parity-ns description")
+            .build());
+
+    JsonNode v1 =
+        MAPPER.readTree(httpGet("/api/v1/namespaces/" + enc("structural_parity_ns")).body());
+    JsonNode v2 =
+        MAPPER.readTree(httpGet("/api/v2/namespaces/" + enc("structural_parity_ns")).body());
+
+    V1V2ParityAssertions.assertStructurallyEqual(v1, v2);
+  }
+
+  @Test
+  public void testListNamespaces_v1AndV2_fullStructuralParity() throws Exception {
+    client.createNamespace(
+        "list_parity_ns_a", NamespaceMeta.builder().ownerName(OWNER_NAME).description("a").build());
+    client.createNamespace(
+        "list_parity_ns_b", NamespaceMeta.builder().ownerName(OWNER_NAME).description("b").build());
+
+    JsonNode v1 = MAPPER.readTree(httpGet("/api/v1/namespaces?limit=200").body());
+    JsonNode v2 = MAPPER.readTree(httpGet("/api/v2/namespaces?limit=200").body());
+
+    V1V2ParityAssertions.assertStructurallyEqual(v1, v2);
+  }
+
   @Test
   public void testHttpsUriNamespace_asPathForDatasets_v1AndV2() throws Exception {
     // The https:// namespace must also work when used as a path segment in
