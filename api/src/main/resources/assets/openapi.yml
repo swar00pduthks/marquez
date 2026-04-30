@@ -254,7 +254,6 @@ paths:
   /api/v1/namespaces/{namespace}/datasets:
     parameters:
       - $ref: '#/components/parameters/namespace'
-      - $ref: '#/components/parameters/dataset'
     get:
       operationId: getDatasets
       parameters:
@@ -628,8 +627,15 @@ paths:
   /api/v1/runlineage/upstream:
     get:
       operationId: getRunLineageUpstream
-      paramteters:
-        - $ref: '#/components/parameters/runId'
+      parameters:
+        - name: id
+          in: query
+          description: The ID of the run.
+          required: true
+          schema:
+            type: string
+            format: uuid
+            example: ea9badc5-7cb2-49af-9a9f-155771d3a797
         - $ref: '#/components/parameters/depth'
       tags:
         - Lineage
@@ -716,8 +722,7 @@ paths:
            type: string
            maxLength: 1024
            example: my-namespace
-        - before:
-          name: before
+        - name: before
           in: query
           description: Match jobs or datasets **before** `YYYY-MM-DD`.
           required: false
@@ -725,8 +730,7 @@ paths:
             type: string
             pattern: YYYY-MM-DD
             example: "2022-09-15"
-        - after:
-          name: after
+        - name: after
           in: query
           description: Match jobs or datasets **after** `YYYY-MM-DD`.
           required: false
@@ -870,6 +874,8 @@ paths:
           content:
             application/json:
               schema:
+                $ref: '#/components/schemas/Job'
+
   /api/v3/namespaces:
     get:
       operationId: getNamespacesV3
@@ -2203,11 +2209,11 @@ components:
           type: array
           items:
             type: object
-            propoerties:
+            properties:
               job:
                 type: object
                 description: identifier of the job version for this run
-                propoerties:
+                properties:
                   namespace:
                     type: string
                   name:
@@ -2297,11 +2303,11 @@ components:
         type:
           $ref: '#/components/schemas/SearchResultType'
         name:
-          type:
+          type: string
           description: The name of the dataset or job.
           example: public.delivery_7_days
         updatedAt:
-          type:
+          type: string
           description: An [ISO-8601](https://en.wikipedia.org/wiki/ISO_8601) timestamp representing the date/time the dataset or job was updated.
           example: 2019-05-09T19:49:24.201361Z
         namespace:
