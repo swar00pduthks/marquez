@@ -664,6 +664,97 @@ public interface RunDao extends BaseDao {
                     """)
   List<Run> findByLatestJob(String namespace, String jobName, int limit, int offset);
 
+  /**
+   * V2 fast path step 1: locate the latest N run UUIDs for a job using run_lineage_denormalized
+   * (V82) — a single index scan on idx_run_lineage_denorm_job_uuid_created (V105) instead of the
+   * 5-JOIN runs_view ⨝ jobs_view scan used by V1's findByLatestJob.
+   *
+   * <p>The denorm table has multiple rows per run (one per input_version × output_version), so we
+   * GROUP BY run_uuid and order by the most recent created_at within each run. Returns up to {@code
+   * limit} run UUIDs in latest-first order, ready to feed step 2.
+   *
+   * <p>V1 path ({@link #findByLatestJob(String, String, int, int)}) is untouched.
+   */
+  @SqlQuery(
+      """
+          SELECT rld.run_uuid
+            FROM run_lineage_denormalized rld
+           WHERE rld.namespace_name = :namespace
+             AND rld.job_name = :jobName
+           GROUP BY rld.run_uuid
+           ORDER BY MAX(rld.created_at) DESC
+           LIMIT :limit
+          """)
+  List<UUID> findLatestRunUuidsByJobFromDenorm(String namespace, String jobName, int limit);
+
+  /**
+   * Batched variant of {@link #findLatestRunUuidsByJobFromDenorm} for the V2 list path. Returns up
+   * to {@code perJobLimit} latest run UUIDs per job for every job name in {@code jobNames}, in a
+   * single round-trip. Eliminates the N+1 issue of looping per-job for {@code findAllJobsV2}.
+   *
+   * <p>Predicate {@code (namespace_name, job_name)} matches the per-partition index automatically
+   * created by V83/V85/V96 partition-management functions, so the IN-list scan stays index-driven.
+   *
+   * <p>Output order: latest run first within each job (caller groups by {@code job_name} preserving
+   * insertion order). Results are ROW_NUMBER-capped at {@code perJobLimit} per job.
+   *
+   * @return rows of {@code (job_name, run_uuid)} — the caller maps these into per-Job lists.
+   */
+  @SqlQuery(
+      """
+          SELECT job_name, run_uuid
+            FROM (
+              SELECT rld.job_name,
+                     rld.run_uuid,
+                     ROW_NUMBER() OVER (
+                       PARTITION BY rld.job_name
+                       ORDER BY MAX(rld.created_at) DESC
+                     ) AS rn
+                FROM run_lineage_denormalized rld
+               WHERE rld.namespace_name = :namespace
+                 AND rld.job_name IN (<jobNames>)
+               GROUP BY rld.job_name, rld.run_uuid
+            ) ranked
+           WHERE rn <= :perJobLimit
+           ORDER BY job_name, rn
+          """)
+  @RegisterRowMapper(JobNameRunUuidPairMapper.class)
+  List<JobNameRunUuidPair> findLatestRunUuidsForJobsFromDenorm(
+      @org.jdbi.v3.sqlobject.customizer.Bind("namespace") String namespace,
+      @org.jdbi.v3.sqlobject.customizer.BindList("jobNames") List<String> jobNames,
+      @org.jdbi.v3.sqlobject.customizer.Bind("perJobLimit") int perJobLimit);
+
+  /** Result row of {@link #findLatestRunUuidsForJobsFromDenorm}. */
+  record JobNameRunUuidPair(String jobName, UUID runUuid) {}
+
+  /** Maps {@code (job_name, run_uuid)} rows for {@link #findLatestRunUuidsForJobsFromDenorm}. */
+  class JobNameRunUuidPairMapper implements org.jdbi.v3.core.mapper.RowMapper<JobNameRunUuidPair> {
+    @Override
+    public JobNameRunUuidPair map(
+        java.sql.ResultSet rs, org.jdbi.v3.core.statement.StatementContext ctx)
+        throws java.sql.SQLException {
+      return new JobNameRunUuidPair(rs.getString("job_name"), rs.getObject("run_uuid", UUID.class));
+    }
+  }
+
+  /**
+   * V2 fast path step 2: hydrate a list of run UUIDs into full {@link Run} objects via
+   * BASE_FIND_RUN_SQL — a single keyed lookup (one IN-list join) instead of one BASE_FIND_RUN_SQL
+   * per job. Preserves dataset_facets and the rest of the V1 response shape so the V2 list output
+   * is at parity with V1.
+   *
+   * <p>Used by {@link marquez.service.JobService#findAllJobsV2} and {@link
+   * marquez.service.JobService#findJobByNameV2}.
+   */
+  @SqlQuery(
+      BASE_FIND_RUN_SQL
+          + """
+                    WHERE r.uuid IN (<runUuids>)
+                    ORDER BY transitioned_at DESC, started_at DESC
+                    """)
+  List<Run> findRunsByUuids(
+      @org.jdbi.v3.sqlobject.customizer.BindList("runUuids") List<UUID> runUuids);
+
   @SqlQuery(
       BASE_FIND_RUN_SQL_WITH_FACET_FILTER
           + """

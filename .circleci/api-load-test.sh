@@ -57,6 +57,12 @@ db:
   password: marquez
 
 migrateOnStartup: true
+
+# Apache AGE graph extension toggle.
+# Honours MARQUEZ_AGE_ENABLED env var, defaults to true so V1 POSTs dual-write to AGE
+# and V3 GET /lineage has a graph to traverse. CI uses the marquez-postgres-age image
+# (docker-compose.db.yml) which has AGE preloaded.
+ageEnabled: \${MARQUEZ_AGE_ENABLED:-true}
 EOF
 
 log() {

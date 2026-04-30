@@ -17,7 +17,7 @@ const webpackDev = {
       serveIndex: true,
       watch: true,
     },
-    port: 1337,
+    port: 3000,
     devMiddleware: {
       publicPath: '/'
     },
@@ -42,7 +42,7 @@ const webpackDev = {
     new webpack.DefinePlugin({
       __DEVELOPMENT__: JSON.stringify(true),
       __REACT_APP_ADVANCED_SEARCH__: true,
-      __API_URL__: JSON.stringify('/api/v1'),
+      __API_URL__: JSON.stringify('/api/v3'),
       __API_BETA_URL__: JSON.stringify('/api/v2beta'),
       __NODE_ENV__: JSON.stringify('development'),
       __TEMP_ACTOR_STR__: JSON.stringify('me'),

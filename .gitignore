@@ -63,3 +63,6 @@ terraform/
 # agent
 agents/
 .github/skills/
+
+# Claude Code
+.claude/

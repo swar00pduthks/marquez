@@ -22,7 +22,7 @@ const JobRunItem: React.FC<Props> = ({ job }) => {
   const navigate = useNavigate()
   const reversedRuns = [...(job.latestRuns || [])].reverse()
   const longestRun = useMemo(
-    () => job.latestRuns?.reduce((acc, run) => (acc.durationMs > run.durationMs ? acc : run)),
+    () => job.latestRuns?.reduce((acc, run) => (acc.durationMs > run.durationMs ? acc : run), { durationMs: 0 }),
     [job.latestRuns]
   )
   return (

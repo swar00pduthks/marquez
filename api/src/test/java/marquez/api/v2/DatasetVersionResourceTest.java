@@ -16,6 +16,9 @@ import jakarta.ws.rs.core.Response;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
+import marquez.common.models.DatasetName;
+import marquez.common.models.NamespaceName;
 import marquez.service.DatasetVersionService;
 import marquez.service.ServiceFactory;
 import marquez.service.models.DatasetVersion;
@@ -40,43 +43,52 @@ class DatasetVersionResourceTest {
 
   @Test
   void testListDatasetVersions_returnsOk() {
-    java.util.UUID nsUuid = java.util.UUID.randomUUID();
-    java.util.UUID dsUuid = java.util.UUID.randomUUID();
+    UUID nsUuid = UUID.randomUUID();
+    UUID dsUuid = UUID.randomUUID();
     List<DatasetVersion> versions = Collections.emptyList();
+    NamespaceName ns = NamespaceName.of("testns");
+    DatasetName dsName = DatasetName.of("ds");
     when(datasetService.findNamespaceUuidByName(eq("testns"))).thenReturn(Optional.of(nsUuid));
     when(datasetService.findDatasetUuidByName(eq(nsUuid), eq("ds")))
         .thenReturn(Optional.of(dsUuid));
     when(datasetVersionService.findAllDatasetVersionsV2(eq(dsUuid), anyInt(), anyInt(), anySet()))
         .thenReturn(versions);
-    Response response =
-        resource.listDatasetVersions("testns", "ds", 100, 0, Collections.emptySet());
+    Response response = resource.listDatasetVersions(ns, dsName, 100, 0, Collections.emptySet());
     assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
   }
 
   @Test
   void testGetDatasetVersion_found() {
-    java.util.UUID nsUuid = java.util.UUID.randomUUID();
-    java.util.UUID dsUuid = java.util.UUID.randomUUID();
+    UUID nsUuid = UUID.randomUUID();
+    UUID dsUuid = UUID.randomUUID();
+    String ver = UUID.randomUUID().toString();
     DatasetVersion dv = mock(DatasetVersion.class);
+    NamespaceName ns = NamespaceName.of("testns");
+    DatasetName dsName = DatasetName.of("ds");
     when(datasetService.findNamespaceUuidByName(eq("testns"))).thenReturn(Optional.of(nsUuid));
     when(datasetService.findDatasetUuidByName(eq(nsUuid), eq("ds")))
         .thenReturn(Optional.of(dsUuid));
-    when(datasetVersionService.findDatasetVersionByVersionV2(eq(dsUuid), eq("ver"), anySet()))
+    when(datasetVersionService.findDatasetVersionByVersionV2(eq(dsUuid), eq(ver), anySet()))
         .thenReturn(Optional.of(dv));
-    Response response = resource.getDatasetVersion("testns", "ds", "ver", Collections.emptySet());
+    Response response = resource.getDatasetVersion(ns, dsName, ver, Collections.emptySet());
     assertEquals(Response.Status.OK.getStatusCode(), response.getStatus());
   }
 
   @Test
   void testGetDatasetVersion_notFound() {
-    java.util.UUID nsUuid = java.util.UUID.randomUUID();
-    java.util.UUID dsUuid = java.util.UUID.randomUUID();
+    UUID nsUuid = UUID.randomUUID();
+    UUID dsUuid = UUID.randomUUID();
+    String ver = UUID.randomUUID().toString();
+    NamespaceName ns = NamespaceName.of("testns");
+    DatasetName dsName = DatasetName.of("ds");
     when(datasetService.findNamespaceUuidByName(eq("testns"))).thenReturn(Optional.of(nsUuid));
     when(datasetService.findDatasetUuidByName(eq(nsUuid), eq("ds")))
         .thenReturn(Optional.of(dsUuid));
-    when(datasetVersionService.findDatasetVersionByVersionV2(eq(dsUuid), eq("ver"), anySet()))
+    when(datasetVersionService.findDatasetVersionByVersionV2(eq(dsUuid), eq(ver), anySet()))
         .thenReturn(Optional.empty());
-    Response response = resource.getDatasetVersion("testns", "ds", "ver", Collections.emptySet());
-    assertEquals(Response.Status.NOT_FOUND.getStatusCode(), response.getStatus());
+    // Should throw NotFoundException (404)
+    org.junit.jupiter.api.Assertions.assertThrows(
+        jakarta.ws.rs.NotFoundException.class,
+        () -> resource.getDatasetVersion(ns, dsName, ver, Collections.emptySet()));
   }
 }

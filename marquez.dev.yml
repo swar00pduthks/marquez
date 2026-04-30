@@ -9,11 +9,15 @@ server:
 
 db:
   driverClass: org.postgresql.Driver
-  url: jdbc:postgresql://${POSTGRES_HOST:-localhost}:${POSTGRES_PORT:-5432}/marquez
-  user: marquez
-  password: marquez
+  url: jdbc:postgresql://${POSTGRES_HOST:-localhost}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-marquez}${POSTGRES_QUERY_PARAMS:-}
+  user: ${POSTGRES_USER:-marquez}
+  password: ${POSTGRES_PASSWORD:-marquez}
 
 migrateOnStartup: true
+
+# Apache AGE graph extension toggle. Default true for v3-beta deployments.
+# Set MARQUEZ_AGE_ENABLED=false at deploy time to disable.
+ageEnabled: ${MARQUEZ_AGE_ENABLED:-true}
 
 graphql:
   enabled: true
@@ -30,6 +34,11 @@ search:
   port: ${SEARCH_PORT:-9200}
   username: admin
   password: admin
+
+backfill:
+  batchSize: ${BACKFILL_BATCH_SIZE:-500}
+  delayBetweenBatchesMs: ${BACKFILL_DELAY_MS:-50}
+  enabledVersions: ${BACKFILL_ENABLED_VERSIONS:-[]}
 
 tags:
   - name: PII

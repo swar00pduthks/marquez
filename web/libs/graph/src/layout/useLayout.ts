@@ -68,7 +68,7 @@ export const useLayout = <K, D>({
   edges,
   direction = 'right',
   keepPreviousGraph: keepPreviousLayout = false,
-  webWorkerUrl = '/elk-worker.min.js',
+  webWorkerUrl = undefined,
   getLayoutOptions = (node) => node,
 }: Props<K, D>): Output<K, D> => {
   /* STATE */

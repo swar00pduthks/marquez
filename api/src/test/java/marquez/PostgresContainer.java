@@ -11,7 +11,6 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
 public final class PostgresContainer extends PostgreSQLContainer<PostgresContainer> {
-  private static final DockerImageName POSTGRES = DockerImageName.parse("postgres:14");
   private static final int JDBC = 5;
 
   private static final Map<String, PostgresContainer> containers = new HashMap<>();
@@ -19,8 +18,11 @@ public final class PostgresContainer extends PostgreSQLContainer<PostgresContain
   private String host;
   private int port;
 
+  private static final String AGE_IMAGE = "apache/age:release_PG14_1.5.0";
+
   private PostgresContainer() {
-    super(POSTGRES);
+    super(DockerImageName.parse(AGE_IMAGE).asCompatibleSubstituteFor("postgres"));
+    this.setDockerImageName(AGE_IMAGE);
   }
 
   public static PostgresContainer create(String name) {

@@ -10,11 +10,23 @@ export const responseTimeWithoutFacets = new Trend('response_time_without_facets
 export const responseSizeWithFacets = new Trend('response_size_with_facets');
 export const responseSizeWithoutFacets = new Trend('response_size_without_facets');
 
-// Load run UUIDs from metadata file
+// Load run UUIDs from metadata file.
+// Only include runs that have at least one output dataset — these are the only runs with
+// traversable lineage. Runs that only have lifecycle events (START/COMPLETE) with no
+// dataset I/O are not in lineage_events and return 404 from GET /lineage.
 const runUuids = new SharedArray('runUuids', function () {
   const metadata = JSON.parse(open('./metadata.json'));
-  // Extract run UUIDs from metadata
-  return metadata.map(event => event.run?.runId).filter(id => id !== undefined);
+  const withOutputs = new Set(
+    metadata
+      .filter(event => event.outputs && event.outputs.length > 0)
+      .map(event => event.run?.runId)
+      .filter(id => id !== undefined)
+  );
+  // Fall back to all run UUIDs if none have outputs (e.g. generated test data has no outputs)
+  if (withOutputs.size === 0) {
+    return [...new Set(metadata.map(e => e.run?.runId).filter(id => id !== undefined))];
+  }
+  return [...withOutputs];
 });
 
 // Configuration options
@@ -57,9 +69,40 @@ export const options = {
   },
 };
 
-export default function () {
+// Probe live API for run UUIDs with output datasets — more reliable than metadata filtering.
+// Returns null if API is unreachable; default function falls back to SharedArray in that case.
+export function setup() {
+  const baseUrl = __ENV.MARQUEZ_URL || 'http://localhost:8080';
+  const response = http.get(`${baseUrl}/api/v1/events/lineage?limit=500`, {
+    headers: { Accept: 'application/json' },
+    timeout: '30s',
+  });
+  if (response.status !== 200) {
+    return { apiRunUuids: [] };
+  }
+  try {
+    const body = JSON.parse(response.body);
+    const events = body.events || [];
+    const ids = [...new Set(
+      events
+        .filter(e => e.outputs && e.outputs.length > 0)
+        .map(e => e.run && e.run.runId)
+        .filter(id => id)
+    )];
+    return { apiRunUuids: ids };
+  } catch (_) {
+    return { apiRunUuids: [] };
+  }
+}
+
+export default function (data) {
+  // Prefer live API-probed UUIDs (populated by setup()); fall back to metadata-derived set.
+  const uuids = (data && data.apiRunUuids && data.apiRunUuids.length > 0)
+    ? data.apiRunUuids
+    : runUuids;
+
   // Select a random run UUID
-  const runUuid = runUuids[Math.floor(Math.random() * runUuids.length)];
+  const runUuid = uuids[Math.floor(Math.random() * uuids.length)];
 
   const baseUrl = __ENV.MARQUEZ_URL || 'http://localhost:8080';
   const depth = __ENV.LINEAGE_DEPTH || 20;
@@ -148,8 +191,8 @@ function textSummary(data, options) {
   summary += `${indent}  Request Rate: ${data.metrics.http_reqs.values.rate.toFixed(2)}/s\n`;
   summary += `${indent}  Failed: ${(data.metrics.http_req_failed.values.rate * 100).toFixed(2)}%\n`;
   summary += `${indent}  Duration (avg): ${data.metrics.http_req_duration.values.avg.toFixed(2)}ms\n`;
-  summary += `${indent}  Duration (p95): ${data.metrics.http_req_duration.values['p(95)'].toFixed(2)}ms\n`;
-  summary += `${indent}  Duration (p99): ${data.metrics.http_req_duration.values['p(99)'].toFixed(2)}ms\n`;
+  summary += `${indent}  Duration (p95): ${(data.metrics.http_req_duration.values['p(95)'] ?? 0).toFixed(2)}ms\n`;
+  summary += `${indent}  Duration (p99): ${(data.metrics.http_req_duration.values['p(99)'] ?? 0).toFixed(2)}ms\n`;
   summary += `${indent}  Duration (max): ${data.metrics.http_req_duration.values.max.toFixed(2)}ms\n\n`;
 
   // Without facets metrics

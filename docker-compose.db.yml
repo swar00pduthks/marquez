@@ -1,7 +1,9 @@
 version: "3.7"
 services:
   db:
-    image: postgres:14
+    build:
+      context: docker/postgres-age
+    image: marquez-postgres-age:latest
     container_name: marquez-db
     ports:
       - "${POSTGRES_PORT}:${POSTGRES_PORT}"
@@ -13,3 +15,5 @@ services:
       - MARQUEZ_PASSWORD=marquez
     volumes:
       - ./docker/init-db.sh:/docker-entrypoint-initdb.d/init-db.sh
+      - ./docker/postgresql.conf:/etc/postgresql/postgresql.conf
+    command: ["postgres", "-c", "config_file=/etc/postgresql/postgresql.conf"]
