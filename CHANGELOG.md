@@ -1,9 +1,14 @@
 # Changelog
 
-## [0.52.43](https://github.com/swar00pduthks/marquez/compare/0.52.41...0.52.43)
+## [0.52.52](https://github.com/swar00pduthks/marquez/compare/0.52.42...0.52.52) - 2026-04-30
 
 ### Added
 
+* API: **Bootstrap `api-v3` module with PostgreSQL AGE** for scalable graph-based lineage traversal supporting billions of runs across thousands of namespaces [`fa70445`](https://github.com/swar00pduthks/marquez/commit/fa70445) [@swar00pduthks](https://github.com/swar00pduthks)
+  * Introduced `MarquezAppV2` with reliable `LOAD 'age'` initialization via `setInitializationQuery`
+  * Added stub `LineageResourceV2` for Cypher-based graph traversals
+  * Architectural proposal document for the relational-to-graph migration strategy
+* API: V1 parity restored for `latestRuns` and `dataset_facets` in V2 endpoints with batch hydration (2 queries) for improved efficiency [`88300f6`](https://github.com/swar00pduthks/marquez/commit/88300f6) [@swar00pduthks](https://github.com/swar00pduthks)
 * API: **New V2 API endpoints** for Datasets, DatasetVersions, and Jobs to support high-scale multi-tenant operations, backed by denormalized tables (`dataset_denormalized`, `job_denormalized`) for improved list/get performance.
 * API: **V2 companion endpoints** for Namespaces, Sources, Tags, Column Lineage, and Stats — all under `/api/v2/*` — to complete the V2 surface area. These remain read-through to canonical tables (no denormalized backing required).
 * API: **`ageEnabled` configuration flag** to gate Apache AGE graph extension features (V3 Graph API). Default: `false` — safe for all standard PostgreSQL deployments with zero WARNING log noise and zero SQL overhead. Set to `true` only when the AGE extension is installed in your server. Exposed via `marquez.ageEnabled` in `values.yaml`, `MARQUEZ_AGE_ENABLED` env var, and `ageEnabled` key in `marquez.yml`.
