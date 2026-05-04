@@ -1,7 +1,7 @@
 # Copyright 2018-2023 contributors to the Marquez project
 # SPDX-License-Identifier: Apache-2.0
 
-FROM eclipse-temurin:17.0.19_10-jdk-jammy AS base
+FROM eclipse-temurin:17.0.18_8-jdk-jammy AS base
 WORKDIR /usr/src/app
 COPY gradle gradle
 RUN ls -la gradle
@@ -27,7 +27,7 @@ COPY clients/java ./clients/java
 RUN ls -la clients/java
 RUN ./gradlew clean :api:shadowJar --no-daemon --refresh-dependencies
 
-FROM eclipse-temurin:17.0.19_10-jdk-jammy
+FROM eclipse-temurin:17.0.18_8-jdk-jammy
 RUN apt-get update && apt-get install -y postgresql-client bash coreutils dos2unix
 WORKDIR /usr/src/app
 COPY --from=build /usr/src/app/api/build/libs/marquez-*.jar /usr/src/app
