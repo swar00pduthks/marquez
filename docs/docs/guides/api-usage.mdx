@@ -1,0 +1,482 @@
+---
+title: API Usage Guide
+sidebar_position: 2
+description: Learn how to use the Marquez API to query and write metadata programmatically.
+---
+
+# API Usage Guide
+
+This guide provides practical examples for working with the Marquez HTTP API. You will learn how to create namespaces, register datasets and jobs, send lineage events, and query the lineage graph programmatically.
+
+## Base URL
+
+By default, the Marquez API is available at:
+
+```
+http://localhost:5000/api/v1
+```
+
+All examples in this guide use this base URL. Adjust the host and port for your deployment.
+
+## Authentication
+
+By default, Marquez does not require authentication. If your deployment uses API key authentication, include the key in the `Authorization` header:
+
+```bash
+curl -H "Authorization: Bearer <your-api-key>" http://localhost:5000/api/v1/namespaces
+```
+
+## Working with Namespaces
+
+Namespaces organize your metadata by team, project, or environment.
+
+### Create a Namespace
+
+```bash
+curl -X PUT http://localhost:5000/api/v1/namespaces/analytics \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "ownerName": "analytics-team",
+    "description": "Namespace for the analytics team data pipelines"
+  }'
+```
+
+### List All Namespaces
+
+```bash
+curl http://localhost:5000/api/v1/namespaces
+```
+
+### Get a Specific Namespace
+
+```bash
+curl http://localhost:5000/api/v1/namespaces/analytics
+```
+
+## Working with Sources
+
+Sources represent the physical data stores (databases, object stores, etc.) where your data lives.
+
+### Register a Source
+
+```bash
+curl -X PUT http://localhost:5000/api/v1/sources/my-postgresql \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "type": "POSTGRESQL",
+    "connectionUrl": "jdbc:postgresql://db-host:5432/analytics",
+    "description": "Analytics PostgreSQL database"
+  }'
+```
+
+### List All Sources
+
+```bash
+curl http://localhost:5000/api/v1/sources
+```
+
+## Working with Datasets
+
+Datasets represent tables, files, or streams in your data ecosystem.
+
+### Register a Dataset
+
+```bash
+curl -X PUT http://localhost:5000/api/v1/namespaces/analytics/datasets/user_events \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "type": "DB_TABLE",
+    "physicalName": "public.user_events",
+    "sourceName": "my-postgresql",
+    "description": "Raw user event data collected from the application",
+    "fields": [
+      {"name": "event_id", "type": "INTEGER", "description": "Unique event identifier"},
+      {"name": "user_id", "type": "INTEGER", "description": "User who triggered the event"},
+      {"name": "event_type", "type": "VARCHAR", "description": "Type of event (click, view, purchase)"},
+      {"name": "event_timestamp", "type": "TIMESTAMP", "description": "When the event occurred"},
+      {"name": "properties", "type": "JSONB", "description": "Event-specific properties"}
+    ]
+  }'
+```
+
+### List Datasets in a Namespace
+
+```bash
+curl http://localhost:5000/api/v1/namespaces/analytics/datasets
+```
+
+### Get a Specific Dataset
+
+```bash
+curl http://localhost:5000/api/v1/namespaces/analytics/datasets/user_events
+```
+
+## Sending Lineage Events
+
+The primary way to populate Marquez with metadata is by sending [OpenLineage](https://openlineage.io) events to the `/lineage` endpoint. This is how integrations (Airflow, Spark, dbt) send metadata to Marquez.
+
+### Start a Run
+
+```bash
+curl -X POST http://localhost:5000/api/v1/lineage \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "eventType": "START",
+    "eventTime": "2024-01-15T10:00:00.000Z",
+    "run": {
+      "runId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+    },
+    "job": {
+      "namespace": "analytics",
+      "name": "aggregate_daily_events"
+    },
+    "inputs": [
+      {
+        "namespace": "analytics",
+        "name": "user_events"
+      }
+    ],
+    "outputs": [
+      {
+        "namespace": "analytics",
+        "name": "daily_event_summary"
+      }
+    ],
+    "producer": "https://my-scheduler.example.com",
+    "schemaURL": "https://openlineage.io/spec/2-0-2/OpenLineage.json#/definitions/RunEvent"
+  }'
+```
+
+### Complete a Run
+
+```bash
+curl -X POST http://localhost:5000/api/v1/lineage \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "eventType": "COMPLETE",
+    "eventTime": "2024-01-15T10:05:30.000Z",
+    "run": {
+      "runId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+    },
+    "job": {
+      "namespace": "analytics",
+      "name": "aggregate_daily_events"
+    },
+    "inputs": [
+      {
+        "namespace": "analytics",
+        "name": "user_events"
+      }
+    ],
+    "outputs": [
+      {
+        "namespace": "analytics",
+        "name": "daily_event_summary",
+        "facets": {
+          "schema": {
+            "_producer": "https://my-scheduler.example.com",
+            "_schemaURL": "https://openlineage.io/spec/facets/1-0-0/SchemaDatasetFacet.json",
+            "fields": [
+              {"name": "event_date", "type": "DATE"},
+              {"name": "event_type", "type": "VARCHAR"},
+              {"name": "event_count", "type": "BIGINT"},
+              {"name": "unique_users", "type": "BIGINT"}
+            ]
+          }
+        }
+      }
+    ],
+    "producer": "https://my-scheduler.example.com",
+    "schemaURL": "https://openlineage.io/spec/2-0-2/OpenLineage.json#/definitions/RunEvent"
+  }'
+```
+
+### Report a Failed Run
+
+```bash
+curl -X POST http://localhost:5000/api/v1/lineage \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "eventType": "FAIL",
+    "eventTime": "2024-01-15T10:02:15.000Z",
+    "run": {
+      "runId": "b2c3d4e5-f6a7-8901-bcde-f12345678901",
+      "facets": {
+        "errorMessage": {
+          "_producer": "https://my-scheduler.example.com",
+          "_schemaURL": "https://openlineage.io/spec/facets/1-0-0/ErrorMessageRunFacet.json",
+          "message": "Connection to database timed out",
+          "programmingLanguage": "PYTHON",
+          "stackTrace": "Traceback (most recent call last):\n  File \"etl.py\", line 42\n    ConnectionError: timeout"
+        }
+      }
+    },
+    "job": {
+      "namespace": "analytics",
+      "name": "aggregate_daily_events"
+    },
+    "inputs": [
+      {
+        "namespace": "analytics",
+        "name": "user_events"
+      }
+    ],
+    "outputs": [
+      {
+        "namespace": "analytics",
+        "name": "daily_event_summary"
+      }
+    ],
+    "producer": "https://my-scheduler.example.com",
+    "schemaURL": "https://openlineage.io/spec/2-0-2/OpenLineage.json#/definitions/RunEvent"
+  }'
+```
+
+## Querying Lineage
+
+### Get the Lineage Graph for a Job
+
+```bash
+curl "http://localhost:5000/api/v1/lineage?nodeId=job:analytics.aggregate_daily_events"
+```
+
+The response includes the full lineage graph with upstream and downstream nodes.
+
+### Get the Lineage Graph for a Dataset
+
+```bash
+curl "http://localhost:5000/api/v1/lineage?nodeId=dataset:analytics.daily_event_summary"
+```
+
+### Get the Upstream Lineage for a Run
+
+Retrieve the upstream lineage for a specific run. This recursively walks: run → dataset version it read from → the run that produced it.
+
+```bash
+curl "http://localhost:5000/api/v1/runlineage/upstream?runId=a1b2c3d4-e5f6-7890-abcd-ef1234567890&depth=10"
+```
+
+### Aggregate Lineage to Parent Run
+
+When jobs use parent/child run hierarchies (e.g. Airflow DAGs with tasks), use `aggregateToParentRun=true` to collapse child runs into the parent run in the lineage graph:
+
+```bash
+curl "http://localhost:5000/api/v1/lineage?nodeId=job:analytics.aggregate_daily_events&aggregateToParentRun=true"
+```
+
+### Control Lineage Depth
+
+Limit the depth of the lineage graph traversal:
+
+```bash
+curl "http://localhost:5000/api/v1/lineage?nodeId=job:analytics.aggregate_daily_events&depth=3"
+```
+
+### Include Facets in Lineage Response
+
+Request specific facets to be included in the lineage response:
+
+```bash
+curl "http://localhost:5000/api/v1/lineage?nodeId=job:analytics.aggregate_daily_events&includeFacets=schema&includeFacets=documentation"
+```
+
+### Get Column-Level Lineage
+
+```bash
+curl "http://localhost:5000/api/v1/column-lineage?nodeId=dataset:analytics.daily_event_summary"
+```
+
+### List Lineage Events
+
+Browse lineage events with time-range filtering and pagination:
+
+```bash
+curl "http://localhost:5000/api/v1/events/lineage?limit=50&sortDirection=desc"
+```
+
+Filter by time range:
+
+```bash
+curl "http://localhost:5000/api/v1/events/lineage?after=2024-01-01T00:00:00%2B00:00&before=2024-02-01T00:00:00%2B00:00&limit=100"
+```
+
+## V2 API
+
+This repository includes a V2 API surface that provides enhanced dataset, job, and lineage responses with richer metadata.
+
+### V2 Lineage (with aggregateToParentRun)
+
+```bash
+curl "http://localhost:5000/api/v2/lineage?nodeId=job:analytics.aggregate_daily_events&depth=20&aggregateToParentRun=true"
+```
+
+### V2 Datasets (with facets)
+
+```bash
+curl "http://localhost:5000/api/v2/namespaces/analytics/datasets"
+```
+
+Get a specific dataset with facets:
+
+```bash
+curl "http://localhost:5000/api/v2/namespaces/analytics/datasets/user_events?includeFacets=schema"
+```
+
+### V2 Jobs (with facets)
+
+```bash
+curl "http://localhost:5000/api/v2/namespaces/analytics/jobs"
+```
+
+### V2 Dataset Versions
+
+```bash
+curl "http://localhost:5000/api/v2/namespaces/analytics/datasets/user_events/versions"
+```
+
+## V3 API (Graph-Powered)
+
+The V3 API uses Apache AGE (a graph extension for PostgreSQL) to provide graph-native lineage queries. It stores lineage as a property graph with nodes (Jobs, Runs, Datasets, DatasetVersions, Fields) and edges (CONSUMES_VERSION, PRODUCES_VERSION, HAS_PARENT, etc.).
+
+### V3 Lineage Graph
+
+```bash
+curl "http://localhost:5000/api/v3/lineage?nodeId=job:analytics.aggregate_daily_events&depth=5"
+```
+
+With parent-run aggregation:
+
+```bash
+curl "http://localhost:5000/api/v3/lineage?nodeId=job:analytics.aggregate_daily_events&aggregateToParentRun=true"
+```
+
+### V3 Post Lineage Events
+
+```bash
+curl -X POST http://localhost:5000/api/v3/lineage \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "eventType": "COMPLETE",
+    "eventTime": "2024-01-15T10:05:30.000Z",
+    "run": {
+      "runId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+    },
+    "job": {
+      "namespace": "analytics",
+      "name": "aggregate_daily_events"
+    },
+    "inputs": [{"namespace": "analytics", "name": "user_events"}],
+    "outputs": [{"namespace": "analytics", "name": "daily_event_summary"}],
+    "producer": "https://my-scheduler.example.com",
+    "schemaURL": "https://openlineage.io/spec/2-0-2/OpenLineage.json#/definitions/RunEvent"
+  }'
+```
+
+### V3 Namespaces, Jobs, Datasets, Runs
+
+```bash
+# List namespaces
+curl http://localhost:5000/api/v3/namespaces
+
+# List jobs in a namespace
+curl http://localhost:5000/api/v3/namespaces/analytics/jobs
+
+# List datasets in a namespace
+curl http://localhost:5000/api/v3/namespaces/analytics/datasets
+
+# List runs
+curl http://localhost:5000/api/v3/jobs/runs?limit=50
+
+# Column-level lineage
+curl "http://localhost:5000/api/v3/column-lineage?nodeId=dataset:analytics.daily_event_summary"
+```
+
+## Searching Metadata
+
+### Search by Keyword
+
+```bash
+curl "http://localhost:5000/api/v1/search?q=delivery&filter=JOB"
+```
+
+Filter options: `JOB`, `DATASET`.
+
+### Search with Pagination
+
+```bash
+curl "http://localhost:5000/api/v1/search?q=events&limit=10&offset=0"
+```
+
+## Working with Tags
+
+Tags help categorize and discover datasets and jobs.
+
+### Create a Tag
+
+```bash
+curl -X PUT http://localhost:5000/api/v1/tags/pii \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "description": "Contains Personally Identifiable Information"
+  }'
+```
+
+### Tag a Dataset
+
+```bash
+curl -X POST http://localhost:5000/api/v1/namespaces/analytics/datasets/user_events/tags/pii
+```
+
+### Tag a Dataset Field
+
+```bash
+curl -X POST http://localhost:5000/api/v1/namespaces/analytics/datasets/user_events/fields/user_id/tags/pii
+```
+
+## Working with Runs
+
+### List Runs for a Job
+
+```bash
+curl http://localhost:5000/api/v1/namespaces/analytics/jobs/aggregate_daily_events/runs
+```
+
+### Get a Specific Run
+
+```bash
+curl http://localhost:5000/api/v1/jobs/runs/a1b2c3d4-e5f6-7890-abcd-ef1234567890
+```
+
+## Error Handling
+
+The Marquez API returns standard HTTP status codes:
+
+| Status Code | Meaning |
+|---|---|
+| `200 OK` | Request succeeded |
+| `201 Created` | Resource created successfully |
+| `400 Bad Request` | Invalid request body or parameters |
+| `404 Not Found` | Resource does not exist |
+| `500 Internal Server Error` | Server-side error |
+
+Error responses include a JSON body with details:
+
+```json
+{
+  "code": 404,
+  "message": "Namespace 'unknown' not found"
+}
+```
+
+## Client Libraries
+
+Marquez provides official client libraries for programmatic access:
+
+- **[Java Client](https://github.com/swar00pduthks/marquez/tree/main/clients/java)** — For JVM-based applications.
+- **[Python Client](https://github.com/swar00pduthks/marquez/tree/main/clients/python)** — For Python scripts and applications.
+
+## Next Steps
+
+- **[Sandbox Setup](/docs/guides/sandbox-setup)** — Set up a local environment for experimentation.
+- **[API Reference](/docs/api/marquez)** — Complete API endpoint documentation.
+- **[Airflow Tutorial](/docs/tutorials/airflow_tutorial)** — Integrate Marquez with Apache Airflow.

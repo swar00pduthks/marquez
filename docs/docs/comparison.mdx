@@ -1,0 +1,80 @@
+---
+title: Marquez vs. Alternatives
+sidebar_position: 6
+description: How Marquez compares to other metadata platforms — OpenMetadata, DataHub, and more.
+---
+
+# Marquez vs. Alternatives
+
+Choosing the right metadata platform depends on your specific needs, team size, and data ecosystem. This page provides an objective comparison of Marquez with other popular metadata platforms to help you make an informed decision.
+
+## Comparison Matrix
+
+| Feature | Marquez | OpenMetadata | DataHub |
+|---|---|---|---|
+| **Core Focus** | Data lineage and metadata collection via OpenLineage | Metadata discovery, collaboration, and governance | Metadata management and data discovery |
+| **Lineage Standard** | ✅ OpenLineage (native) | ⚠️ Partial OpenLineage support | ⚠️ Custom lineage model |
+| **Lineage Granularity** | Job-level and column-level | Table-level and column-level | Table-level and column-level |
+| **Metadata Versioning** | ✅ Built-in dataset and job versioning | ❌ Limited versioning | ⚠️ Aspect versioning |
+| **Web UI** | ✅ Lineage graph, dataset/job explorer | ✅ Rich discovery UI, collaboration tools | ✅ Rich discovery UI, search |
+| **REST API** | ✅ Comprehensive REST API | ✅ REST + GraphQL API | ✅ REST + GraphQL API |
+| **Data Quality** | ✅ Via OpenLineage facets | ✅ Built-in test framework | ✅ Via integrations |
+| **Data Discovery** | ⚠️ Search by name/namespace | ✅ Full-text search, tags, glossary | ✅ Full-text search, tags, glossary |
+| **Access Control** | ⚠️ API key auth | ✅ Role-based access control | ✅ Fine-grained policies |
+| **Database** | PostgreSQL only | MySQL or PostgreSQL | MySQL + Elasticsearch + Kafka |
+| **Deployment Complexity** | 🟢 Low (2 containers) | 🟡 Medium (multiple services) | 🔴 High (many services) |
+| **License** | Apache 2.0 | Apache 2.0 | Apache 2.0 |
+
+## When to Choose Marquez
+
+Marquez is the best choice when:
+
+- **OpenLineage is your standard.** Marquez is the reference implementation for OpenLineage, the open standard for data lineage. If your organization has adopted (or plans to adopt) OpenLineage, Marquez provides the most seamless integration.
+
+- **You need lightweight deployment.** Marquez requires only two containers (API server + PostgreSQL), making it easy to deploy, operate, and maintain. There is no need for Kafka, Elasticsearch, or other infrastructure.
+
+- **Lineage is your primary concern.** Marquez excels at collecting, storing, and querying data lineage. If lineage tracking and pipeline observability are your main goals, Marquez provides a focused, purpose-built solution.
+
+- **You value metadata versioning.** Marquez tracks every change to dataset schemas and job definitions, creating an immutable audit trail that is valuable for compliance, debugging, and impact analysis.
+
+- **You prefer simplicity over feature breadth.** Marquez focuses on doing a few things very well rather than being an all-in-one platform. It is designed to integrate with your existing tools rather than replace them.
+
+## When to Consider Alternatives
+
+### OpenMetadata
+
+Consider OpenMetadata when you need:
+- A comprehensive **data discovery** platform with rich collaboration features (descriptions, tags, glossary terms, announcements).
+- Built-in **data quality testing** with a no-code test framework.
+- **Role-based access control** and team management out of the box.
+- A single platform for discovery, governance, and lineage.
+
+### DataHub
+
+Consider DataHub when you need:
+- An enterprise-grade **metadata management** platform with advanced search and discovery.
+- **Fine-grained access policies** for metadata governance.
+- A highly scalable architecture designed for very large organizations.
+- Deep integration with the **Acryl Data** commercial ecosystem.
+
+## Complementary Usage
+
+Marquez works well alongside other metadata tools. Because it uses the OpenLineage standard, you can:
+
+1. **Use Marquez for lineage** while using OpenMetadata or DataHub for discovery and governance.
+2. **Feed Marquez lineage data** into other systems via its API for custom dashboards or alerting.
+3. **Migrate incrementally** — start with Marquez for lineage and add other tools as your needs grow.
+
+## Summary
+
+| Aspect | Marquez Strength |
+|---|---|
+| Deployment simplicity | ⭐⭐⭐⭐⭐ |
+| OpenLineage support | ⭐⭐⭐⭐⭐ |
+| Lineage depth | ⭐⭐⭐⭐⭐ |
+| Metadata versioning | ⭐⭐⭐⭐⭐ |
+| Data discovery | ⭐⭐⭐ |
+| Governance features | ⭐⭐ |
+| Operational overhead | ⭐⭐⭐⭐⭐ (lowest) |
+
+The best metadata platform is the one that fits your team's needs and integrates well with your existing data stack. Marquez's strength lies in its simplicity, focus on lineage, and native OpenLineage support.

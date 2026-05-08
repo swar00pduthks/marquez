@@ -1,0 +1,322 @@
+---
+title: Custom Integrations
+sidebar_position: 3
+description: Build custom integrations with Marquez using the OpenLineage standard and the Marquez API.
+---
+
+# Building Custom Integrations
+
+This guide explains how to build custom integrations that send lineage metadata to Marquez. Whether you have a custom data pipeline, a homegrown scheduler, or a tool without an existing OpenLineage integration, you can send metadata to Marquez using the OpenLineage event format.
+
+## Overview
+
+Marquez collects metadata through [OpenLineage](https://openlineage.io) events. Any system that can make HTTP requests can send lineage data to Marquez by posting OpenLineage-formatted JSON to the `/api/v1/lineage` endpoint.
+
+```
+Your Application  →  OpenLineage Event (JSON)  →  POST /api/v1/lineage  →  Marquez
+```
+
+## OpenLineage Event Structure
+
+An OpenLineage event has this structure:
+
+```json
+{
+  "eventType": "START | COMPLETE | FAIL | ABORT | RUNNING",
+  "eventTime": "ISO-8601 timestamp",
+  "run": {
+    "runId": "UUID",
+    "facets": { }
+  },
+  "job": {
+    "namespace": "string",
+    "name": "string",
+    "facets": { }
+  },
+  "inputs": [
+    {
+      "namespace": "string",
+      "name": "string",
+      "facets": { }
+    }
+  ],
+  "outputs": [
+    {
+      "namespace": "string",
+      "name": "string",
+      "facets": { }
+    }
+  ],
+  "producer": "URI identifying your integration",
+  "schemaURL": "https://openlineage.io/spec/2-0-2/OpenLineage.json#/definitions/RunEvent"
+}
+```
+
+### Event Types
+
+| Event Type | When to Send |
+|---|---|
+| `START` | When a job run begins execution |
+| `RUNNING` | Periodically during execution (optional, for long-running jobs) |
+| `COMPLETE` | When a job run finishes successfully |
+| `FAIL` | When a job run fails |
+| `ABORT` | When a job run is cancelled or aborted |
+
+### Key Fields
+
+- **`run.runId`** — A UUID that uniquely identifies this execution. Generate a new UUID for each run.
+- **`job.namespace`** — A logical grouping (e.g., team name, project name, environment).
+- **`job.name`** — The name of the job or pipeline step.
+- **`inputs`** — Datasets consumed by this job run.
+- **`outputs`** — Datasets produced by this job run.
+- **`producer`** — A URI identifying your integration (e.g., `https://my-company.com/scheduler`).
+
+## Example: Python Integration
+
+Here is a minimal Python example that sends lineage events to Marquez:
+
+```python
+import json
+import uuid
+from datetime import datetime, timezone
+import requests
+
+MARQUEZ_URL = "http://localhost:5000/api/v1/lineage"
+PRODUCER = "https://my-company.com/custom-etl"
+SCHEMA_URL = "https://openlineage.io/spec/2-0-2/OpenLineage.json#/definitions/RunEvent"
+
+def send_lineage_event(event_type, run_id, job_name, namespace,
+                       inputs=None, outputs=None, run_facets=None):
+    """Send an OpenLineage event to Marquez."""
+    event = {
+        "eventType": event_type,
+        "eventTime": datetime.now(timezone.utc).isoformat(),
+        "run": {
+            "runId": str(run_id),
+            "facets": run_facets or {}
+        },
+        "job": {
+            "namespace": namespace,
+            "name": job_name
+        },
+        "inputs": inputs or [],
+        "outputs": outputs or [],
+        "producer": PRODUCER,
+        "schemaURL": SCHEMA_URL
+    }
+
+    response = requests.post(MARQUEZ_URL, json=event)
+    response.raise_for_status()
+    return response.json()
+
+# Usage Example
+run_id = uuid.uuid4()
+
+# Signal that the job has started
+send_lineage_event(
+    event_type="START",
+    run_id=run_id,
+    job_name="daily_sales_aggregation",
+    namespace="analytics",
+    inputs=[
+        {"namespace": "analytics", "name": "raw_sales"},
+        {"namespace": "analytics", "name": "product_catalog"}
+    ],
+    outputs=[
+        {"namespace": "analytics", "name": "daily_sales_summary"}
+    ]
+)
+
+# ... your ETL logic here ...
+
+# Signal that the job completed successfully
+send_lineage_event(
+    event_type="COMPLETE",
+    run_id=run_id,
+    job_name="daily_sales_aggregation",
+    namespace="analytics",
+    inputs=[
+        {"namespace": "analytics", "name": "raw_sales"},
+        {"namespace": "analytics", "name": "product_catalog"}
+    ],
+    outputs=[
+        {
+            "namespace": "analytics",
+            "name": "daily_sales_summary",
+            "facets": {
+                "schema": {
+                    "_producer": PRODUCER,
+                    "_schemaURL": "https://openlineage.io/spec/facets/1-0-0/SchemaDatasetFacet.json",
+                    "fields": [
+                        {"name": "sale_date", "type": "DATE"},
+                        {"name": "product_id", "type": "INTEGER"},
+                        {"name": "total_revenue", "type": "DECIMAL"},
+                        {"name": "units_sold", "type": "INTEGER"}
+                    ]
+                }
+            }
+        }
+    ]
+)
+```
+
+## Example: Shell Script Integration
+
+For simple pipelines or cron jobs, you can use `curl`:
+
+```bash
+#!/bin/bash
+set -e
+
+MARQUEZ_URL="http://localhost:5000/api/v1/lineage"
+RUN_ID=$(uuidgen)
+NAMESPACE="batch-processing"
+JOB_NAME="nightly_data_export"
+PRODUCER="https://my-company.com/cron-jobs"
+SCHEMA_URL="https://openlineage.io/spec/2-0-2/OpenLineage.json#/definitions/RunEvent"
+
+# Send START event
+curl -s -X POST "$MARQUEZ_URL" \
+  -H 'Content-Type: application/json' \
+  -d "{
+    \"eventType\": \"START\",
+    \"eventTime\": \"$(date -u +%Y-%m-%dT%H:%M:%S.000Z)\",
+    \"run\": {\"runId\": \"$RUN_ID\"},
+    \"job\": {\"namespace\": \"$NAMESPACE\", \"name\": \"$JOB_NAME\"},
+    \"inputs\": [{\"namespace\": \"$NAMESPACE\", \"name\": \"source_database\"}],
+    \"outputs\": [{\"namespace\": \"$NAMESPACE\", \"name\": \"export_file\"}],
+    \"producer\": \"$PRODUCER\",
+    \"schemaURL\": \"$SCHEMA_URL\"
+  }"
+
+# Run your actual job
+echo "Running data export..."
+# ... your job logic here ...
+
+# Send COMPLETE event
+curl -s -X POST "$MARQUEZ_URL" \
+  -H 'Content-Type: application/json' \
+  -d "{
+    \"eventType\": \"COMPLETE\",
+    \"eventTime\": \"$(date -u +%Y-%m-%dT%H:%M:%S.000Z)\",
+    \"run\": {\"runId\": \"$RUN_ID\"},
+    \"job\": {\"namespace\": \"$NAMESPACE\", \"name\": \"$JOB_NAME\"},
+    \"inputs\": [{\"namespace\": \"$NAMESPACE\", \"name\": \"source_database\"}],
+    \"outputs\": [{\"namespace\": \"$NAMESPACE\", \"name\": \"export_file\"}],
+    \"producer\": \"$PRODUCER\",
+    \"schemaURL\": \"$SCHEMA_URL\"
+  }"
+
+echo "Lineage event sent successfully."
+```
+
+## Adding Facets
+
+Facets are extensible metadata that you can attach to runs, jobs, and datasets. Common facets include:
+
+### Schema Facet (Dataset)
+
+Describes the schema of a dataset:
+
+```json
+{
+  "schema": {
+    "_producer": "https://my-company.com/custom-etl",
+    "_schemaURL": "https://openlineage.io/spec/facets/1-0-0/SchemaDatasetFacet.json",
+    "fields": [
+      {"name": "id", "type": "INTEGER", "description": "Primary key"},
+      {"name": "name", "type": "VARCHAR", "description": "User name"},
+      {"name": "email", "type": "VARCHAR", "description": "User email"}
+    ]
+  }
+}
+```
+
+### SQL Job Facet
+
+Records the SQL query executed by a job:
+
+```json
+{
+  "sql": {
+    "_producer": "https://my-company.com/custom-etl",
+    "_schemaURL": "https://openlineage.io/spec/facets/1-0-0/SQLJobFacet.json",
+    "query": "INSERT INTO daily_summary SELECT date, SUM(amount) FROM transactions GROUP BY date"
+  }
+}
+```
+
+### Error Message Run Facet
+
+Records error details when a run fails:
+
+```json
+{
+  "errorMessage": {
+    "_producer": "https://my-company.com/custom-etl",
+    "_schemaURL": "https://openlineage.io/spec/facets/1-0-0/ErrorMessageRunFacet.json",
+    "message": "Table 'source_data' does not exist",
+    "programmingLanguage": "SQL"
+  }
+}
+```
+
+## Best Practices
+
+1. **Use consistent namespaces.** Choose a naming convention and stick with it (e.g., `team.project` or `environment.service`).
+
+2. **Generate unique run IDs.** Always use a new UUID for each job execution. Never reuse run IDs.
+
+3. **Send both START and COMPLETE/FAIL events.** This allows Marquez to track run duration and status accurately.
+
+4. **Include schema facets on COMPLETE events.** Schema information helps Marquez track dataset version changes.
+
+5. **Handle errors gracefully.** If Marquez is unavailable, log the event and retry later. Do not let lineage failures break your data pipeline.
+
+6. **Use descriptive job and dataset names.** Names should be meaningful and consistent across your organization.
+
+## Using the OpenLineage Python Client
+
+For more robust integrations, consider using the official OpenLineage Python client:
+
+```bash
+pip install openlineage-python
+```
+
+```python
+from openlineage.client import OpenLineageClient
+from openlineage.client.transport.http import HttpConfig, HttpCompression, HttpTransport
+from openlineage.client.run import RunEvent, RunState, Run, Job, Dataset
+from openlineage.client.facet_v2 import schema_dataset_facet
+import uuid
+from datetime import datetime, timezone
+
+# Configure the client to send events to Marquez
+http_config = HttpConfig(
+    url="http://localhost:5000",
+    endpoint="api/v1/lineage",
+    compression=HttpCompression.GZIP,
+)
+client = OpenLineageClient(transport=HttpTransport(http_config))
+
+# Create and send a COMPLETE event
+run_id = str(uuid.uuid4())
+event = RunEvent(
+    eventType=RunState.COMPLETE,
+    eventTime=datetime.now(timezone.utc).isoformat(),
+    run=Run(runId=run_id),
+    job=Job(namespace="analytics", name="my_etl_job"),
+    inputs=[Dataset(namespace="analytics", name="raw_data")],
+    outputs=[Dataset(namespace="analytics", name="processed_data")],
+    producer="https://my-company.com/etl",
+    schemaURL="https://openlineage.io/spec/2-0-2/OpenLineage.json#/definitions/RunEvent"
+)
+
+client.emit(event)
+```
+
+## Next Steps
+
+- **[API Usage Guide](/docs/guides/api-usage)** — More examples of working with the Marquez API.
+- **[OpenLineage Specification](https://openlineage.io/docs/spec/object-model)** — Full OpenLineage spec reference.
+- **[Sandbox Setup](/docs/guides/sandbox-setup)** — Test your integration locally.
