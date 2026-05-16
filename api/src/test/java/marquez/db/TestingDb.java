@@ -11,6 +11,7 @@ import com.google.common.collect.ImmutableSet;
 import io.openlineage.client.OpenLineage;
 import jakarta.annotation.Nullable;
 import java.time.Instant;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -243,7 +244,7 @@ final class TestingDb {
             olEvent.getJob().getNamespace(),
             Columns.toPgObject(olEvent),
             olEvent.getProducer().toASCIIString(),
-            olEvent.getEventTime().toLocalDate());
+            olEvent.getEventTime().withZoneSameInstant(ZoneId.of("UTC")).toLocalDate());
   }
 
   /** Obtain a new {@link Handle} by delegating to underlying {@code jdbi}. */
