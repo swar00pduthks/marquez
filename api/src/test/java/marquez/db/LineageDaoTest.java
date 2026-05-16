@@ -1185,4 +1185,110 @@ public class LineageDaoTest {
       }
     }
   }
+
+  /**
+   * Regression test for: getParentRunLineage returning one row per child run (all with the same
+   * parent run_uuid), causing Maps.uniqueIndex in LineageService.toRunLineage() to throw
+   * IllegalArgumentException: "Multiple entries with same key".
+   *
+   * <p>The existing testGetParentRunLineageWithIncludeFacets test only created ONE child run, so
+   * GROUP BY never produced duplicates and the bug was invisible. With multiple children, the
+   * denormalized table has one row per child (each with run_uuid = parent UUID), and without
+   * DISTINCT COALESCE(run_uuid, uuid) the GROUP BY could return multiple rows sharing the same
+   * parent UUID.
+   */
+  @Test
+  public void testGetParentRunLineage_multipleChildRuns_returnsOneRowPerParent() {
+    // Arrange: parent run produces a shared dataset
+    UUID parentRunId = UUID.randomUUID();
+    UpdateLineageRow parentJob =
+        LineageTestUtils.createLineageRow(
+            openLineageDao,
+            "sparkParentJob",
+            parentRunId,
+            "COMPLETE",
+            jobFacet,
+            Collections.emptyList(),
+            Arrays.asList(dataset),
+            null,
+            ImmutableMap.of("spark", ImmutableMap.of("version", "3.3.0")));
+
+    LineageEvent.ParentRunFacet parentFacet =
+        LineageEvent.ParentRunFacet.builder()
+            .run(LineageEvent.RunLink.builder().runId(parentRunId.toString()).build())
+            .job(
+                LineageEvent.JobLink.builder()
+                    .namespace(NAMESPACE)
+                    .name(parentJob.getJob().getName())
+                    .build())
+            .build();
+
+    // Create three child runs all referencing the same parent
+    Dataset childOutput1 =
+        new Dataset(NAMESPACE, "childOutput1", newDatasetFacet(new SchemaField("f", "string", "")));
+    Dataset childOutput2 =
+        new Dataset(NAMESPACE, "childOutput2", newDatasetFacet(new SchemaField("f", "string", "")));
+    Dataset childOutput3 =
+        new Dataset(NAMESPACE, "childOutput3", newDatasetFacet(new SchemaField("f", "string", "")));
+
+    UpdateLineageRow child1 =
+        LineageTestUtils.createLineageRow(
+            openLineageDao,
+            "childJob1",
+            UUID.randomUUID(),
+            "COMPLETE",
+            jobFacet,
+            Arrays.asList(dataset),
+            Arrays.asList(childOutput1),
+            parentFacet,
+            ImmutableMap.of());
+    UpdateLineageRow child2 =
+        LineageTestUtils.createLineageRow(
+            openLineageDao,
+            "childJob2",
+            UUID.randomUUID(),
+            "COMPLETE",
+            jobFacet,
+            Arrays.asList(dataset),
+            Arrays.asList(childOutput2),
+            parentFacet,
+            ImmutableMap.of());
+    UpdateLineageRow child3 =
+        LineageTestUtils.createLineageRow(
+            openLineageDao,
+            "childJob3",
+            UUID.randomUUID(),
+            "COMPLETE",
+            jobFacet,
+            Arrays.asList(dataset),
+            Arrays.asList(childOutput3),
+            parentFacet,
+            ImmutableMap.of());
+
+    // Populate denormalized tables for all runs
+    denormalizedLineageService.populateLineageForRun(parentJob.getRun().getUuid());
+    denormalizedLineageService.populateLineageForRun(child1.getRun().getUuid());
+    denormalizedLineageService.populateLineageForRun(child2.getRun().getUuid());
+    denormalizedLineageService.populateLineageForRun(child3.getRun().getUuid());
+
+    Set<UUID> runIds = Set.of(parentRunId);
+
+    // Act
+    Set<marquez.service.models.RunData> result =
+        lineageDao.getParentRunLineage(runIds, 10, null, null);
+
+    // Assert: must return exactly one row for the parent UUID — not one per child.
+    // Without DISTINCT COALESCE(run_uuid, uuid), GROUP BY produced duplicate rows and
+    // Maps.uniqueIndex in LineageService.toRunLineage() threw IllegalArgumentException.
+    assertThat(result).hasSize(1);
+    assertThat(result.iterator().next().getUuid()).isEqualTo(parentRunId);
+
+    // Same assertion for the facets variant
+    Set<String> includeFacets = Set.of("spark");
+    Set<marquez.service.models.RunData> facetsResult =
+        lineageDao.getParentRunLineageWithFacets(runIds, 10, includeFacets, null, null);
+
+    assertThat(facetsResult).hasSize(1);
+    assertThat(facetsResult.iterator().next().getUuid()).isEqualTo(parentRunId);
+  }
 }

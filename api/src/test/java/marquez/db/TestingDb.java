@@ -242,7 +242,8 @@ final class TestingDb {
             olEvent.getJob().getName(),
             olEvent.getJob().getNamespace(),
             Columns.toPgObject(olEvent),
-            olEvent.getProducer().toASCIIString());
+            olEvent.getProducer().toASCIIString(),
+            olEvent.getEventTime().toLocalDate());
   }
 
   /** Obtain a new {@link Handle} by delegating to underlying {@code jdbi}. */
