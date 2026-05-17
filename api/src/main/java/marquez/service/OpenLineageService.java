@@ -140,7 +140,11 @@ public class OpenLineageService extends DelegatingDaos.DelegatingOpenLineageDao 
                         createDatasetEvent(
                             event.getEventTime().withZoneSameInstant(ZoneId.of("UTC")).toInstant(),
                             createJsonArray(event, mapper),
-                            event.getProducer()))),
+                            event.getProducer(),
+                            event
+                                .getEventTime()
+                                .withZoneSameInstant(ZoneId.of("UTC"))
+                                .toLocalDate()))),
             executor);
 
     CompletableFuture<Void> marquez =
@@ -197,7 +201,11 @@ public class OpenLineageService extends DelegatingDaos.DelegatingOpenLineageDao 
                             event.getJob().getName(),
                             event.getJob().getNamespace(),
                             createJsonArray(event, mapper),
-                            event.getProducer()))),
+                            event.getProducer(),
+                            event
+                                .getEventTime()
+                                .withZoneSameInstant(ZoneId.of("UTC"))
+                                .toLocalDate()))),
             executor);
 
     CompletableFuture<Void> marquez =
@@ -257,7 +265,11 @@ public class OpenLineageService extends DelegatingDaos.DelegatingOpenLineageDao 
                             event.getJob().getName(),
                             event.getJob().getNamespace(),
                             createJsonArray(event, mapper),
-                            event.getProducer()))),
+                            event.getProducer(),
+                            event
+                                .getEventTime()
+                                .withZoneSameInstant(ZoneId.of("UTC"))
+                                .toLocalDate()))),
             executor);
 
     CompletableFuture<Void> marquez =

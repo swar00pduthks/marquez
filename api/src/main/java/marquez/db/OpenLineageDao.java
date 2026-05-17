@@ -10,6 +10,7 @@ import com.google.common.collect.ImmutableMap;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
@@ -87,6 +88,7 @@ public interface OpenLineageDao extends BaseDao {
     JOB_EVENT;
   }
 
+  // run_date column requires schema V101+. Pre-V101 callers must use a direct INSERT without it.
   @SqlUpdate(
       "INSERT INTO lineage_events ("
           + "event_type, "
@@ -96,8 +98,9 @@ public interface OpenLineageDao extends BaseDao {
           + "job_namespace, "
           + "event, "
           + "producer, "
-          + "_event_type) "
-          + "VALUES (?, ?, ?, ?, ?, ?, ?, 'RUN_EVENT')")
+          + "_event_type, "
+          + "run_date) "
+          + "VALUES (?, ?, ?, ?, ?, ?, ?, 'RUN_EVENT', ?)")
   void createLineageEvent(
       String eventType,
       Instant eventTime,
@@ -105,16 +108,18 @@ public interface OpenLineageDao extends BaseDao {
       String jobName,
       String jobNamespace,
       PGobject event,
-      String producer);
+      String producer,
+      LocalDate runDate);
 
   @SqlUpdate(
       "INSERT INTO lineage_events ("
           + "event_time, "
           + "event, "
           + "producer, "
-          + "_event_type) "
-          + "VALUES (?, ?, ?, 'DATASET_EVENT')")
-  void createDatasetEvent(Instant eventTime, PGobject event, String producer);
+          + "_event_type, "
+          + "run_date) "
+          + "VALUES (?, ?, ?, 'DATASET_EVENT', ?)")
+  void createDatasetEvent(Instant eventTime, PGobject event, String producer, LocalDate runDate);
 
   @SqlUpdate(
       "INSERT INTO lineage_events ("
@@ -123,10 +128,16 @@ public interface OpenLineageDao extends BaseDao {
           + "job_namespace, "
           + "event, "
           + "producer, "
-          + "_event_type) "
-          + "VALUES (?, ?, ?, ?, ?, 'JOB_EVENT')")
+          + "_event_type, "
+          + "run_date) "
+          + "VALUES (?, ?, ?, ?, ?, 'JOB_EVENT', ?)")
   void createJobEvent(
-      Instant eventTime, String jobName, String jobNamespace, PGobject event, String producer);
+      Instant eventTime,
+      String jobName,
+      String jobNamespace,
+      PGobject event,
+      String producer,
+      LocalDate runDate);
 
   @SqlQuery(
       "SELECT event FROM lineage_events WHERE run_uuid = :runUuid AND _event_type='RUN_EVENT'")

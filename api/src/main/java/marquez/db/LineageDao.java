@@ -504,7 +504,7 @@ public interface LineageDao {
                AND (:maxDate::date IS NULL OR io.run_date <= :maxDate::date)
            )
          SELECT
-           run_uuid AS uuid, -- Returns parent run UUID for aggregation (groups all child runs)
+           COALESCE(run_uuid, uuid) AS uuid, -- Returns parent run UUID for aggregation (groups all child runs)
            created_at,
            updated_at,
            started_at,
@@ -530,7 +530,7 @@ public interface LineageDao {
            MIN(depth) AS depth
          FROM lineage
          GROUP BY
-           run_uuid, created_at, updated_at, started_at, ended_at,
+           COALESCE(run_uuid, uuid), created_at, updated_at, started_at, ended_at,
            state, job_uuid, job_version_uuid, namespace_name, job_name, input_uuids, output_uuids
          """)
   Set<RunData> getParentRunLineage(
@@ -581,12 +581,9 @@ public interface LineageDao {
           WHERE l.depth < :depth
             AND (:minDate::date IS NULL OR io.run_date >= :minDate::date)
             AND (:maxDate::date IS NULL OR io.run_date <= :maxDate::date)
-        ),
-        lineage_nodes AS (
-          SELECT DISTINCT ON (run_uuid) * FROM lineage_graph ORDER BY run_uuid, depth ASC
         )
       SELECT
-        l.run_uuid AS uuid,
+        COALESCE(l.run_uuid, l.uuid) AS uuid,
         l.created_at,
         l.updated_at,
         l.started_at,
@@ -611,11 +608,11 @@ public interface LineageDao {
         COALESCE(Array_AGG(distinct l.parent_run_uuid), Array[]::uuid[]) as parent_run_id,
         JSON_AGG(DISTINCT jsonb_build_object(rf.name, rf.facet)) FILTER (WHERE rf.name IS NOT NULL) as facets,
         MIN(l.depth) AS depth
-      FROM lineage_nodes l
+      FROM lineage_graph l
       LEFT JOIN run_facets rf ON (rf.run_uuid = l.uuid OR rf.run_uuid = l.run_uuid)
         AND rf.name IN (<includeFacets>)
       GROUP BY
-        l.run_uuid, l.created_at, l.updated_at, l.started_at, l.ended_at,
+        COALESCE(l.run_uuid, l.uuid), l.created_at, l.updated_at, l.started_at, l.ended_at,
         l.state, l.job_uuid, l.job_version_uuid, l.namespace_name, l.job_name, l.input_uuids, l.output_uuids
       """)
   Set<RunData> getParentRunLineageWithFacets(

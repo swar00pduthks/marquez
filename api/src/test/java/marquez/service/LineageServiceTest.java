@@ -1167,6 +1167,213 @@ public class LineageServiceTest {
     assertThat(lineage.getGraph()).isEmpty();
   }
 
+  /**
+   * Full integration mock-up of a Spark DAG with a parent run and 3 child task runs.
+   *
+   * <p>Topology: raw_events ──► [task_user_metrics C1] ──► user_metrics raw_events ──►
+   * [task_session_metrics C2] ──► session_metrics raw_events ──► [task_page_metrics C3] ──►
+   * page_metrics All 3 tasks are children of the DAG coordinator run P (my_spark_app).
+   *
+   * <p>With aggregateToParentRun=true the API should collapse C1+C2+C3 into one node P that shows
+   * the union of all children's inputs (raw_events once) and outputs (3 distinct datasets).
+   */
+  @Test
+  public void testSparkParentRunAggregatesAllChildLineage() {
+    UUID parentRunId = UUID.randomUUID();
+
+    // Parent DAG run has no direct inputs/outputs; tagged with a spark_version facet
+    UpdateLineageRow parentRow =
+        LineageTestUtils.createLineageRow(
+            openLineageDao,
+            "my_spark_app",
+            parentRunId,
+            "COMPLETE",
+            jobFacet,
+            Collections.emptyList(),
+            Collections.emptyList(),
+            null,
+            ImmutableMap.of("spark_version", ImmutableMap.of("version", "3.3.0")));
+
+    marquez.service.models.LineageEvent.ParentRunFacet parentFacet =
+        marquez.service.models.LineageEvent.ParentRunFacet.builder()
+            .run(
+                marquez.service.models.LineageEvent.RunLink.builder()
+                    .runId(parentRunId.toString())
+                    .build())
+            .job(
+                marquez.service.models.LineageEvent.JobLink.builder()
+                    .namespace(NAMESPACE)
+                    .name("my_spark_app")
+                    .build())
+            .build();
+
+    // Shared input read by all 3 tasks
+    Dataset rawEvents =
+        new Dataset(
+            NAMESPACE,
+            "raw_events",
+            newDatasetFacet(
+                new SchemaField("event_id", "string", ""), new SchemaField("ts", "long", "")));
+
+    // Each task writes its own output dataset
+    Dataset userMetrics =
+        new Dataset(
+            NAMESPACE, "user_metrics", newDatasetFacet(new SchemaField("user_id", "string", "")));
+    Dataset sessionMetrics =
+        new Dataset(
+            NAMESPACE,
+            "session_metrics",
+            newDatasetFacet(new SchemaField("session_id", "string", "")));
+    Dataset pageMetrics =
+        new Dataset(
+            NAMESPACE, "page_metrics", newDatasetFacet(new SchemaField("page", "string", "")));
+
+    UpdateLineageRow child1 =
+        LineageTestUtils.createLineageRow(
+            openLineageDao,
+            "task_user_metrics",
+            UUID.randomUUID(),
+            "COMPLETE",
+            jobFacet,
+            Arrays.asList(rawEvents),
+            Arrays.asList(userMetrics),
+            parentFacet,
+            ImmutableMap.of());
+    UpdateLineageRow child2 =
+        LineageTestUtils.createLineageRow(
+            openLineageDao,
+            "task_session_metrics",
+            UUID.randomUUID(),
+            "COMPLETE",
+            jobFacet,
+            Arrays.asList(rawEvents),
+            Arrays.asList(sessionMetrics),
+            parentFacet,
+            ImmutableMap.of());
+    UpdateLineageRow child3 =
+        LineageTestUtils.createLineageRow(
+            openLineageDao,
+            "task_page_metrics",
+            UUID.randomUUID(),
+            "COMPLETE",
+            jobFacet,
+            Arrays.asList(rawEvents),
+            Arrays.asList(pageMetrics),
+            parentFacet,
+            ImmutableMap.of());
+
+    UUID c1 = child1.getRun().getUuid();
+    UUID c2 = child2.getRun().getUuid();
+    UUID c3 = child3.getRun().getUuid();
+
+    // Children are already in the DB from createLineageRow; populate denorm for each run.
+    // Parent is populated last so populateRunParentLineageDenormalized sees all 3 children.
+    denormalizedLineageService.populateLineageForRun(c1);
+    denormalizedLineageService.populateLineageForRun(c2);
+    denormalizedLineageService.populateLineageForRun(c3);
+    denormalizedLineageService.populateLineageForRun(parentRunId);
+
+    // ── Test 1: aggregateToParentRun=true, no facets ──────────────────────────
+    Lineage lineage = lineageService.lineage(NodeId.of(new RunId(parentRunId)), 2, true);
+
+    // Graph: 1 RUN node + 1 raw_events version + 3 output versions = 5 nodes total
+    assertThat(lineage.getGraph()).hasSize(5);
+    assertThat(lineage.getGraph())
+        .areExactly(1, new Condition<>(n -> n.getType() == NodeType.RUN, "RUN"))
+        .areExactly(
+            4, new Condition<>(n -> n.getType() == NodeType.DATASET_VERSION, "DATASET_VERSION"));
+
+    // Find the single RUN node and verify its aggregated content
+    Node runNode =
+        lineage.getGraph().stream()
+            .filter(n -> n.getType() == NodeType.RUN)
+            .findFirst()
+            .orElseThrow();
+
+    assertThat(runNode.getId()).isEqualTo(NodeId.of(new RunId(parentRunId)));
+
+    marquez.service.models.RunData data = (marquez.service.models.RunData) runNode.getData();
+    assertThat(data.getUuid()).isEqualTo(parentRunId);
+
+    // All 3 child task UUIDs collected under the parent
+    assertThat(data.getChildRunIds()).hasSize(3).containsExactlyInAnyOrder(c1, c2, c3);
+
+    // parentRunIds on a parent-aggregated node contains P's own UUID (gathered from
+    // children's parent_run_uuid column which all point to P). This is different from
+    // a child run where parentRunIds correctly points to P as the grandparent.
+    assertThat(data.getParentRunIds()).containsExactly(parentRunId);
+
+    // raw_events appears only once even though 3 children read it (DISTINCT in JSON_AGG)
+    assertThat(data.getInputDatasetVersions()).hasSize(1);
+    assertThat(data.getInputDatasetVersions().get(0).getDatasetVersionId().getName().getValue())
+        .isEqualTo("raw_events");
+
+    // All 3 output datasets aggregated
+    assertThat(data.getOutputDatasetVersions()).hasSize(3);
+    assertThat(data.getOutputDatasetVersions())
+        .extracting(dv -> dv.getDatasetVersionId().getName().getValue())
+        .containsExactlyInAnyOrder("user_metrics", "session_metrics", "page_metrics");
+
+    // Edges: 1 inEdge (raw_events feeds P), 3 outEdges (P produces 3 datasets)
+    assertThat(runNode.getInEdges()).hasSize(1);
+    assertThat(runNode.getOutEdges()).hasSize(3);
+
+    // DATASET_VERSION nodes cover all 4 distinct dataset versions
+    assertThat(lineage.getGraph())
+        .filteredOn(n -> n.getType() == NodeType.DATASET_VERSION)
+        .extracting(n -> n.getId().getValue())
+        .anySatisfy(id -> assertThat(id).contains("raw_events"))
+        .anySatisfy(id -> assertThat(id).contains("user_metrics"))
+        .anySatisfy(id -> assertThat(id).contains("session_metrics"))
+        .anySatisfy(id -> assertThat(id).contains("page_metrics"));
+
+    // ── Test 2: aggregateToParentRun=true, with includeFacets ────────────────
+    Lineage facetLineage =
+        lineageService.lineage(
+            NodeId.of(new RunId(parentRunId)), 2, true, java.util.Set.of("spark_version"));
+
+    assertThat(facetLineage.getGraph()).hasSize(5);
+
+    Node facetRunNode =
+        facetLineage.getGraph().stream()
+            .filter(n -> n.getType() == NodeType.RUN)
+            .findFirst()
+            .orElseThrow();
+    marquez.service.models.RunData facetData =
+        (marquez.service.models.RunData) facetRunNode.getData();
+
+    // spark_version facet must be present (filter worked — only requested facets are returned)
+    assertThat(facetData.getFacets()).isNotNull();
+    assertThat(facetData.getFacets().keySet()).containsOnly("spark_version");
+
+    // Aggregation is identical to the no-facets result
+    assertThat(facetData.getChildRunIds()).containsExactlyInAnyOrder(c1, c2, c3);
+    assertThat(facetData.getInputDatasetVersions()).hasSize(1);
+    assertThat(facetData.getOutputDatasetVersions()).hasSize(3);
+
+    // ── Test 3: child run query — aggregateToParentRun=false ─────────────────
+    // Each child should appear as its own run with only its own input/output versions.
+    Lineage childLineage = lineageService.lineage(NodeId.of(new RunId(c1)), 2, false);
+
+    Node c1Node =
+        childLineage.getGraph().stream()
+            .filter(n -> n.getType() == NodeType.RUN)
+            .findFirst()
+            .orElseThrow();
+    marquez.service.models.RunData c1Data = (marquez.service.models.RunData) c1Node.getData();
+
+    assertThat(c1Data.getUuid()).isEqualTo(c1);
+    // Only its own input (raw_events) and output (user_metrics)
+    assertThat(c1Data.getInputDatasetVersions()).hasSize(1);
+    assertThat(c1Data.getInputDatasetVersions().get(0).getDatasetVersionId().getName().getValue())
+        .isEqualTo("raw_events");
+    assertThat(c1Data.getOutputDatasetVersions()).hasSize(1);
+    assertThat(c1Data.getOutputDatasetVersions().get(0).getDatasetVersionId().getName().getValue())
+        .isEqualTo("user_metrics");
+    // parentRunIds carries the parent UUID
+    assertThat(c1Data.getParentRunIds()).containsExactly(parentRunId);
+  }
+
   private Lineage waitForLineageV2(NodeId nodeId, int depth, int expectedDatasetCount) {
     AssertionError lastAssertion = null;
     long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);

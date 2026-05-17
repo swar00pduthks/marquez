@@ -129,14 +129,23 @@ public class BackfillTestUtils {
     PGobject eventJson = new PGobject();
     eventJson.setType("json");
     eventJson.setValue(Utils.getMapper().writeValueAsString(event));
-    openLineageDao.createLineageEvent(
-        COMPLETE,
-        Instant.now(),
-        runRow.getUuid(),
-        jobName,
-        namespace.getName(),
-        eventJson,
-        PRODUCER_URL.toString());
+    // Use a direct INSERT without run_date so this helper works in pre-V101 migration tests
+    // (e.g. V66.3, V67.2). The run_date column was added in V101; schemas before that do not
+    // have it, so calling openLineageDao.createLineageEvent() would fail in those tests.
+    jdbi.useHandle(
+        h ->
+            h.createUpdate(
+                    "INSERT INTO lineage_events"
+                        + " (event_type, event_time, run_uuid, job_name, job_namespace, event, producer)"
+                        + " VALUES (:eventType, :eventTime, :runUuid, :jobName, :jobNamespace, :event, :producer)")
+                .bind("eventType", COMPLETE)
+                .bind("eventTime", Instant.now())
+                .bind("runUuid", runRow.getUuid())
+                .bind("jobName", jobName)
+                .bind("jobNamespace", namespace.getName())
+                .bind("event", eventJson)
+                .bind("producer", PRODUCER_URL.toString())
+                .execute());
     return runRow;
   }
 

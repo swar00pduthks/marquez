@@ -196,7 +196,8 @@ public class LineageTestUtils {
         event.getJob().getName(),
         event.getJob().getNamespace(),
         jsonObject,
-        event.getProducer());
+        event.getProducer(),
+        event.getEventTime().withZoneSameInstant(ZoneId.of("UTC")).toLocalDate());
 
     if (status.equals("COMPLETE")) {
       DatasetDao datasetDao = dao.createDatasetDao();
@@ -247,7 +248,8 @@ public class LineageTestUtils {
     dao.createDatasetEvent(
         event.getEventTime().withZoneSameInstant(ZoneId.of("UTC")).toInstant(),
         jsonObject,
-        event.getProducer());
+        event.getProducer(),
+        event.getEventTime().withZoneSameInstant(ZoneId.of("UTC")).toLocalDate());
 
     return updateLineageRow;
   }
@@ -290,7 +292,8 @@ public class LineageTestUtils {
         event.getJob().getName(),
         event.getJob().getNamespace(),
         jsonObject,
-        event.getProducer());
+        event.getProducer(),
+        event.getEventTime().withZoneSameInstant(ZoneId.of("UTC")).toLocalDate());
 
     return updateLineageRow;
   }
