@@ -129,9 +129,9 @@ public class BackfillTestUtils {
     PGobject eventJson = new PGobject();
     eventJson.setType("json");
     eventJson.setValue(Utils.getMapper().writeValueAsString(event));
-    // Use a direct INSERT that is safe at any schema version.
-    // openLineageDao.createLineageEvent includes run_date (added by V101) which does not exist in
-    // older migration test schemas (e.g. V66.3, V67.2).
+    // Use a direct INSERT without run_date so this helper works in pre-V101 migration tests
+    // (e.g. V66.3, V67.2). The run_date column was added in V101; schemas before that do not
+    // have it, so calling openLineageDao.createLineageEvent() would fail in those tests.
     jdbi.useHandle(
         h ->
             h.createUpdate(

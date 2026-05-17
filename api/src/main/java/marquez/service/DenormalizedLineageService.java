@@ -625,6 +625,17 @@ public class DenormalizedLineageService {
 
     String insertQuery =
         """
+        WITH child_input_uuids AS (
+            SELECT ARRAY_AGG(DISTINCT dv.dataset_uuid ORDER BY dv.dataset_uuid) AS input_uuids
+            FROM runs_input_mapping rim2
+            JOIN dataset_versions dv ON dv.uuid = rim2.dataset_version_uuid
+            WHERE rim2.run_uuid IN (SELECT uuid FROM runs WHERE parent_run_uuid = :runUuid)
+        ),
+        child_output_uuids AS (
+            SELECT ARRAY_AGG(DISTINCT dv.dataset_uuid ORDER BY dv.dataset_uuid) AS output_uuids
+            FROM dataset_versions dv
+            WHERE dv.run_uuid IN (SELECT uuid FROM runs WHERE parent_run_uuid = :runUuid)
+        )
         INSERT INTO run_parent_lineage_denormalized (
             run_uuid, namespace_name, job_name, state, created_at, updated_at,
             started_at, ended_at, job_uuid, job_version_uuid, input_version_uuid,
@@ -646,10 +657,10 @@ public class DenormalizedLineageService {
             rp.job_version_uuid,
             rim.dataset_version_uuid AS input_version_uuid,
             dvin.dataset_uuid AS input_dataset_uuid,
-            (SELECT ARRAY_AGG(DISTINCT dv.dataset_uuid ORDER BY dv.dataset_uuid) FROM runs_input_mapping rim2 JOIN dataset_versions dv ON dv.uuid = rim2.dataset_version_uuid WHERE rim2.run_uuid IN (SELECT uuid FROM runs WHERE parent_run_uuid = :runUuid)) AS input_uuids,
+            (SELECT input_uuids FROM child_input_uuids) AS input_uuids,
             dvout.uuid AS output_version_uuid,
             dvout.dataset_uuid AS output_dataset_uuid,
-            (SELECT ARRAY_AGG(DISTINCT dv.dataset_uuid ORDER BY dv.dataset_uuid) FROM dataset_versions dv WHERE dv.run_uuid IN (SELECT uuid FROM runs WHERE parent_run_uuid = :runUuid)) AS output_uuids,
+            (SELECT output_uuids FROM child_output_uuids) AS output_uuids,
             dvin.namespace_name AS input_dataset_namespace,
             dvin.dataset_name AS input_dataset_name,
             dvin.version AS input_dataset_version,
@@ -848,6 +859,25 @@ public class DenormalizedLineageService {
             // Populate run_parent_lineage_denormalized for all runs with parents
             String bulkInsertParentLineage =
                 """
+                WITH parent_input_uuids AS (
+                    SELECT
+                        COALESCE(r.parent_run_uuid, r.uuid) AS parent_uuid,
+                        ARRAY_AGG(DISTINCT dv.dataset_uuid ORDER BY dv.dataset_uuid) AS input_uuids
+                    FROM runs r
+                    JOIN runs_input_mapping rim2 ON rim2.run_uuid = r.uuid
+                    JOIN dataset_versions dv ON dv.uuid = rim2.dataset_version_uuid
+                    WHERE r.parent_run_uuid IS NOT NULL
+                    GROUP BY COALESCE(r.parent_run_uuid, r.uuid)
+                ),
+                parent_output_uuids AS (
+                    SELECT
+                        COALESCE(r.parent_run_uuid, r.uuid) AS parent_uuid,
+                        ARRAY_AGG(DISTINCT dv.dataset_uuid ORDER BY dv.dataset_uuid) AS output_uuids
+                    FROM runs r
+                    JOIN dataset_versions dv ON dv.run_uuid = r.uuid
+                    WHERE r.parent_run_uuid IS NOT NULL
+                    GROUP BY COALESCE(r.parent_run_uuid, r.uuid)
+                )
                 INSERT INTO run_parent_lineage_denormalized (
                     run_uuid, namespace_name, job_name, state, created_at, updated_at,
                     started_at, ended_at, job_uuid, job_version_uuid, input_version_uuid,
@@ -869,10 +899,10 @@ public class DenormalizedLineageService {
                     rp.job_version_uuid,
                     rim.dataset_version_uuid AS input_version_uuid,
                     dvin.dataset_uuid AS input_dataset_uuid,
-                    (SELECT ARRAY_AGG(DISTINCT dv.dataset_uuid ORDER BY dv.dataset_uuid) FROM runs_input_mapping rim2 JOIN dataset_versions dv ON dv.uuid = rim2.dataset_version_uuid WHERE rim2.run_uuid IN (SELECT uuid FROM runs WHERE parent_run_uuid = COALESCE(r.parent_run_uuid, r.uuid))) AS input_uuids,
+                    piu.input_uuids,
                     dvout.uuid AS output_version_uuid,
                     dvout.dataset_uuid AS output_dataset_uuid,
-                    (SELECT ARRAY_AGG(DISTINCT dv.dataset_uuid ORDER BY dv.dataset_uuid) FROM dataset_versions dv WHERE dv.run_uuid IN (SELECT uuid FROM runs WHERE parent_run_uuid = COALESCE(r.parent_run_uuid, r.uuid))) AS output_uuids,
+                    pou.output_uuids,
                     dvin.namespace_name AS input_dataset_namespace,
                     dvin.dataset_name AS input_dataset_name,
                     dvin.version AS input_dataset_version,
@@ -889,6 +919,8 @@ public class DenormalizedLineageService {
                 LEFT JOIN dataset_versions dvin ON dvin.uuid = rim.dataset_version_uuid
                 LEFT JOIN dataset_versions dvout ON dvout.run_uuid = r.uuid
                 LEFT JOIN runs rp ON rp.uuid=r.parent_run_uuid
+                LEFT JOIN parent_input_uuids piu ON piu.parent_uuid = COALESCE(r.parent_run_uuid, r.uuid)
+                LEFT JOIN parent_output_uuids pou ON pou.parent_uuid = COALESCE(r.parent_run_uuid, r.uuid)
                 WHERE r.parent_run_uuid is not null
                 ON CONFLICT (run_uuid, input_version_uuid, output_version_uuid, run_date) DO NOTHING
                 """;

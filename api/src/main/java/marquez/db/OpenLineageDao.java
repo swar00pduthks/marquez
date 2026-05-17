@@ -88,6 +88,7 @@ public interface OpenLineageDao extends BaseDao {
     JOB_EVENT;
   }
 
+  // run_date column requires schema V101+. Pre-V101 callers must use a direct INSERT without it.
   @SqlUpdate(
       "INSERT INTO lineage_events ("
           + "event_type, "
