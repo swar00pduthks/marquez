@@ -237,7 +237,7 @@ public class DenormalizedLineageService {
         FROM dataset_versions dv
         INNER JOIN datasets d ON d.uuid = dv.dataset_uuid
         LEFT JOIN stream_versions sv ON sv.dataset_version_uuid = dv.uuid
-        WHERE dv.dataset_uuid = :datasetUuid AND d.namespace_uuid = :namespaceUuid
+        WHERE dv.dataset_uuid = :datasetUuid
         ON CONFLICT (uuid, namespace_uuid) DO NOTHING
         """;
     handle
