@@ -171,7 +171,7 @@ public class DenormalizedLineageService {
         FROM datasets d
         LEFT JOIN dataset_versions dv ON d.current_version_uuid = dv.uuid
         LEFT JOIN stream_versions sv ON sv.dataset_version_uuid = dv.uuid
-        WHERE d.uuid = :datasetUuid AND d.namespace_uuid = :namespaceUuid
+        WHERE d.uuid = :datasetUuid
         ON CONFLICT (uuid, namespace_uuid) DO UPDATE SET
             updated_at = EXCLUDED.updated_at,
             current_version_uuid = EXCLUDED.current_version_uuid,
