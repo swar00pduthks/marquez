@@ -288,11 +288,12 @@ public class OpenLineageService extends DelegatingDaos.DelegatingOpenLineageDao 
                     buildJobInputUpdate(update).ifPresent(runService::notify);
                     buildRunTransition(update).ifPresent(runService::notify);
 
-                    // Trigger denormalized entity population for ALL events to keep metadata
-                    // updated
+                    // Only update denormalized metadata tables when the event carries new dataset
+                    // lineage or is a terminal state. Spark emits ~200 RUNNING events per job that
+                    // are pure metric heartbeats with no lineage change; writing those 200x generates
+                    // 200x the IOPS with no benefit to the read path.
                     if (update.getNamespace() != null) {
                       try {
-                        // Extract specific entity UUIDs from the event
                         UUID jobUuid = update.getJob() != null ? update.getJob().getUuid() : null;
                         java.util.List<UUID> datasetUuids = new java.util.ArrayList<>();
                         if (update.getInputs() != null && update.getInputs().isPresent()) {
@@ -308,9 +309,23 @@ public class OpenLineageService extends DelegatingDaos.DelegatingOpenLineageDao 
                               .forEach(ds -> datasetUuids.add(ds.getDatasetRow().getUuid()));
                         }
 
-                        // Incrementally update only affected entities (not entire namespace)
-                        denormalizedLineageService.populateDenormalizedEntitiesForEvent(
-                            update.getNamespace().getUuid(), jobUuid, datasetUuids);
+                        String eventTypeUpper = event.getEventType() != null
+                            ? event.getEventType().toUpperCase()
+                            : "OTHER";
+                        boolean isTerminal = eventTypeUpper.equals("COMPLETE")
+                            || eventTypeUpper.equals("FAIL")
+                            || eventTypeUpper.equals("ABORTED");
+                        boolean hasDatasets = !datasetUuids.isEmpty();
+
+                        // Write denorm entities only on START (to register the job), on events
+                        // that carry new datasets, or on terminal events.
+                        if (isTerminal || hasDatasets || eventTypeUpper.equals("START")) {
+                          denormalizedLineageService.populateDenormalizedEntitiesForEvent(
+                              update.getNamespace().getUuid(), jobUuid, datasetUuids);
+                        } else {
+                          log.debug("Skipping denorm update for non-lineage-changing event type={} run={}",
+                              eventTypeUpper, runUuid);
+                        }
                       } catch (Exception e) {
                         log.error(
                             "Failed to populate denormalized entities for namespace: {}",
