@@ -419,6 +419,52 @@ public class OpenLineageServiceIntegrationTest {
   }
 
   @Test
+  void testAbortEventTriggersTerminalDenormalization()
+      throws ExecutionException, InterruptedException {
+    // OpenLineage emits the event type ABORT (not ABORTED). The denorm write gating must
+    // recognize ABORT as terminal. We send an ABORT event with NO datasets: with no datasets
+    // and a non-START event, the entity-denorm gate fires ONLY when the event is terminal,
+    // so job_denormalized is populated only if ABORT is correctly treated as terminal.
+    String abortJobName = "abort_terminal_job";
+    UUID runId = UUID.randomUUID();
+
+    lineageService
+        .createAsync(
+            LineageEvent.builder()
+                .eventType("ABORT")
+                .run(new LineageEvent.Run(runId.toString(), RunFacet.builder().build()))
+                .job(LineageEvent.Job.builder().name(abortJobName).namespace(NAMESPACE).build())
+                .eventTime(Instant.now().atZone(TIMEZONE))
+                .inputs(Collections.emptyList())
+                .outputs(Collections.emptyList())
+                .build())
+        .get();
+
+    // The entity-denorm write runs inside the awaited future (unlike the fire-and-forget lineage
+    // populate), so this assertion is deterministic.
+    UUID jobUuid =
+        jdbi.withHandle(
+            h ->
+                h.createQuery("SELECT uuid FROM jobs WHERE name = ? AND namespace_name = ?")
+                    .bind(0, abortJobName)
+                    .bind(1, NAMESPACE)
+                    .mapTo(UUID.class)
+                    .one());
+
+    Long denormCount =
+        jdbi.withHandle(
+            h ->
+                h.createQuery("SELECT COUNT(*) FROM job_denormalized WHERE uuid = ?")
+                    .bind(0, jobUuid)
+                    .mapTo(Long.class)
+                    .one());
+    assertThat(denormCount)
+        .withFailMessage(
+            "ABORT must be treated as terminal and populate job_denormalized for a no-dataset run")
+        .isEqualTo(1L);
+  }
+
+  @Test
   void testJobIsNotHiddenAfterSubsequentOLEvent() throws ExecutionException, InterruptedException {
     String name = "aNotHiddenJob";
 
