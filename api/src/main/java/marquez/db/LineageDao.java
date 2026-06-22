@@ -295,6 +295,7 @@ public interface LineageDao {
 
           UNION ALL
 
+          -- upstream: this run consumed a dataset version produced by lineage node
           SELECT
             io.run_uuid, io.namespace_name, io.job_name, io.state, io.created_at, io.updated_at,
             io.started_at, io.ended_at, io.job_uuid, io.job_version_uuid, io.input_version_uuid,
@@ -305,9 +306,27 @@ public interface LineageDao {
             io.input_uuids, io.output_uuids,
             l.depth + 1 AS depth
           FROM run_lineage_denormalized io
-          JOIN lineage l
-            ON (io.input_version_uuid = l.output_version_uuid OR io.output_version_uuid = l.input_version_uuid)
-           AND io.run_uuid != l.run_uuid
+          JOIN lineage l ON io.input_version_uuid = l.output_version_uuid
+            AND io.run_uuid != l.run_uuid
+          WHERE l.depth < :depth
+            AND (:minDate::date IS NULL OR io.run_date >= :minDate::date)
+            AND (:maxDate::date IS NULL OR io.run_date <= :maxDate::date)
+
+          UNION ALL
+
+          -- downstream: this run produced a dataset version consumed by lineage node
+          SELECT
+            io.run_uuid, io.namespace_name, io.job_name, io.state, io.created_at, io.updated_at,
+            io.started_at, io.ended_at, io.job_uuid, io.job_version_uuid, io.input_version_uuid,
+            io.input_dataset_uuid, io.output_version_uuid, io.output_dataset_uuid,
+            io.input_dataset_namespace, io.input_dataset_name, io.input_dataset_version,
+            io.input_dataset_version_uuid, io.output_dataset_namespace, io.output_dataset_name,
+            io.output_dataset_version, io.output_dataset_version_uuid, io.uuid, io.parent_run_uuid,
+            io.input_uuids, io.output_uuids,
+            l.depth + 1 AS depth
+          FROM run_lineage_denormalized io
+          JOIN lineage l ON io.output_version_uuid = l.input_version_uuid
+            AND io.run_uuid != l.run_uuid
           WHERE l.depth < :depth
             AND (:minDate::date IS NULL OR io.run_date >= :minDate::date)
             AND (:maxDate::date IS NULL OR io.run_date <= :maxDate::date)
@@ -325,15 +344,24 @@ public interface LineageDao {
         job_name,
         COALESCE(input_uuids, Array[]::uuid[]) AS input_uuids,
         COALESCE(output_uuids, Array[]::uuid[]) AS output_uuids,
-        JSON_AGG(DISTINCT jsonb_build_object('namespace', input_dataset_namespace,
-                    'name', input_dataset_name,
-                    'version', input_dataset_version,
-                    'dataset_version_uuid', input_dataset_version_uuid)) FILTER (WHERE input_dataset_name IS NOT NULL) AS input_versions,
-        JSON_AGG(DISTINCT jsonb_build_object('namespace', output_dataset_namespace,
-                                                            'name', output_dataset_name,
-                                                            'version', output_dataset_version,
-                                                            'dataset_version_uuid', output_dataset_version_uuid
-                                                            )) FILTER (WHERE output_dataset_name IS NOT NULL) AS output_versions,
+        (SELECT JSON_AGG(obj) FROM (
+            SELECT DISTINCT ON (input_dataset_version_uuid)
+                jsonb_build_object('namespace', input_dataset_namespace,
+                                   'name', input_dataset_name,
+                                   'version', input_dataset_version,
+                                   'dataset_version_uuid', input_dataset_version_uuid) AS obj
+            FROM lineage sub WHERE sub.run_uuid = lineage.run_uuid AND input_dataset_name IS NOT NULL
+            ORDER BY input_dataset_version_uuid
+        ) dedup_in) AS input_versions,
+        (SELECT JSON_AGG(obj) FROM (
+            SELECT DISTINCT ON (output_dataset_version_uuid)
+                jsonb_build_object('namespace', output_dataset_namespace,
+                                   'name', output_dataset_name,
+                                   'version', output_dataset_version,
+                                   'dataset_version_uuid', output_dataset_version_uuid) AS obj
+            FROM lineage sub WHERE sub.run_uuid = lineage.run_uuid AND output_dataset_name IS NOT NULL
+            ORDER BY output_dataset_version_uuid
+        ) dedup_out) AS output_versions,
         COALESCE(Array_AGG(distinct uuid) FILTER (WHERE uuid IS NOT NULL), Array[]::uuid[]) as child_run_id,
         COALESCE(Array_AGG(distinct parent_run_uuid) FILTER (WHERE parent_run_uuid IS NOT NULL), Array[]::uuid[]) as parent_run_id,
         MIN(depth) AS depth
@@ -369,6 +397,7 @@ public interface LineageDao {
 
           UNION ALL
 
+          -- upstream arm
           SELECT
             io.run_uuid, io.namespace_name, io.job_name, io.state, io.created_at, io.updated_at,
             io.started_at, io.ended_at, io.job_uuid, io.job_version_uuid, io.input_version_uuid,
@@ -379,9 +408,27 @@ public interface LineageDao {
             io.input_uuids, io.output_uuids,
             l.depth + 1 AS depth
           FROM run_lineage_denormalized io
-          JOIN lineage_graph l
-            ON (io.input_version_uuid = l.output_version_uuid OR io.output_version_uuid = l.input_version_uuid)
-           AND io.run_uuid != l.run_uuid
+          JOIN lineage_graph l ON io.input_version_uuid = l.output_version_uuid
+            AND io.run_uuid != l.run_uuid
+          WHERE l.depth < :depth
+            AND (:minDate::date IS NULL OR io.run_date >= :minDate::date)
+            AND (:maxDate::date IS NULL OR io.run_date <= :maxDate::date)
+
+          UNION ALL
+
+          -- downstream arm
+          SELECT
+            io.run_uuid, io.namespace_name, io.job_name, io.state, io.created_at, io.updated_at,
+            io.started_at, io.ended_at, io.job_uuid, io.job_version_uuid, io.input_version_uuid,
+            io.input_dataset_uuid, io.output_version_uuid, io.output_dataset_uuid,
+            io.input_dataset_namespace, io.input_dataset_name, io.input_dataset_version,
+            io.input_dataset_version_uuid, io.output_dataset_namespace, io.output_dataset_name,
+            io.output_dataset_version, io.output_dataset_version_uuid, io.uuid, io.parent_run_uuid,
+            io.input_uuids, io.output_uuids,
+            l.depth + 1 AS depth
+          FROM run_lineage_denormalized io
+          JOIN lineage_graph l ON io.output_version_uuid = l.input_version_uuid
+            AND io.run_uuid != l.run_uuid
           WHERE l.depth < :depth
             AND (:minDate::date IS NULL OR io.run_date >= :minDate::date)
             AND (:maxDate::date IS NULL OR io.run_date <= :maxDate::date)
@@ -486,6 +533,7 @@ public interface LineageDao {
 
              UNION ALL
 
+             -- upstream arm
              SELECT
                io.run_uuid, io.namespace_name, io.job_name, io.state, io.created_at, io.updated_at,
                io.started_at, io.ended_at, io.job_uuid, io.job_version_uuid, io.input_version_uuid,
@@ -496,9 +544,27 @@ public interface LineageDao {
                io.input_uuids, io.output_uuids,
                l.depth + 1 AS depth
              FROM run_parent_lineage_denormalized io
-             JOIN lineage l
-               ON (io.input_version_uuid = l.output_version_uuid OR io.output_version_uuid = l.input_version_uuid)
-              AND io.run_uuid != l.run_uuid
+             JOIN lineage l ON io.input_version_uuid = l.output_version_uuid
+               AND io.run_uuid != l.run_uuid
+             WHERE l.depth < :depth
+               AND (:minDate::date IS NULL OR io.run_date >= :minDate::date)
+               AND (:maxDate::date IS NULL OR io.run_date <= :maxDate::date)
+
+             UNION ALL
+
+             -- downstream arm
+             SELECT
+               io.run_uuid, io.namespace_name, io.job_name, io.state, io.created_at, io.updated_at,
+               io.started_at, io.ended_at, io.job_uuid, io.job_version_uuid, io.input_version_uuid,
+               io.input_dataset_uuid, io.output_version_uuid, io.output_dataset_uuid,
+               io.input_dataset_namespace, io.input_dataset_name, io.input_dataset_version,
+               io.input_dataset_version_uuid, io.output_dataset_namespace, io.output_dataset_name,
+               io.output_dataset_version, io.output_dataset_version_uuid, io.uuid, io.parent_run_uuid,
+               io.input_uuids, io.output_uuids,
+               l.depth + 1 AS depth
+             FROM run_parent_lineage_denormalized io
+             JOIN lineage l ON io.output_version_uuid = l.input_version_uuid
+               AND io.run_uuid != l.run_uuid
              WHERE l.depth < :depth
                AND (:minDate::date IS NULL OR io.run_date >= :minDate::date)
                AND (:maxDate::date IS NULL OR io.run_date <= :maxDate::date)
@@ -565,6 +631,7 @@ public interface LineageDao {
 
           UNION ALL
 
+          -- upstream arm
           SELECT
             io.run_uuid, io.namespace_name, io.job_name, io.state, io.created_at, io.updated_at,
             io.started_at, io.ended_at, io.job_uuid, io.job_version_uuid, io.input_version_uuid,
@@ -575,9 +642,27 @@ public interface LineageDao {
             io.input_uuids, io.output_uuids,
             l.depth + 1 AS depth
           FROM run_parent_lineage_denormalized io
-          JOIN lineage_graph l
-            ON (io.input_version_uuid = l.output_version_uuid OR io.output_version_uuid = l.input_version_uuid)
-           AND io.run_uuid != l.run_uuid
+          JOIN lineage_graph l ON io.input_version_uuid = l.output_version_uuid
+            AND io.run_uuid != l.run_uuid
+          WHERE l.depth < :depth
+            AND (:minDate::date IS NULL OR io.run_date >= :minDate::date)
+            AND (:maxDate::date IS NULL OR io.run_date <= :maxDate::date)
+
+          UNION ALL
+
+          -- downstream arm
+          SELECT
+            io.run_uuid, io.namespace_name, io.job_name, io.state, io.created_at, io.updated_at,
+            io.started_at, io.ended_at, io.job_uuid, io.job_version_uuid, io.input_version_uuid,
+            io.input_dataset_uuid, io.output_version_uuid, io.output_dataset_uuid,
+            io.input_dataset_namespace, io.input_dataset_name, io.input_dataset_version,
+            io.input_dataset_version_uuid, io.output_dataset_namespace, io.output_dataset_name,
+            io.output_dataset_version, io.output_dataset_version_uuid, io.uuid, io.parent_run_uuid,
+            io.input_uuids, io.output_uuids,
+            l.depth + 1 AS depth
+          FROM run_parent_lineage_denormalized io
+          JOIN lineage_graph l ON io.output_version_uuid = l.input_version_uuid
+            AND io.run_uuid != l.run_uuid
           WHERE l.depth < :depth
             AND (:minDate::date IS NULL OR io.run_date >= :minDate::date)
             AND (:maxDate::date IS NULL OR io.run_date <= :maxDate::date)
@@ -650,7 +735,7 @@ public interface LineageDao {
          LEFT JOIN (
              SELECT dvf.uuid AS dataset_uuid, JSONB_AGG(dvf.facet ORDER BY dvf.lineage_event_time ASC) AS facets
              FROM selected_dataset_version_facets dvf
-             WHERE dvf.run_uuid = dvf.run_uuid
+             WHERE dvf.run_uuid = dv.run_uuid
              GROUP BY dvf.uuid
          ) f ON f.dataset_uuid = dv.uuid""")
   Set<DatasetVersionData> getDatasetVersionData(

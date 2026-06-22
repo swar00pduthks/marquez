@@ -64,6 +64,10 @@ public class LineageService extends DelegatingLineageDao {
 
   public record UpstreamRun(JobSummary job, RunSummary run, List<DatasetSummary> inputs) {}
 
+  /** Hard server-side depth caps to prevent runaway recursive CTEs and unbounded responses. */
+  public static final int MAX_DEPTH_V1 = 10;
+  public static final int MAX_DEPTH_V2 = 20;
+
   private final JobDao jobDao;
 
   private final RunDao runDao;
@@ -81,6 +85,7 @@ public class LineageService extends DelegatingLineageDao {
 
   public Lineage lineage(
       NodeId nodeId, int depth, boolean aggregateToParentRun, Set<String> includeFacets) {
+    depth = Math.min(depth, MAX_DEPTH_V1);
     log.debug("Attempting to get lineage for node '{}' with depth '{}'", nodeId.getValue(), depth);
 
     if (nodeId.isRunType() || nodeId.isDatasetVersionType()) {
@@ -199,8 +204,10 @@ public class LineageService extends DelegatingLineageDao {
     log.debug(
         "Attempting to get V2 lineage for node '{}' with depth '{}'", nodeId.getValue(), depth);
 
+    // Run/dataset-version nodes use the same denormalized path as V1 — there is no separate
+    // V2 optimization for these node types yet; route through the shared implementation.
     if (nodeId.isRunType() || nodeId.isDatasetVersionType()) {
-      return lineage(nodeId, depth, aggregateToParentRun, includeFacets);
+      return lineage(nodeId, Math.min(depth, MAX_DEPTH_V2), aggregateToParentRun, includeFacets);
     }
 
     Optional<UUID> optionalUUID = getJobUuidV2(nodeId);
@@ -253,7 +260,8 @@ public class LineageService extends DelegatingLineageDao {
     if (!datasetIds.isEmpty()) {
       datasets.addAll(this.getDatasetDataV2(datasetIds));
       if (datasets.isEmpty()) {
-        datasets.addAll(this.getDatasetData(datasetIds));
+        log.warn("V2 dataset lookup returned empty for {} UUIDs — denorm tables may be lagging behind normalized store",
+            datasetIds.size());
       }
     }
 
@@ -534,7 +542,7 @@ public class LineageService extends DelegatingLineageDao {
                         rd.getOutputDatasetVersions().stream()
                             .map(OutputDatasetVersion::getDatasetVersionId)))
             .collect(Collectors.toSet());
-    log.info("DatasetVersionIds found in run data: {}", datasetVersionIds);
+    log.debug("DatasetVersionIds found in run data: {}", datasetVersionIds.size());
 
     Set<DatasetVersionData> datasetVersions = new HashSet<>();
 
@@ -543,7 +551,7 @@ public class LineageService extends DelegatingLineageDao {
             datasetVersionIds.stream()
                 .map(DatasetVersionId::getVersion)
                 .collect(Collectors.toSet())));
-    log.debug("Retrieved dataset data: {}", datasetVersions);
+    log.debug("Retrieved {} dataset versions", datasetVersions.size());
 
     Map<UUID, DatasetVersionData> datasetVersionById =
         datasetVersions.stream()
@@ -583,11 +591,6 @@ public class LineageService extends DelegatingLineageDao {
           ds -> dsOutputToRun.computeIfAbsent(ds, e -> new HashSet<>()).add(data.getUuid()));
 
       NodeId origin = NodeId.of(RunId.of(data.getUuid()));
-      log.info(
-          "dsInputToRun: {}, dsOutputToRun: {}, runDataMap: {}",
-          dsInputToRun,
-          dsOutputToRun,
-          runDataMap);
       Node node =
           new Node(
               origin,
