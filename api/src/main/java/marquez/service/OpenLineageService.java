@@ -296,7 +296,8 @@ public class OpenLineageService extends DelegatingDaos.DelegatingOpenLineageDao 
 
                     // Only update denormalized metadata tables when the event carries new dataset
                     // lineage or is a terminal state. Spark emits ~200 RUNNING events per job that
-                    // are pure metric heartbeats with no lineage change; writing those 200x generates
+                    // are pure metric heartbeats with no lineage change; writing those 200x
+                    // generates
                     // 200x the IOPS with no benefit to the read path.
                     if (update.getNamespace() != null) {
                       try {
@@ -315,16 +316,18 @@ public class OpenLineageService extends DelegatingDaos.DelegatingOpenLineageDao 
                               .forEach(ds -> datasetUuids.add(ds.getDatasetRow().getUuid()));
                         }
 
-                        String eventTypeUpper = event.getEventType() != null
-                            ? event.getEventType().toUpperCase()
-                            : "OTHER";
+                        String eventTypeUpper =
+                            event.getEventType() != null
+                                ? event.getEventType().toUpperCase()
+                                : "OTHER";
                         // OpenLineage emits ABORT (not ABORTED); accept both so aborted
                         // runs are recognized as terminal. COMPLETE/FAIL already match the
                         // OpenLineage event-type vocabulary.
-                        boolean isTerminal = eventTypeUpper.equals("COMPLETE")
-                            || eventTypeUpper.equals("FAIL")
-                            || eventTypeUpper.equals("ABORT")
-                            || eventTypeUpper.equals("ABORTED");
+                        boolean isTerminal =
+                            eventTypeUpper.equals("COMPLETE")
+                                || eventTypeUpper.equals("FAIL")
+                                || eventTypeUpper.equals("ABORT")
+                                || eventTypeUpper.equals("ABORTED");
                         boolean hasDatasets = !datasetUuids.isEmpty();
 
                         // Write denorm entities only on START (to register the job), on events
@@ -333,8 +336,10 @@ public class OpenLineageService extends DelegatingDaos.DelegatingOpenLineageDao 
                           denormalizedLineageService.populateDenormalizedEntitiesForEvent(
                               update.getNamespace().getUuid(), jobUuid, datasetUuids);
                         } else {
-                          log.debug("Skipping denorm update for non-lineage-changing event type={} run={}",
-                              eventTypeUpper, runUuid);
+                          log.debug(
+                              "Skipping denorm update for non-lineage-changing event type={} run={}",
+                              eventTypeUpper,
+                              runUuid);
                         }
                       } catch (Exception e) {
                         log.error(

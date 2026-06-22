@@ -692,11 +692,10 @@ public class DenormalizedLineageService {
   }
 
   /**
-   * Writes pre-materialized adjacency rows to lineage_edges for BFS-in-Java reads.
-   * Called at COMPLETE/FAIL time only. ON CONFLICT DO NOTHING is intentional:
-   * the same logical edge (two nodes connected by a specific edge type) is stored
-   * exactly once regardless of how many runs traverse it — run_uuid records the
-   * first run that established the edge.
+   * Writes pre-materialized adjacency rows to lineage_edges for BFS-in-Java reads. Called at
+   * COMPLETE/FAIL time only. ON CONFLICT DO NOTHING is intentional: the same logical edge (two
+   * nodes connected by a specific edge type) is stored exactly once regardless of how many runs
+   * traverse it — run_uuid records the first run that established the edge.
    */
   private void populateLineageEdgesForRun(org.jdbi.v3.core.Handle handle, UUID runUuid) {
     log.debug("Populating lineage_edges for run: {}", runUuid);
@@ -745,14 +744,14 @@ public class DenormalizedLineageService {
         ON CONFLICT (from_node_id, to_node_id, edge_type) DO NOTHING
         """;
 
-    int consumesRows =
-        handle.createUpdate(consumesSql).bind("runUuid", runUuid).execute();
-    int producesRows =
-        handle.createUpdate(producesSql).bind("runUuid", runUuid).execute();
+    int consumesRows = handle.createUpdate(consumesSql).bind("runUuid", runUuid).execute();
+    int producesRows = handle.createUpdate(producesSql).bind("runUuid", runUuid).execute();
 
     log.debug(
         "Populated lineage_edges for run {}: {} CONSUMES edges, {} PRODUCES edges",
-        runUuid, consumesRows, producesRows);
+        runUuid,
+        consumesRows,
+        producesRows);
   }
 
   /** Check if a run is a parent run (has child runs). */

@@ -66,6 +66,7 @@ public class LineageService extends DelegatingLineageDao {
 
   /** Hard server-side depth caps to prevent runaway recursive CTEs and unbounded responses. */
   public static final int MAX_DEPTH_V1 = 10;
+
   public static final int MAX_DEPTH_V2 = 20;
 
   private final JobDao jobDao;
@@ -260,7 +261,8 @@ public class LineageService extends DelegatingLineageDao {
     if (!datasetIds.isEmpty()) {
       datasets.addAll(this.getDatasetDataV2(datasetIds));
       if (datasets.isEmpty()) {
-        log.warn("V2 dataset lookup returned empty for {} UUIDs — denorm tables may be lagging behind normalized store",
+        log.warn(
+            "V2 dataset lookup returned empty for {} UUIDs — denorm tables may be lagging behind normalized store",
             datasetIds.size());
       }
     }
