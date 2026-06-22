@@ -30,6 +30,8 @@ marquez:
   ##
   db:
     host: localhost
+    # Production: set port 6432 to use Azure Flex Server built-in PgBouncer (enabled via server parameter)
+    # Local dev: use 5432 for direct PostgreSQL access
     port: 5432
     name: marquez
     user: buendia

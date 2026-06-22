@@ -1,6 +1,39 @@
 # Marquez Production Config: Azure PostgreSQL Flex Server + AKS
 # Long-Term Lineage Strategy: V1/V2 vs V3 (AGE) vs Pre-built Graph
 
+## Architecture Overview
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│  AKS Cluster                                                     │
+│                                                                  │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐           │
+│  │  Marquez API │  │  Marquez API │  │  Marquez API │  ×3 pods  │
+│  │  Pod         │  │  Pod         │  │  Pod         │           │
+│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘           │
+│         └─────────────────┴─────────────────┘                   │
+│                           │                                      │
+└───────────────────────────┼──────────────────────────────────────┘
+                            │ JDBC (port 6432 — built-in PgBouncer)
+                            ▼
+┌──────────────────────────────────────────────────────────────────┐
+│  Azure PostgreSQL Flexible Server — PG 17 + AGE extension        │
+│                                                                  │
+│  Built-in PgBouncer (transaction mode, port 6432)                │
+│  ↓ fans out to ↓                                                 │
+│  PostgreSQL 17 backend (port 5432)                               │
+│                                                                  │
+│  Extensions: age, pg_stat_statements                             │
+│  V1 tables:  runs, jobs, datasets, lineage_events, run_facets    │
+│  V2 tables:  run_lineage_denormalized, dataset_denormalized, ... │
+│  V3 graph:   ag_catalog (Apache AGE graph for Cypher queries)    │
+│  Pre-mat:    lineage_edges (BFS adjacency — replaces CTE reads)  │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+Single database instance serves all three API versions. No separate pod for AGE.
+PgBouncer is Azure-managed via server parameter — no sidecar or extra Deployment needed.
+
 ---
 
 ## 1. Why You're Struggling While Instagram/OpenAI Don't
@@ -38,8 +71,6 @@ The `logging.level: DEBUG` in your `config.yml` alone at 1M events/day generates
 
 **V2 wins for the next 12–18 months. V3 (AGE with pre-built graph) wins long-term.**
 
-Here is the breakdown:
-
 ```
                     Now        6 months      18 months
 V1 (normalized)     ████       ██            █         (keep for writes, retire from reads)
@@ -50,11 +81,6 @@ V3 AGE pre-built    ░░         ████          ███████�
 
 ### Why V3 Live Cypher Doesn't Solve the Problem
 
-The current V3 implementation:
-```
-Event arrives → write to relational + write to AGE graph → read via Cypher MATCH traversal
-```
-
 Cypher `MATCH (a)-[*1..10]->(b)` is STILL a live BFS traversal of the graph —
 it just uses graph indexes instead of recursive CTEs. At depth=10 on a graph
 with 5,000 new nodes per day × 730 days = 3.65M nodes, Cypher traversal has
@@ -62,80 +88,23 @@ the same fan-out explosion problem as the SQL recursive CTE.
 
 ### The Fix: Pre-Built Lineage Graph (Pre-Materialized Edges)
 
-The correct V3 design computes all reachable edges **at write time**, not at read time.
-
 ```
 Event arrives → extract (from_node, to_node) pairs → INSERT into lineage_edges
 Read request → SELECT from lineage_edges WHERE from_node_id IN (...) LIMIT N
               → No BFS, no CTE, no graph traversal — just N indexed point lookups
 ```
 
-This is how OpenMetadata works. They store explicit upstream/downstream entity
-relationships as rows, not as a graph to be traversed. For depth=5 you do
-5 sequential indexed queries, each milliseconds.
-
-### OpenMetadata vs Marquez Lineage Design
-
-| Aspect | OpenMetadata | Marquez V1/V2 | Marquez V3 Target |
-|---|---|---|---|
-| Storage | Edge table (entity_relationship) | Recursive normalized tables | AGE graph pre-built |
-| Read depth=1 | 1 indexed SELECT | 1 recursive CTE step | 1 AGE hop |
-| Read depth=5 | 5 indexed SELECTs in Java | 1 CTE (5 recursions, expensive) | 5 AGE hops (fast with indexes) |
-| Read depth=10 | 10 indexed SELECTs | 1 CTE (10 recursions, can OOM) | NOT recommended |
-| Write pattern | 1 INSERT per edge on COMPLETE | Upsert on every event (200×) | 1 INSERT per edge on COMPLETE |
-| BFS location | Application code (Java) | PostgreSQL planner | AGE engine |
-| Cache-friendly | Yes (each level cacheable) | No (full graph per request) | Partially |
-| Scale ceiling | ~100M edges | ~50M rows before pain | ~1B nodes/edges |
-
-**For your workload, the OpenMetadata pattern is pragmatic and proven.**
-The Marquez V3 end-state (AGE with pre-built edges, not live traversal) achieves the same thing but with richer graph query capability (shortest path, impact analysis, etc.).
+This is how OpenMetadata works. At depth=5 you do 5 sequential indexed queries,
+each milliseconds. No OOM risk, no planner problem, cacheable per level.
 
 ### Recommended Phases
 
 ```
 Phase 1 (done)   — Fix recursive CTE OR→UNION, depth caps, tautology bug, write churn
-Phase 2 (now)    — Add lineage_edges materialized table (see below)
+Phase 2 (done)   — Add lineage_edges materialized table (V107 migration)
 Phase 3 (6mo)    — V2 reads use lineage_edges instead of recursive CTE
 Phase 4 (18mo)   — V3 AGE graph populated from lineage_edges (pre-built, not live-traversed)
 ```
-
-### The lineage_edges Table (Phase 2)
-
-```sql
--- Pre-computed adjacency table populated at event COMPLETE time only
--- No recursive CTE needed for reads — just N simple indexed lookups
-CREATE TABLE lineage_edges (
-    from_node_id   UUID     NOT NULL,
-    from_type      TEXT     NOT NULL,  -- 'dataset_version', 'run', 'job'
-    to_node_id     UUID     NOT NULL,
-    to_type        TEXT     NOT NULL,
-    edge_type      TEXT     NOT NULL,  -- 'PRODUCES', 'CONSUMES'
-    run_uuid       UUID     NOT NULL,
-    run_date       DATE     NOT NULL,
-    created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (from_node_id, to_node_id, edge_type)
-) PARTITION BY RANGE (run_date);
-
--- Two directional indexes replace all recursive CTE traversal
-CREATE INDEX idx_lineage_edges_upstream
-    ON lineage_edges (to_node_id, from_type, run_date);
-CREATE INDEX idx_lineage_edges_downstream
-    ON lineage_edges (from_node_id, to_type, run_date);
-```
-
-At **depth=5** the read path becomes:
-```java
-// Java BFS — 5 indexed SELECT calls, each sub-millisecond
-Set<UUID> frontier = Set.of(startNodeId);
-for (int d = 0; d < depth; d++) {
-    Set<UUID> next = dao.getDirectNeighbors(frontier);  // single indexed SELECT
-    result.addAll(next);
-    frontier = next;
-}
-```
-
-This matches OpenMetadata's approach exactly. No recursive CTE, no OOM risk,
-no depth-related performance cliff, cacheable per level.
 
 ---
 
@@ -143,17 +112,40 @@ no depth-related performance cliff, cacheable per level.
 
 ### SKU Selection
 
-**Do NOT use Azure PostgreSQL Flexible Server for V3 (AGE).**
-Azure does not allow custom extensions like AGE. Use Flex Server for V1/V2 only.
-
 | Workload Stage | Recommended SKU | vCores | RAM | IOPS |
 |---|---|---|---|---|
-| Now (1M events/day, V1/V2) | Standard_E8ds_v5 | 8 | 64 GB | up to 25,600 |
+| Now (1M events/day) | Standard_E8ds_v5 | 8 | 64 GB | up to 25,600 |
 | 3M events/day | Standard_E16ds_v5 | 16 | 128 GB | up to 51,200 |
 | With read replica for lineage reads | Primary E8ds_v5 + Replica E4ds_v5 | — | — | — |
 
 **Storage:** Premium SSD v2, 500 GB minimum, IOPS provisioned at 5,000 initially.
 Enable auto-grow. At 1M events/day the lineage_events table grows ~150 GB/year.
+
+### Built-in PgBouncer (Server Parameter — No Sidecar Needed)
+
+Enable PgBouncer as a server parameter in the Azure Portal:
+
+```
+Server parameters to set in Azure Portal:
+  pgbouncer.enabled              = true
+  pgbouncer.pool_mode            = transaction      ← CRITICAL for correctness
+  pgbouncer.max_client_conn      = 500
+  pgbouncer.default_pool_size    = 50
+  pgbouncer.min_pool_size        = 10
+  pgbouncer.server_idle_timeout  = 600
+  pgbouncer.query_timeout        = 30
+```
+
+When enabled, PgBouncer listens on **port 6432** on the same hostname as your
+Flex Server. Your JDBC URL must point to port 6432, NOT 5432:
+
+```
+jdbc:postgresql://<flex-server-hostname>:6432/marquez?sslmode=require&prepareThreshold=0
+```
+
+`prepareThreshold=0` disables server-side prepared statements, which is required
+for PgBouncer transaction mode. This is already set in the Helm chart via
+`PGBOUNCER_PREPARE_THRESHOLD=0`.
 
 ### PostgreSQL Server Parameters (set in Azure Portal → Server Parameters)
 
@@ -184,8 +176,8 @@ max_parallel_workers              = 8
 max_parallel_workers_per_gather   = 4
 parallel_tuple_cost               = 0.1
 
-# Connections
-max_connections                   = 200      (PgBouncer sits in front; real backend connections ~80)
+# Connections (PgBouncer sits in front; ~50 real PostgreSQL connections from PgBouncer)
+max_connections                   = 100
 
 # Autovacuum — critical for high-write tables
 autovacuum_max_workers            = 6
@@ -206,38 +198,10 @@ log_connections                   = off
 log_disconnections                = off
 log_duration                      = off
 
-# Extensions
-shared_preload_libraries          = pg_stat_statements
+# Extensions (set shared_preload_libraries in Azure Portal)
+shared_preload_libraries          = pg_stat_statements,age
 pg_stat_statements.track          = all
 track_activity_query_size         = 4096
-```
-
-### Connection Pooling: PgBouncer on AKS
-
-Run PgBouncer as a sidecar or dedicated Deployment. Use **transaction pooling**.
-
-```ini
-# pgbouncer.ini
-[databases]
-marquez = host=<azure-flex-hostname> port=5432 dbname=marquez
-
-[pgbouncer]
-pool_mode = transaction
-max_client_conn = 500          ; max Marquez API connections across all pods
-default_pool_size = 50         ; PostgreSQL backend connections per database
-min_pool_size = 10
-reserve_pool_size = 10
-reserve_pool_timeout = 3       ; seconds before using reserve pool
-server_idle_timeout = 600
-server_lifetime = 3600
-server_connect_timeout = 10
-client_idle_timeout = 60
-query_timeout = 30             ; kill client query after 30s — matches PG statement_timeout
-stats_period = 60
-
-# Authentication
-auth_type = scram-sha-256
-auth_file = /etc/pgbouncer/userlist.txt
 ```
 
 ---
@@ -249,7 +213,7 @@ auth_file = /etc/pgbouncer/userlist.txt
 ```yaml
 # chart/values-production.yaml
 marquez:
-  replicaCount: 3                    # Minimum for production HA; add HPA for burst
+  replicaCount: 3
 
   image:
     repository: swar00pduth/marquez
@@ -263,37 +227,44 @@ marquez:
       cpu: "4"
       memory: "8Gi"                  # JVM heap capped at 5Gi, overhead ~2.5Gi → fits in 8Gi limit
 
-  # Pass JVM flags via env (add to deployment.yaml)
-  # JAVA_OPTS set in extraEnv below
-  extraEnv:
-    - name: JAVA_OPTS
-      value: >-
-        -Xms2g
-        -Xmx5g
-        -XX:+UseG1GC
-        -XX:MaxGCPauseMillis=200
-        -XX:InitiatingHeapOccupancyPercent=70
-        -XX:G1HeapRegionSize=16m
-        -XX:+ExitOnOutOfMemoryError
-        -Djava.security.egd=file:/dev/./urandom
-        -Dfile.encoding=UTF-8
-    - name: LOG_LEVEL
-      value: "WARN"                  # CRITICAL: DEBUG at 1M events/day = 100M log lines/day
+  db:
+    host: <flex-server-hostname>
+    port: 6432                        # ← PgBouncer port (NOT 5432)
+    name: marquez
+    user: buendia
+    # password: set via existingSecretName
+
+  javaOpts: >-
+    -Xms2g
+    -Xmx5g
+    -XX:+UseG1GC
+    -XX:MaxGCPauseMillis=200
+    -XX:InitiatingHeapOccupancyPercent=70
+    -XX:G1HeapRegionSize=16m
+    -XX:+ExitOnOutOfMemoryError
+    -Djava.security.egd=file:/dev/./urandom
+
+  logLevel: "WARN"
+  dbPoolMaxSize: 20
+  dbPoolMinSize: 5
+  pgbouncerPrepareThreshold: "0"     # Required for PgBouncer transaction mode
+
+  ageEnabled: true                   # AGE is enabled on Azure Flex Server PG 17
 
   podAnnotations:
     prometheus.io/scrape: "true"
     prometheus.io/port: "5001"
     prometheus.io/path: "/metrics"
 
-  # Anti-affinity: spread API pods across AKS nodes
-  podAntiAffinity:
-    preferredDuringSchedulingIgnoredDuringExecution:
-      - weight: 100
-        podAffinityTerm:
-          topologyKey: kubernetes.io/hostname
-          labelSelector:
-            matchLabels:
-              app.kubernetes.io/component: marquez
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            topologyKey: kubernetes.io/hostname
+            labelSelector:
+              matchLabels:
+                app.kubernetes.io/component: marquez
 ```
 
 ### Marquez Config for Production (config.yml via ConfigMap)
@@ -304,7 +275,6 @@ server:
     - type: http
       port: ${MARQUEZ_PORT:-5000}
       httpCompliance: RFC7230_LEGACY
-      # Jetty thread pool — size to handle burst from 5,000 Spark jobs
       acceptorThreads: 2
       selectorThreads: 8
   adminConnectors:
@@ -312,39 +282,35 @@ server:
       port: ${MARQUEZ_ADMIN_PORT:-5001}
   gzip:
     enabled: true
-    minimumEntitySize: 256 bytes     # Compress all lineage responses >256B
+    minimumEntitySize: 256 bytes
     bufferSize: 8KiB
 
 db:
   driverClass: org.postgresql.Driver
-  url: jdbc:postgresql://${PGBOUNCER_HOST}:5432/marquez?sslmode=require&prepareThreshold=0
-  #                      ^^^^^^^^^^^^^^^^ — point at PgBouncer, NOT Flex Server directly
-  #                                       prepareThreshold=0 required for PgBouncer transaction mode
+  # Port 6432 = Azure Flex Server built-in PgBouncer (transaction mode)
+  # prepareThreshold=0 disables server-side prepared statements (required for transaction pooling)
+  url: jdbc:postgresql://${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}?sslmode=require&prepareThreshold=${PGBOUNCER_PREPARE_THRESHOLD:-0}
   user: ${POSTGRES_USER}
   password: ${POSTGRES_PASSWORD}
-
-  # HikariCP pool — talk to PgBouncer, so pool can be larger
-  maxSize: 30                        # PgBouncer handles the real PG connection limit
-  minSize: 10
+  maxSize: ${DB_POOL_MAX_SIZE:-20}
+  minSize: ${DB_POOL_MIN_SIZE:-5}
   maxWaitForConnection: 5s
   validationQuery: "SELECT 1"
   connectionTimeout: 5000
   idleTimeout: 600000
   maxLifetime: 1800000
-  # Disable server-side prepared statements — required for PgBouncer transaction mode
-  initializationQuery: "SET search_path=public"
 
 migrateOnStartup: true
-ageEnabled: ${MARQUEZ_AGE_ENABLED:-false}  # false for Flex Server (no AGE support)
+ageEnabled: ${MARQUEZ_AGE_ENABLED:-true}
 
 logging:
-  level: WARN                        # NOT DEBUG — this is the most impactful single change
+  level: WARN
   appenders:
     - type: console
       logFormat: "%d{HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n"
   loggers:
-    marquez: INFO                    # Marquez service-level events (starts, errors)
-    marquez.db: WARN                 # SQL only on warnings — DEBUG is 100M lines/day at 1M events
+    marquez: INFO
+    marquez.db: WARN
     org.jdbi: WARN
     org.postgresql: WARN
     org.eclipse.jetty: WARN
@@ -379,87 +345,20 @@ spec:
           averageUtilization: 80
 ```
 
-### AGE Pod (V3 only — separate StatefulSet, NOT on Azure Flex Server)
-
-```yaml
-apiVersion: apps/v1
-kind: StatefulSet
-metadata:
-  name: postgres-age
-spec:
-  serviceName: postgres-age
-  replicas: 1
-  selector:
-    matchLabels:
-      app: postgres-age
-  template:
-    spec:
-      containers:
-        - name: postgres-age
-          image: swar00pduth/postgres-age:14-latest
-          resources:
-            requests:
-              cpu: "2"
-              memory: "16Gi"         # AGE graph in-memory traversal needs RAM
-            limits:
-              cpu: "4"
-              memory: "32Gi"
-          env:
-            - name: POSTGRES_DB
-              value: marquez_graph
-            - name: PGDATA
-              value: /var/lib/postgresql/data/pgdata
-            - name: POSTGRES_SHARED_BUFFERS
-              value: "8GB"
-            - name: POSTGRES_WORK_MEM
-              value: "256MB"         # AGE graph queries need more work_mem than relational
-          args:
-            - postgres
-            - -c
-            - shared_buffers=8GB
-            - -c
-            - work_mem=256MB
-            - -c
-            - effective_cache_size=24GB
-            - -c
-            - max_connections=50    # Only Marquez V3 pods talk to this
-            - -c
-            - shared_preload_libraries=age,pg_stat_statements
-            - -c
-            - statement_timeout=15000
-          volumeMounts:
-            - name: postgres-age-data
-              mountPath: /var/lib/postgresql/data
-  volumeClaimTemplates:
-    - metadata:
-        name: postgres-age-data
-      spec:
-        accessModes: [ReadWriteOnce]
-        storageClassName: managed-premium  # Azure Premium SSD
-        resources:
-          requests:
-            storage: 200Gi           # Graph only — much smaller than relational store
-```
-
 ---
 
 ## 5. Node Pool Sizing for AKS
+
+Only one node pool needed — Marquez API pods only. No separate database node pool
+(database is Azure managed).
 
 ```
 ┌──────────────────────────────────────────────────────┐
 │  Node Pool: marquez-api                              │
 │  VM SKU: Standard_D4ds_v5 (4 vCPU, 16 GB RAM)       │
-│  Count: 3 (min) → 8 (max with cluster autoscaler)   │
-│  Each node runs: 1 Marquez API pod + PgBouncer       │
+│  Count: 3 (min) → 10 (max with cluster autoscaler)  │
+│  Each node runs: 1 Marquez API pod                   │
 │  Taints: none (shared pool OK)                       │
-└──────────────────────────────────────────────────────┘
-
-┌──────────────────────────────────────────────────────┐
-│  Node Pool: postgres-age                             │
-│  VM SKU: Standard_E8s_v5 (8 vCPU, 64 GB RAM)        │
-│  Count: 1 (StatefulSet — no horizontal scale for PG) │
-│  Taints: dedicated=postgres-age:NoSchedule           │
-│  Tolerations: on AGE StatefulSet only                │
 └──────────────────────────────────────────────────────┘
 ```
 
@@ -467,14 +366,15 @@ spec:
 
 ## 6. Data Volume Projections at 1M Events/Day (2 Years)
 
-| Table | Row/day | Row size | 2-yr size | Action |
+| Table | Rows/day | Row size | 2-yr size | Action |
 |---|---|---|---|---|
 | lineage_events | 1,000,000 | ~200B | **146 GB** | Already indexed by run_date |
-| run_facets | **10,000,000** | ~150B | **1.1 TB** | **Partition urgently — V107** |
+| run_facets | **10,000,000** | ~150B | **1.1 TB** | **Partition urgently — V108** |
 | run_lineage_denormalized | 150,000 | ~500B | 54 GB | Manageable with partitions |
 | runs | 5,000 | ~300B | 2.1 GB | Small |
 | dataset_versions | 10,000 | ~200B | 5.5 GB | Small |
-| lineage_edges (new) | 30,000 | ~100B | 18 GB | Replace CTE reads |
+| lineage_edges (new) | 30,000 | ~100B | 18 GB | Replaces recursive CTE reads |
+| AGE graph (ag_catalog) | ~40,000 | ~200B | ~21 GB | Grows with lineage_edges |
 
 **`run_facets` at 1.1 TB is the immediate 2-year time bomb.**
 With 10 facets per event × 1M events/day = 10M rows/day × 730 days = **7.3 billion rows**.
@@ -482,7 +382,7 @@ This table must be range-partitioned by `lineage_event_time` before month 4.
 
 ```sql
 -- Run BEFORE run_facets hits 500M rows
--- Schedule as a one-time maintenance window (requires brief downtime or logical replication)
+-- Schedule as a one-time maintenance window
 CREATE TABLE run_facets_new (LIKE run_facets INCLUDING ALL)
     PARTITION BY RANGE (lineage_event_time);
 -- Monthly partitions, 12-month retention (facets are hot for 12 months, cold after)
@@ -496,11 +396,40 @@ CREATE TABLE run_facets_new (LIKE run_facets INCLUDING ALL)
 |---|---|---|---|
 | 1 | `logging.level: WARN` in production config | 5 min | 10–20% CPU freed immediately |
 | 2 | Gate denorm writes on START/COMPLETE/FAIL only (done) | done | 100× write IOPS reduction |
-| 3 | PgBouncer transaction pooling | 1 hour | Fixes connection exhaustion under Spark burst |
+| 3 | Built-in PgBouncer via server parameter + port 6432 | 15 min | Fixes connection exhaustion under Spark burst |
 | 4 | `statement_timeout=30s` on Azure Flex Server | 5 min | Kills runaway CTEs, frees connections |
 | 5 | Fix tautology bug `dvf.run_uuid = dvf.run_uuid` (done) | done | 50×+ response size reduction |
-| 6 | Partition `run_facets` by `lineage_event_time` | 1 day | Prevents 1.1 TB unpartitioned table |
-| 7 | Build `lineage_edges` table, move reads off recursive CTEs | 1 week | Eliminates BFS CPU cost entirely |
-| 8 | Move to `Standard_E8ds_v5` with `synchronous_commit=off` | 2 hours | 3× write throughput on Flex Server |
-| 9 | Add read replica for lineage GET queries | 2 hours | Write path isolated from read path |
-| 10 | V3 AGE pre-built graph (NOT live Cypher traversal) | 2 months | Long-term stable graph API |
+| 6 | UNION ALL CTE split + depth caps (done) | done | Eliminates index bypass in BFS queries |
+| 7 | Partition `run_facets` by `lineage_event_time` | 1 day | Prevents 1.1 TB unpartitioned table |
+| 8 | Build `lineage_edges` table, move reads off recursive CTEs | done (V107) | Eliminates BFS CPU cost entirely |
+| 9 | Move to `Standard_E8ds_v5` with `synchronous_commit=off` | 2 hours | 3× write throughput |
+| 10 | Add read replica for lineage GET queries | 2 hours | Write path isolated from read path |
+| 11 | V3 AGE pre-built graph (NOT live Cypher traversal) | 2 months | Long-term stable graph API |
+
+---
+
+## 8. Monitoring Queries
+
+```sql
+-- DEFAULT partition size alert — rows here mean a month partition was missed
+SELECT COUNT(*) FROM run_lineage_denormalized_default;
+SELECT COUNT(*) FROM run_parent_lineage_denormalized_default;
+
+-- lineage_edges growth rate
+SELECT run_date, COUNT(*) FROM lineage_edges GROUP BY run_date ORDER BY run_date DESC LIMIT 30;
+
+-- run_facets size (track monthly)
+SELECT pg_size_pretty(pg_total_relation_size('run_facets'));
+SELECT COUNT(*) FROM run_facets;
+
+-- Slow query log check
+SELECT query, calls, total_exec_time/calls AS avg_ms, rows
+FROM pg_stat_statements
+WHERE total_exec_time/calls > 5000
+ORDER BY avg_ms DESC
+LIMIT 20;
+
+-- PgBouncer pool stats (query against Flex Server pgbouncer stats)
+-- Connect on port 6432 with user pgbouncer to the pgbouncer database
+-- SHOW POOLS; SHOW STATS; SHOW CLIENTS;
+```

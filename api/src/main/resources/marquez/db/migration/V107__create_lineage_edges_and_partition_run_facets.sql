@@ -6,6 +6,13 @@
 --   (one per depth level) instead of a single recursive CTE that grows exponentially.
 --   This matches the OpenMetadata pattern but stays inside PostgreSQL.
 --
+--   Design note: lineage_edges is intentionally NOT partitioned.
+--   It stores unique logical edges (one row per physical dataset→dataset connection,
+--   regardless of how many runs traverse that edge). At ~30K new edges/day the table
+--   reaches ~2 GB over 2 years — no partitioning needed. Partitioning on run_date
+--   would also require including run_date in the PRIMARY KEY, which breaks the
+--   global uniqueness constraint on (from_node_id, to_node_id, edge_type).
+--
 -- PART 2: run_facets — advisory comment only
 --   run_facets reaches 10M rows/day at 10 facets × 1M events/day.
 --   At 2 years that is 7.3 billion rows. It must be range-partitioned.
@@ -22,66 +29,29 @@ CREATE TABLE IF NOT EXISTS lineage_edges (
     to_node_id     UUID        NOT NULL,
     to_type        TEXT        NOT NULL,
     edge_type      TEXT        NOT NULL,  -- 'PRODUCES' | 'CONSUMES'
-    run_uuid       UUID        NOT NULL,
-    run_date       DATE        NOT NULL,
+    run_uuid       UUID        NOT NULL,  -- run that first established this edge
+    run_date       DATE        NOT NULL,  -- informational: date edge was first written
     created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    -- Unique per physical edge regardless of which run produced it
+    -- Global uniqueness: one row per physical edge regardless of which run produced it
     CONSTRAINT lineage_edges_pk PRIMARY KEY (from_node_id, to_node_id, edge_type)
-) PARTITION BY RANGE (run_date);
-
--- Monthly partitions for 2024–2026 (extend via PartitionManagementService)
-SELECT create_monthly_partition('lineage_edges', '2024-01-01'::date);
-SELECT create_monthly_partition('lineage_edges', '2024-02-01'::date);
-SELECT create_monthly_partition('lineage_edges', '2024-03-01'::date);
-SELECT create_monthly_partition('lineage_edges', '2024-04-01'::date);
-SELECT create_monthly_partition('lineage_edges', '2024-05-01'::date);
-SELECT create_monthly_partition('lineage_edges', '2024-06-01'::date);
-SELECT create_monthly_partition('lineage_edges', '2024-07-01'::date);
-SELECT create_monthly_partition('lineage_edges', '2024-08-01'::date);
-SELECT create_monthly_partition('lineage_edges', '2024-09-01'::date);
-SELECT create_monthly_partition('lineage_edges', '2024-10-01'::date);
-SELECT create_monthly_partition('lineage_edges', '2024-11-01'::date);
-SELECT create_monthly_partition('lineage_edges', '2024-12-01'::date);
-SELECT create_monthly_partition('lineage_edges', '2025-01-01'::date);
-SELECT create_monthly_partition('lineage_edges', '2025-02-01'::date);
-SELECT create_monthly_partition('lineage_edges', '2025-03-01'::date);
-SELECT create_monthly_partition('lineage_edges', '2025-04-01'::date);
-SELECT create_monthly_partition('lineage_edges', '2025-05-01'::date);
-SELECT create_monthly_partition('lineage_edges', '2025-06-01'::date);
-SELECT create_monthly_partition('lineage_edges', '2025-07-01'::date);
-SELECT create_monthly_partition('lineage_edges', '2025-08-01'::date);
-SELECT create_monthly_partition('lineage_edges', '2025-09-01'::date);
-SELECT create_monthly_partition('lineage_edges', '2025-10-01'::date);
-SELECT create_monthly_partition('lineage_edges', '2025-11-01'::date);
-SELECT create_monthly_partition('lineage_edges', '2025-12-01'::date);
-SELECT create_monthly_partition('lineage_edges', '2026-01-01'::date);
-SELECT create_monthly_partition('lineage_edges', '2026-02-01'::date);
-SELECT create_monthly_partition('lineage_edges', '2026-03-01'::date);
-SELECT create_monthly_partition('lineage_edges', '2026-04-01'::date);
-SELECT create_monthly_partition('lineage_edges', '2026-05-01'::date);
-SELECT create_monthly_partition('lineage_edges', '2026-06-01'::date);
-SELECT create_monthly_partition('lineage_edges', '2026-07-01'::date);
-SELECT create_monthly_partition('lineage_edges', '2026-08-01'::date);
-SELECT create_monthly_partition('lineage_edges', '2026-09-01'::date);
-SELECT create_monthly_partition('lineage_edges', '2026-10-01'::date);
-SELECT create_monthly_partition('lineage_edges', '2026-11-01'::date);
-SELECT create_monthly_partition('lineage_edges', '2026-12-01'::date);
-
--- Catch-all default partition
-CREATE TABLE IF NOT EXISTS lineage_edges_default
-    PARTITION OF lineage_edges DEFAULT;
+);
 
 -- Indexes for bidirectional BFS from application code:
--- upstream traversal:  SELECT from_node_id WHERE to_node_id IN (...)
 -- downstream traversal: SELECT to_node_id WHERE from_node_id IN (...)
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_lineage_edges_downstream
+-- upstream traversal:   SELECT from_node_id WHERE to_node_id IN (...)
+-- Note: CREATE INDEX without CONCURRENTLY is required inside Flyway migrations.
+-- For production systems with millions of existing rows, these can be recreated
+-- with CONCURRENTLY after deployment:
+--   DROP INDEX idx_lineage_edges_downstream;
+--   CREATE INDEX CONCURRENTLY idx_lineage_edges_downstream ON lineage_edges (from_node_id, to_type, run_date DESC);
+CREATE INDEX IF NOT EXISTS idx_lineage_edges_downstream
     ON lineage_edges (from_node_id, to_type, run_date DESC);
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_lineage_edges_upstream
+CREATE INDEX IF NOT EXISTS idx_lineage_edges_upstream
     ON lineage_edges (to_node_id, from_type, run_date DESC);
 
 -- Covering index for run-scoped lookups (find all edges for a run)
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_lineage_edges_run
+CREATE INDEX IF NOT EXISTS idx_lineage_edges_run
     ON lineage_edges (run_uuid, run_date DESC);
 
 -- ============================================================
