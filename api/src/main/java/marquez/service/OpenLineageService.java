@@ -318,8 +318,12 @@ public class OpenLineageService extends DelegatingDaos.DelegatingOpenLineageDao 
                         String eventTypeUpper = event.getEventType() != null
                             ? event.getEventType().toUpperCase()
                             : "OTHER";
+                        // OpenLineage emits ABORT (not ABORTED); accept both so aborted
+                        // runs are recognized as terminal. COMPLETE/FAIL already match the
+                        // OpenLineage event-type vocabulary.
                         boolean isTerminal = eventTypeUpper.equals("COMPLETE")
                             || eventTypeUpper.equals("FAIL")
+                            || eventTypeUpper.equals("ABORT")
                             || eventTypeUpper.equals("ABORTED");
                         boolean hasDatasets = !datasetUuids.isEmpty();
 
@@ -344,6 +348,7 @@ public class OpenLineageService extends DelegatingDaos.DelegatingOpenLineageDao 
                     String eventType = event.getEventType().toUpperCase();
                     if (eventType.equals("COMPLETE")
                         || eventType.equals("FAIL")
+                        || eventType.equals("ABORT")
                         || eventType.equals("ABORTED")) {
                       CompletableFuture.runAsync(
                           withSentry(

@@ -82,7 +82,7 @@ SELECT
     r.created_at              AS created_at
 FROM runs_input_mapping rim
 INNER JOIN runs r ON r.uuid = rim.run_uuid
-WHERE r.current_run_state IN ('COMPLETE', 'FAILED', 'ABORTED')
+WHERE r.current_run_state IN ('COMPLETED', 'FAILED', 'ABORTED')
 ON CONFLICT (from_node_id, to_node_id, edge_type) DO NOTHING;
 
 -- Output (run) → dataset_version edges
@@ -108,7 +108,7 @@ SELECT
 FROM dataset_versions dv
 INNER JOIN runs r ON r.uuid = dv.run_uuid
 WHERE dv.run_uuid IS NOT NULL
-  AND r.current_run_state IN ('COMPLETE', 'FAILED', 'ABORTED')
+  AND r.current_run_state IN ('COMPLETED', 'FAILED', 'ABORTED')
 ON CONFLICT (from_node_id, to_node_id, edge_type) DO NOTHING;
 
 -- ============================================================
