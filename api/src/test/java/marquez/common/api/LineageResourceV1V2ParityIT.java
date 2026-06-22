@@ -161,6 +161,47 @@ public class LineageResourceV1V2ParityIT extends BaseIntegrationTest {
   }
 
   @Test
+  public void testLineage_pipelineChain_v1AndV2_parity() throws Exception {
+    createNamespace(NAMESPACE_NAME);
+
+    // Five-job pipeline A -> B -> C -> D -> E. Each job reads the previous job's output:
+    //   chain_ds0 -[A]-> chain_ds1 -[B]-> chain_ds2 -[C]-> chain_ds3 -[D]-> chain_ds4 -[E]->
+    // chain_ds5
+    String[] jobs = {"chain_a", "chain_b", "chain_c", "chain_d", "chain_e"};
+    List<UUID> runIds = new ArrayList<>();
+    for (int i = 0; i < jobs.length; i++) {
+      UUID runId = UUID.randomUUID();
+      runIds.add(runId);
+      String in = "chain_ds" + i;
+      String out = "chain_ds" + (i + 1);
+      assertThat(
+              sendLineage(buildCompleteEvent(runId, NAMESPACE_NAME, jobs[i], in, out))
+                  .join()
+                  .statusCode())
+          .as("ingest %s", jobs[i])
+          .isEqualTo(201);
+    }
+    for (UUID runId : runIds) {
+      populateDenormalized(runId);
+    }
+
+    // Query depth=3 from the middle job C. V1 and V2 must return identical graphs — this is
+    // the regression guard for the UNION ALL CTE split, the tautology fix, and DISTINCT ON.
+    String nodeId = "job:" + NAMESPACE_NAME + ":chain_c";
+    HttpResponse<String> v1 = fetchLineage("/api/v1", nodeId, 3);
+    HttpResponse<String> v2 = fetchLineage("/api/v2", nodeId, 3);
+    assertThat(v1.statusCode()).as("V1 pipeline depth=3 status").isEqualTo(200);
+    assertThat(v2.statusCode()).as("V2 pipeline depth=3 status").isEqualTo(200);
+
+    assertThat(normalizeJson(mapper.readTree(v2.body())))
+        .as("V1 and V2 must agree on a 5-job pipeline at depth=3 from the middle node")
+        .isEqualTo(normalizeJson(mapper.readTree(v1.body())));
+
+    // The queried node must be present in the returned graph
+    assertThat(mapper.readTree(v2.body()).path("graph").findValuesAsText("id")).contains(nodeId);
+  }
+
+  @Test
   public void testLineage_missingNode_v1AndV2_bothReturn404() throws Exception {
     HttpResponse<String> v1 = fetchLineage("/api/v1", "job:never_existed_ns:never_existed_job", 2);
     HttpResponse<String> v2 = fetchLineage("/api/v2", "job:never_existed_ns:never_existed_job", 2);
