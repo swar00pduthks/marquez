@@ -96,6 +96,16 @@ spec:
               value: {{ .Values.marquez.migrateOnStartup | quote }}
             - name: MARQUEZ_AGE_ENABLED
               value: {{ .Values.marquez.ageEnabled | quote }}
+            - name: JAVA_OPTS
+              value: {{ .Values.marquez.javaOpts | default "-Xms2g -Xmx5g -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -XX:+ExitOnOutOfMemoryError" | quote }}
+            - name: LOG_LEVEL
+              value: {{ .Values.marquez.logLevel | default "WARN" | quote }}
+            - name: DB_POOL_MAX_SIZE
+              value: {{ .Values.marquez.dbPoolMaxSize | default 20 | quote }}
+            - name: DB_POOL_MIN_SIZE
+              value: {{ .Values.marquez.dbPoolMinSize | default 5 | quote }}
+            - name: PGBOUNCER_PREPARE_THRESHOLD
+              value: {{ .Values.marquez.pgbouncerPrepareThreshold | default "5" | quote }}
           {{- if .Values.marquez.resources }}
           resources: {{- toYaml .Values.marquez.resources | nindent 12 }}
           {{- end }}

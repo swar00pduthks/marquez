@@ -33,9 +33,19 @@ data:
     # Enables database configuration overrides (see: https://www.dropwizard.io/en/stable/manual/configuration.html#database)
     db:
       driverClass: org.postgresql.Driver
-      url: jdbc:postgresql://${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}
+      # Add prepareThreshold=0 when PGBOUNCER_ENABLED=true (transaction mode requires no server-side prepared stmts)
+      url: jdbc:postgresql://${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}?sslmode=${POSTGRES_SSL_MODE:-prefer}&prepareThreshold=${PGBOUNCER_PREPARE_THRESHOLD:-5}
       user: ${POSTGRES_USER}
       password: ${POSTGRES_PASSWORD}
+      # HikariCP connection pool — sized for 3 API replicas × 10 connections each = 30 backend connections
+      # PgBouncer sits in front and fans out to PostgreSQL with its own pool
+      maxSize: ${DB_POOL_MAX_SIZE:-20}
+      minSize: ${DB_POOL_MIN_SIZE:-5}
+      maxWaitForConnection: 5s
+      validationQuery: "SELECT 1"
+      connectionTimeout: 5000
+      idleTimeout: 600000
+      maxLifetime: 1800000
     # Enables retention policy configuration for database (default: disabled)
     {{- if .Values.marquez.dbRetention }}
     dbRetention:
@@ -49,6 +59,13 @@ data:
     # Enables Apache AGE graph extension features (V3 Graph API)
     ageEnabled: ${MARQUEZ_AGE_ENABLED}
     logging:
-      level: ${LOG_LEVEL}
+      level: ${LOG_LEVEL:-WARN}
       appenders:
         - type: console
+          logFormat: "%d{HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n"
+      loggers:
+        marquez: INFO
+        marquez.db: WARN
+        org.jdbi: WARN
+        org.postgresql: WARN
+        org.eclipse.jetty: WARN
