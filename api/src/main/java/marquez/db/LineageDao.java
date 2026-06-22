@@ -449,15 +449,24 @@ public interface LineageDao {
         l.job_name,
         COALESCE(l.input_uuids, Array[]::uuid[]) AS input_uuids,
         COALESCE(l.output_uuids, Array[]::uuid[]) AS output_uuids,
-        JSON_AGG(DISTINCT jsonb_build_object('namespace', l.input_dataset_namespace,
-                    'name', l.input_dataset_name,
-                    'version', l.input_dataset_version,
-                    'dataset_version_uuid', l.input_dataset_version_uuid)) FILTER (WHERE l.input_dataset_name IS NOT NULL) AS input_versions,
-        JSON_AGG(DISTINCT jsonb_build_object('namespace', l.output_dataset_namespace,
-                                                            'name', l.output_dataset_name,
-                                                            'version', l.output_dataset_version,
-                                                            'dataset_version_uuid', l.output_dataset_version_uuid
-                                                            )) FILTER (WHERE l.output_dataset_name IS NOT NULL) AS output_versions,
+        (SELECT JSON_AGG(obj) FROM (
+            SELECT DISTINCT ON (input_dataset_version_uuid)
+                jsonb_build_object('namespace', input_dataset_namespace,
+                                   'name', input_dataset_name,
+                                   'version', input_dataset_version,
+                                   'dataset_version_uuid', input_dataset_version_uuid) AS obj
+            FROM lineage_graph sub WHERE sub.run_uuid = l.run_uuid AND input_dataset_name IS NOT NULL
+            ORDER BY input_dataset_version_uuid
+        ) dedup_in) AS input_versions,
+        (SELECT JSON_AGG(obj) FROM (
+            SELECT DISTINCT ON (output_dataset_version_uuid)
+                jsonb_build_object('namespace', output_dataset_namespace,
+                                   'name', output_dataset_name,
+                                   'version', output_dataset_version,
+                                   'dataset_version_uuid', output_dataset_version_uuid) AS obj
+            FROM lineage_graph sub WHERE sub.run_uuid = l.run_uuid AND output_dataset_name IS NOT NULL
+            ORDER BY output_dataset_version_uuid
+        ) dedup_out) AS output_versions,
         COALESCE(Array_AGG(distinct l.uuid) FILTER (WHERE l.uuid IS NOT NULL), Array[]::uuid[]) as child_run_id,
         COALESCE(Array_AGG(distinct l.parent_run_uuid) FILTER (WHERE l.parent_run_uuid IS NOT NULL), Array[]::uuid[]) as parent_run_id,
         JSON_AGG(DISTINCT jsonb_build_object(rf.name, rf.facet)) FILTER (WHERE rf.name IS NOT NULL) as facets,

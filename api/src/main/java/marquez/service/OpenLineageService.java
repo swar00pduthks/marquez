@@ -252,6 +252,12 @@ public class OpenLineageService extends DelegatingDaos.DelegatingOpenLineageDao 
   }
 
   public CompletableFuture<Void> createAsync(LineageEvent event) {
+    if (event.getRun() == null) {
+      log.warn(
+          "Received LineageEvent with null run field — event skipped. eventType={}",
+          event.getEventType());
+      return CompletableFuture.completedFuture(null);
+    }
     UUID runUuid = runUuidFromEvent(event.getRun());
     CompletableFuture<Void> openLineage =
         CompletableFuture.runAsync(

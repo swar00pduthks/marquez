@@ -1,27 +1,28 @@
-# Stage 1: Build the Apache AGE extension from source
-FROM postgres:14 AS builder
+# Stage 1: Build the Apache AGE extension from source against PostgreSQL 17
+FROM postgres:17 AS builder
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y \
     build-essential \
     git \
-    postgresql-server-dev-14 \
+    postgresql-server-dev-17 \
     flex \
     bison \
     && rm -rf /var/lib/apt/lists/*
 
-# Clone and build Apache AGE for PG 14
-RUN git clone -b PG14 --depth 1 https://github.com/apache/age.git /tmp/age \
+# Clone and build Apache AGE for PG 17
+# Apache AGE community supports PG 17 via the PG17 branch
+RUN git clone -b PG17 --depth 1 https://github.com/apache/age.git /tmp/age \
     && cd /tmp/age \
     && make \
     && make install
 
 # Stage 2: Create the minimal production-ready database image
-FROM postgres:14
+FROM postgres:17
 
 # Copy the compiled Apache AGE extension binaries and libraries from the builder stage
-COPY --from=builder /usr/lib/postgresql/14/lib/age.so /usr/lib/postgresql/14/lib/
-COPY --from=builder /usr/share/postgresql/14/extension/age* /usr/share/postgresql/14/extension/
+COPY --from=builder /usr/lib/postgresql/17/lib/age.so /usr/lib/postgresql/17/lib/
+COPY --from=builder /usr/share/postgresql/17/extension/age* /usr/share/postgresql/17/extension/
 
 # Bake shared_preload_libraries into the image so AGE is preloaded regardless of
 # whether a custom postgresql.conf is mounted at runtime. Without this, CREATE EXTENSION age
