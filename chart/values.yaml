@@ -63,14 +63,36 @@ marquez:
   ## ref: http://kubernetes.io/docs/user-guide/compute-resources/
   ##
   resources:
-    # Typically best to not specify these settings, unless you've got a specific
-    # reason to customize.
-    limits: {}
-    #    cpu: 200m
-    #    memory: 1Gi
-    requests: {}
-    #    memory: 256Mi
-    #    cpu: 250m
+    # Production sizing: 3 pods × 4 CPU / 8 Gi = 12 CPU / 24 Gi total per cluster
+    # JVM heap: -Xmx5g, non-heap + threads ~2 Gi → fits inside 8 Gi limit
+    limits:
+      cpu: "4"
+      memory: "8Gi"
+    requests:
+      cpu: "2"
+      memory: "5Gi"
+
+  # JVM and application tuning
+  javaOpts: >-
+    -Xms2g
+    -Xmx5g
+    -XX:+UseG1GC
+    -XX:MaxGCPauseMillis=200
+    -XX:InitiatingHeapOccupancyPercent=70
+    -XX:G1HeapRegionSize=16m
+    -XX:+ExitOnOutOfMemoryError
+    -Djava.security.egd=file:/dev/./urandom
+
+  # Log level — WARN for production. DEBUG at 1M events/day = 100M+ log lines/day
+  logLevel: "WARN"
+
+  # HikariCP pool size (per pod)
+  dbPoolMaxSize: 20
+  dbPoolMinSize: 5
+
+  # Set to 0 when routing through PgBouncer in transaction mode
+  pgbouncerPrepareThreshold: "0"
+
   podAnnotations: {}
   ## - name:
   ##   value:
