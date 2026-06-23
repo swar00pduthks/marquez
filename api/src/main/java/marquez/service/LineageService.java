@@ -86,7 +86,11 @@ public class LineageService extends DelegatingLineageDao {
 
   public Lineage lineage(
       NodeId nodeId, int depth, boolean aggregateToParentRun, Set<String> includeFacets) {
-    depth = Math.min(depth, MAX_DEPTH_V1);
+    return lineageImpl(nodeId, Math.min(depth, MAX_DEPTH_V1), aggregateToParentRun, includeFacets);
+  }
+
+  private Lineage lineageImpl(
+      NodeId nodeId, int depth, boolean aggregateToParentRun, Set<String> includeFacets) {
     log.debug("Attempting to get lineage for node '{}' with depth '{}'", nodeId.getValue(), depth);
 
     if (nodeId.isRunType() || nodeId.isDatasetVersionType()) {
@@ -205,10 +209,11 @@ public class LineageService extends DelegatingLineageDao {
     log.debug(
         "Attempting to get V2 lineage for node '{}' with depth '{}'", nodeId.getValue(), depth);
 
-    // Run/dataset-version nodes use the same denormalized path as V1 — there is no separate
-    // V2 optimization for these node types yet; route through the shared implementation.
+    // Run/dataset-version nodes use the same denormalized path as V1 — route through the shared
+    // implementation but cap to MAX_DEPTH_V2 (not V1) so V2 callers get the higher depth limit.
     if (nodeId.isRunType() || nodeId.isDatasetVersionType()) {
-      return lineage(nodeId, Math.min(depth, MAX_DEPTH_V2), aggregateToParentRun, includeFacets);
+      return lineageImpl(
+          nodeId, Math.min(depth, MAX_DEPTH_V2), aggregateToParentRun, includeFacets);
     }
 
     Optional<UUID> optionalUUID = getJobUuidV2(nodeId);

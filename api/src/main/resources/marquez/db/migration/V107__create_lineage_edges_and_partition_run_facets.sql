@@ -7,11 +7,11 @@
 --   This matches the OpenMetadata pattern but stays inside PostgreSQL.
 --
 --   Design note: lineage_edges is intentionally NOT partitioned.
---   It stores unique logical edges (one row per physical dataset→dataset connection,
---   regardless of how many runs traverse that edge). At ~30K new edges/day the table
---   reaches ~2 GB over 2 years — no partitioning needed. Partitioning on run_date
---   would also require including run_date in the PRIMARY KEY, which breaks the
---   global uniqueness constraint on (from_node_id, to_node_id, edge_type).
+--   Each row is one hop between a run and a dataset_version (CONSUMES or PRODUCES).
+--   PK (from_node_id, to_node_id, edge_type) deduplicates within a single run.
+--   At ~100K new edges/day (50K CONSUMES + 50K PRODUCES at 5K runs × 10 datasets avg)
+--   the table reaches ~5 GB over 2 years — no partitioning needed. Partitioning on
+--   run_date would require including run_date in the PRIMARY KEY, which is undesirable.
 --
 -- PART 2: run_facets — advisory comment only
 --   run_facets reaches 10M rows/day at 10 facets × 1M events/day.

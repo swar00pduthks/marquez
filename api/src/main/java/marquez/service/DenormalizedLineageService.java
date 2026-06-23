@@ -538,8 +538,8 @@ public class DenormalizedLineageService {
             }
 
             // Step 5: Write pre-materialized edges to lineage_edges for BFS-in-Java reads.
-            // ON CONFLICT DO NOTHING ensures each physical edge is written exactly once
-            // regardless of how many runs traverse the same dataset→dataset path.
+            // Each edge is a run↔dataset_version pair (CONSUMES or PRODUCES).
+            // ON CONFLICT DO NOTHING skips duplicate writes if the same run is reprocessed.
             populateLineageEdgesForRun(handle, runUuid);
           });
 
@@ -692,10 +692,11 @@ public class DenormalizedLineageService {
   }
 
   /**
-   * Writes pre-materialized adjacency rows to lineage_edges for BFS-in-Java reads. Called at
-   * COMPLETE/FAIL time only. ON CONFLICT DO NOTHING is intentional: the same logical edge (two
-   * nodes connected by a specific edge type) is stored exactly once regardless of how many runs
-   * traverse it — run_uuid records the first run that established the edge.
+   * Writes pre-materialized run↔dataset_version edges to lineage_edges for BFS-in-Java reads.
+   * Called at COMPLETE/FAIL time only. Each row represents one hop between a run and a
+   * dataset_version (CONSUMES: dataset_version→run; PRODUCES: run→dataset_version). run_uuid is the
+   * run endpoint of the edge. ON CONFLICT DO NOTHING skips re-insertion if the same run reprocesses
+   * the same dataset_version.
    */
   private void populateLineageEdgesForRun(org.jdbi.v3.core.Handle handle, UUID runUuid) {
     log.debug("Populating lineage_edges for run: {}", runUuid);
