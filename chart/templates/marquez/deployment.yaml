@@ -105,7 +105,7 @@ spec:
             - name: DB_POOL_MIN_SIZE
               value: {{ .Values.marquez.dbPoolMinSize | default 5 | quote }}
             - name: PGBOUNCER_PREPARE_THRESHOLD
-              value: {{ .Values.marquez.pgbouncerPrepareThreshold | default "5" | quote }}
+              value: {{ .Values.marquez.pgbouncerPrepareThreshold | default "0" | quote }}
           {{- if .Values.marquez.resources }}
           resources: {{- toYaml .Values.marquez.resources | nindent 12 }}
           {{- end }}

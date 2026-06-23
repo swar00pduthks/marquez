@@ -12,7 +12,7 @@ marquez:
   ##
   serviceAccount: "default"
   ## Number of desired replicas
-  ##
+  ## Production: set to 3 (3 pods × 20 HikariCP conns = 60 → PgBouncer default_pool_size 50)
   replicaCount: 1
   ## Marquez image version
   ## ref: https://hub.docker.com/r/marquezproject/marquez/tags/
@@ -49,9 +49,9 @@ marquez:
   ##
   migrateOnStartup: true
   ## Enables Apache AGE graph extension features (V3 Graph API).
-  ## Default: true for v3-beta deployments (AGE is assumed installed).
-  ## Set to false to run against a standard Postgres without AGE — V3 endpoints will 404.
-  ageEnabled: true
+  ## Set to true only when AGE is installed on the PostgreSQL server.
+  ## V3 endpoints return 404 when false. Currently deferred — single-DB Flex Server PG17 only.
+  ageEnabled: false
   ## Marquez will run using this hostname
   ##
   hostname: localhost

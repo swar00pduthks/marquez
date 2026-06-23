@@ -34,7 +34,7 @@ data:
     db:
       driverClass: org.postgresql.Driver
       # Add prepareThreshold=0 when PGBOUNCER_ENABLED=true (transaction mode requires no server-side prepared stmts)
-      url: jdbc:postgresql://${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}?sslmode=${POSTGRES_SSL_MODE:-prefer}&prepareThreshold=${PGBOUNCER_PREPARE_THRESHOLD:-5}
+      url: jdbc:postgresql://${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}?sslmode=${POSTGRES_SSL_MODE:-require}&prepareThreshold=${PGBOUNCER_PREPARE_THRESHOLD:-0}
       user: ${POSTGRES_USER}
       password: ${POSTGRES_PASSWORD}
       # HikariCP connection pool — sized for 3 API replicas × 10 connections each = 30 backend connections
