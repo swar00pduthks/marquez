@@ -6,3 +6,16 @@ postgresql:
     registry: docker.io
     repository: bitnamilegacy/postgresql
     tag: "17.2.0-debian-12-r1"
+
+## CI resource overrides — kind cluster on ubuntu-latest has 2 vCPU / 7 GB RAM total.
+## Production values (cpu: "2" req / "4" limit, memory: "5Gi" req / "8Gi" limit) would
+## make the Marquez pod unschedulable in the shared kind node. Use minimal sizing here.
+marquez:
+  javaOpts: "-Xms256m -Xmx512m -XX:+ExitOnOutOfMemoryError"
+  resources:
+    limits:
+      cpu: "1"
+      memory: "768Mi"
+    requests:
+      cpu: "250m"
+      memory: "384Mi"
