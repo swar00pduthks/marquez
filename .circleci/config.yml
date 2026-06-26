@@ -118,7 +118,7 @@ jobs:
   unit-test-client-python:
     working_directory: ~/marquez/clients/python
     docker:
-      - image: circleci/python:3.6
+      - image: cimg/python:3.9
     steps:
       - *checkout_project_root
       - run: pip install -e .[dev]
@@ -129,7 +129,7 @@ jobs:
   build-client-python:
     working_directory: ~/marquez/clients/python
     docker:
-      - image: circleci/python:3.6
+      - image: cimg/python:3.9
     steps:
       - *checkout_project_root
       - run: python setup.py sdist bdist_wheel
