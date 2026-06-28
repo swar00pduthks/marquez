@@ -295,7 +295,9 @@ public interface LineageDao {
 
           UNION ALL
 
-          -- upstream: this run consumed a dataset version produced by lineage node
+          -- A recursive CTE allows only ONE recursive term, so both traversal
+          -- directions (this run consumed a version produced upstream, or produced a
+          -- version consumed downstream) must share a single self-referential arm.
           SELECT
             io.run_uuid, io.namespace_name, io.job_name, io.state, io.created_at, io.updated_at,
             io.started_at, io.ended_at, io.job_uuid, io.job_version_uuid, io.input_version_uuid,
@@ -306,27 +308,9 @@ public interface LineageDao {
             io.input_uuids, io.output_uuids,
             l.depth + 1 AS depth
           FROM run_lineage_denormalized io
-          JOIN lineage l ON io.input_version_uuid = l.output_version_uuid
-            AND io.run_uuid != l.run_uuid
-          WHERE l.depth < :depth
-            AND (:minDate::date IS NULL OR io.run_date >= :minDate::date)
-            AND (:maxDate::date IS NULL OR io.run_date <= :maxDate::date)
-
-          UNION ALL
-
-          -- downstream: this run produced a dataset version consumed by lineage node
-          SELECT
-            io.run_uuid, io.namespace_name, io.job_name, io.state, io.created_at, io.updated_at,
-            io.started_at, io.ended_at, io.job_uuid, io.job_version_uuid, io.input_version_uuid,
-            io.input_dataset_uuid, io.output_version_uuid, io.output_dataset_uuid,
-            io.input_dataset_namespace, io.input_dataset_name, io.input_dataset_version,
-            io.input_dataset_version_uuid, io.output_dataset_namespace, io.output_dataset_name,
-            io.output_dataset_version, io.output_dataset_version_uuid, io.uuid, io.parent_run_uuid,
-            io.input_uuids, io.output_uuids,
-            l.depth + 1 AS depth
-          FROM run_lineage_denormalized io
-          JOIN lineage l ON io.output_version_uuid = l.input_version_uuid
-            AND io.run_uuid != l.run_uuid
+          JOIN lineage l
+            ON (io.input_version_uuid = l.output_version_uuid OR io.output_version_uuid = l.input_version_uuid)
+           AND io.run_uuid != l.run_uuid
           WHERE l.depth < :depth
             AND (:minDate::date IS NULL OR io.run_date >= :minDate::date)
             AND (:maxDate::date IS NULL OR io.run_date <= :maxDate::date)
@@ -397,7 +381,8 @@ public interface LineageDao {
 
           UNION ALL
 
-          -- upstream arm
+          -- A recursive CTE allows only ONE recursive term, so both traversal
+          -- directions share a single self-referential arm.
           SELECT
             io.run_uuid, io.namespace_name, io.job_name, io.state, io.created_at, io.updated_at,
             io.started_at, io.ended_at, io.job_uuid, io.job_version_uuid, io.input_version_uuid,
@@ -408,27 +393,9 @@ public interface LineageDao {
             io.input_uuids, io.output_uuids,
             l.depth + 1 AS depth
           FROM run_lineage_denormalized io
-          JOIN lineage_graph l ON io.input_version_uuid = l.output_version_uuid
-            AND io.run_uuid != l.run_uuid
-          WHERE l.depth < :depth
-            AND (:minDate::date IS NULL OR io.run_date >= :minDate::date)
-            AND (:maxDate::date IS NULL OR io.run_date <= :maxDate::date)
-
-          UNION ALL
-
-          -- downstream arm
-          SELECT
-            io.run_uuid, io.namespace_name, io.job_name, io.state, io.created_at, io.updated_at,
-            io.started_at, io.ended_at, io.job_uuid, io.job_version_uuid, io.input_version_uuid,
-            io.input_dataset_uuid, io.output_version_uuid, io.output_dataset_uuid,
-            io.input_dataset_namespace, io.input_dataset_name, io.input_dataset_version,
-            io.input_dataset_version_uuid, io.output_dataset_namespace, io.output_dataset_name,
-            io.output_dataset_version, io.output_dataset_version_uuid, io.uuid, io.parent_run_uuid,
-            io.input_uuids, io.output_uuids,
-            l.depth + 1 AS depth
-          FROM run_lineage_denormalized io
-          JOIN lineage_graph l ON io.output_version_uuid = l.input_version_uuid
-            AND io.run_uuid != l.run_uuid
+          JOIN lineage_graph l
+            ON (io.input_version_uuid = l.output_version_uuid OR io.output_version_uuid = l.input_version_uuid)
+           AND io.run_uuid != l.run_uuid
           WHERE l.depth < :depth
             AND (:minDate::date IS NULL OR io.run_date >= :minDate::date)
             AND (:maxDate::date IS NULL OR io.run_date <= :maxDate::date)
@@ -542,7 +509,8 @@ public interface LineageDao {
 
              UNION ALL
 
-             -- upstream arm
+             -- A recursive CTE allows only ONE recursive term, so both traversal
+             -- directions share a single self-referential arm.
              SELECT
                io.run_uuid, io.namespace_name, io.job_name, io.state, io.created_at, io.updated_at,
                io.started_at, io.ended_at, io.job_uuid, io.job_version_uuid, io.input_version_uuid,
@@ -553,27 +521,9 @@ public interface LineageDao {
                io.input_uuids, io.output_uuids,
                l.depth + 1 AS depth
              FROM run_parent_lineage_denormalized io
-             JOIN lineage l ON io.input_version_uuid = l.output_version_uuid
-               AND io.run_uuid != l.run_uuid
-             WHERE l.depth < :depth
-               AND (:minDate::date IS NULL OR io.run_date >= :minDate::date)
-               AND (:maxDate::date IS NULL OR io.run_date <= :maxDate::date)
-
-             UNION ALL
-
-             -- downstream arm
-             SELECT
-               io.run_uuid, io.namespace_name, io.job_name, io.state, io.created_at, io.updated_at,
-               io.started_at, io.ended_at, io.job_uuid, io.job_version_uuid, io.input_version_uuid,
-               io.input_dataset_uuid, io.output_version_uuid, io.output_dataset_uuid,
-               io.input_dataset_namespace, io.input_dataset_name, io.input_dataset_version,
-               io.input_dataset_version_uuid, io.output_dataset_namespace, io.output_dataset_name,
-               io.output_dataset_version, io.output_dataset_version_uuid, io.uuid, io.parent_run_uuid,
-               io.input_uuids, io.output_uuids,
-               l.depth + 1 AS depth
-             FROM run_parent_lineage_denormalized io
-             JOIN lineage l ON io.output_version_uuid = l.input_version_uuid
-               AND io.run_uuid != l.run_uuid
+             JOIN lineage l
+               ON (io.input_version_uuid = l.output_version_uuid OR io.output_version_uuid = l.input_version_uuid)
+              AND io.run_uuid != l.run_uuid
              WHERE l.depth < :depth
                AND (:minDate::date IS NULL OR io.run_date >= :minDate::date)
                AND (:maxDate::date IS NULL OR io.run_date <= :maxDate::date)
@@ -640,7 +590,8 @@ public interface LineageDao {
 
           UNION ALL
 
-          -- upstream arm
+          -- A recursive CTE allows only ONE recursive term, so both traversal
+          -- directions share a single self-referential arm.
           SELECT
             io.run_uuid, io.namespace_name, io.job_name, io.state, io.created_at, io.updated_at,
             io.started_at, io.ended_at, io.job_uuid, io.job_version_uuid, io.input_version_uuid,
@@ -651,27 +602,9 @@ public interface LineageDao {
             io.input_uuids, io.output_uuids,
             l.depth + 1 AS depth
           FROM run_parent_lineage_denormalized io
-          JOIN lineage_graph l ON io.input_version_uuid = l.output_version_uuid
-            AND io.run_uuid != l.run_uuid
-          WHERE l.depth < :depth
-            AND (:minDate::date IS NULL OR io.run_date >= :minDate::date)
-            AND (:maxDate::date IS NULL OR io.run_date <= :maxDate::date)
-
-          UNION ALL
-
-          -- downstream arm
-          SELECT
-            io.run_uuid, io.namespace_name, io.job_name, io.state, io.created_at, io.updated_at,
-            io.started_at, io.ended_at, io.job_uuid, io.job_version_uuid, io.input_version_uuid,
-            io.input_dataset_uuid, io.output_version_uuid, io.output_dataset_uuid,
-            io.input_dataset_namespace, io.input_dataset_name, io.input_dataset_version,
-            io.input_dataset_version_uuid, io.output_dataset_namespace, io.output_dataset_name,
-            io.output_dataset_version, io.output_dataset_version_uuid, io.uuid, io.parent_run_uuid,
-            io.input_uuids, io.output_uuids,
-            l.depth + 1 AS depth
-          FROM run_parent_lineage_denormalized io
-          JOIN lineage_graph l ON io.output_version_uuid = l.input_version_uuid
-            AND io.run_uuid != l.run_uuid
+          JOIN lineage_graph l
+            ON (io.input_version_uuid = l.output_version_uuid OR io.output_version_uuid = l.input_version_uuid)
+           AND io.run_uuid != l.run_uuid
           WHERE l.depth < :depth
             AND (:minDate::date IS NULL OR io.run_date >= :minDate::date)
             AND (:maxDate::date IS NULL OR io.run_date <= :maxDate::date)
