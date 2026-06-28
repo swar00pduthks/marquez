@@ -59,7 +59,7 @@ api/src/main/java/marquez/
 - **Flyway**: sequential versioned migrations, no repeatable migrations for schema changes
 - **OpenLineage facets**: stored as JSONB in `runs_input_mapping` / `datasets` tables
 - **Apache AGE**: Cypher queries wrapped via `ag_catalog.cypher()` function calls
-- **Frontend**: Redux Toolkit for state, React Query for server state, Chakra UI for components
+- **Frontend**: Redux Toolkit for state, React Query for server state, MUI v5 (Material UI) for components
 
 ### Naming Conventions
 - REST endpoints: `/api/v{N}/{plural-resource}/{id}/{sub-resource}`

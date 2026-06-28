@@ -18,10 +18,7 @@
       "Bash(yarn*)",
       "Bash(psql*)",
       "Bash(ls*)",
-      "Bash(find . *)",
-      "Bash(cat *)",
-      "Bash(head *)",
-      "Bash(tail *)",
+      "Bash(find . -name*)",
       "Bash(cp docs/openapi.yml spec/openapi.yml)"
     ],
     "deny": [

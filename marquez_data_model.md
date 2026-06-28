@@ -266,7 +266,8 @@ erDiagram
         JSONB       event          "NOT NULL"
         VARCHAR(64) event_type
         VARCHAR(64) _event_type    "DEFAULT RUN_EVENT (V66.2)"
-        TEXT        run_id
+        UUID        run_uuid       "FK runs.uuid (V33; run_id TEXT dropped V36)"
+        TIMESTAMPTZ created_at     "(added V54)"
         VARCHAR     job_name
         VARCHAR     job_namespace
         VARCHAR     producer
@@ -463,15 +464,15 @@ The V3 API layer stores lineage as a property graph in Apache AGE (`marquez_v3` 
 
 | Index | Table | Columns | Purpose |
 |-------|-------|---------|---------|
-| `idx_datasetversion_datasetid` | `dataset_versions` | `dataset_uuid` | Dataset version lookup |
-| `idx_runs_created_at` | `runs` | `created_at`, `current_run_state` | Recent runs query |
+| `datasetversion_datasetid_idx` | `dataset_versions` | `dataset_uuid` | Dataset version lookup (V14) |
+| `runs_created_at_current_run_state_index` | `runs` | `created_at`, `current_run_state` | Recent runs query (V15) |
 | `jobs_symlinks` | `jobs` | `symlink_target_uuid` WHERE NOT NULL | Symlink resolution |
 | `idx_jobs_fqn` | `jobs` | `namespace_uuid`, `name` | Fully-qualified name lookup |
 | `jobs_current_run_uuid_idx` | `jobs` | `current_run_uuid` | Latest run lookup (V74) |
 | `idx_run_lineage_denorm_job_uuid_created` | `run_lineage_denormalized` | `job_uuid`, `created_at DESC` | Latest run per job (V104, V105) |
-| `idx_run_facets_run_uuid_event_name` | `run_facets` | `run_uuid`, `name` | Facet lookup by run |
+| `idx_run_facets_run_uuid_name_event_type` | `run_facets` | `run_uuid`, `name`, `lineage_event_type` | Facet lookup by run (V104 added event_type) |
 | `idx_dataset_versions_uuid_ns_name` | `dataset_versions` | `uuid` INCLUDE `namespace_name, dataset_name` | Version join without table access |
-| `lineage_events_created_at` | `lineage_events` | `created_at` | Event time range queries |
+| `lineage_events_created_at_index` | `lineage_events` | `created_at` | Event time range queries (V54) |
 | Composite | `lineage_events` | `job_namespace`, `run_date DESC` | Per-namespace event range (V101) |
 
 ---

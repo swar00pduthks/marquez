@@ -4,8 +4,8 @@
 # Rules enforced:
 #   1. New Flyway migration → marquez_data_model.md must be updated
 #   2. *Resource.java modified → docs/openapi.yml + spec/openapi.yml must be updated
-#   3. Prometheus metrics changed (METRICS.md) → METRICS.md must be updated
-#   4. docs/openapi.yml and spec/openapi.yml must always be identical
+#   3. docs/openapi.yml and spec/openapi.yml must always be identical (hard failure)
+#   4. Prometheus metrics source changed → METRICS.md warning (non-blocking)
 
 name: Docs freshness
 

@@ -94,7 +94,7 @@ Once the async consumer is deployed (in-flight PR), consumer lag directly repres
   for: 5m
   annotations:
     summary: "Marquez consumer is falling behind; lineage data is delayed"
-    runbook: "https://github.com/MarquezProject/marquez/blob/main/docs/runbooks/consumer-lag.md"
+    runbook: "docs/runbooks/consumer-lag.md"  # create this file during platform setup
 ```
 
 Add consumer lag to `METRICS.md` and to the Grafana dashboard.

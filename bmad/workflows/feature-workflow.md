@@ -100,7 +100,7 @@ All stories must be [M] or smaller — split anything [L] or larger."
 - `specs/<feature>/stories.md` — ordered story list with tasks and acceptance criteria
 
 ### Exit Criteria
-- All stories ≤ [L] size
+- All stories ≤ [M] size
 - Dependency order is correct (infrastructure before application code, API before UI)
 - Every story has 3+ measurable acceptance criteria
 - CHANGELOG task included in every story
