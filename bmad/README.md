@@ -80,10 +80,13 @@ Use these to validate specs and features from the perspective of real users befo
 | `agents/users/data-analyst-user.md` | Data Analyst — dataset discovery, trust, freshness | Medium |
 | `agents/users/platform-engineer-user.md` | Platform Engineer — deployment, ops, Helm, Prometheus | Very High |
 | `agents/users/ml-engineer-user.md` | ML Engineer — model lineage, experiment tracking, Python client | High |
+| `agents/users/ai-engineer-user.md` | AI/LLM Engineer — agentic lineage, RAG pipelines, prompt versioning | Very High |
+| `agents/users/batch-ops-engineer-user.md` | Batch Ops Engineer — SLA monitoring, predictive ETA, blast radius | High |
+| `agents/users/app-developer-user.md` | Application Developer — app-to-data lineage, schema change alerts, consumer registration | High |
 | `agents/users/business-user.md` | Business User / CDO — governance, compliance, plain language | Low |
 | `agents/users/oss-contributor-user.md` | OSS Contributor — onboarding, contributing experience | High |
 
-> **Tip:** Run all user persona agents against a PRD before moving to architecture. A feature that satisfies the Data Engineer but is incomprehensible to the Business User may need its scope or UI adjusted.
+> **Tip:** Run all user persona agents against a PRD before moving to architecture. A feature that satisfies the Data Engineer but is incomprehensible to the Business User — or fails the Batch Ops Engineer's SLA monitoring needs — requires scope adjustment before implementation begins.
 
 ---
 

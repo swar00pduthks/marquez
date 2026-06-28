@@ -66,7 +66,8 @@ Each spec document has a `Status:` field in its header. Keep it updated.
 
 | Feature | Status | PRD | Spec | Stories | Test Plan |
 |---------|--------|-----|------|---------|-----------|
-| *(none yet — add rows as features are specced)* | | | | | |
+| Natural Language Lineage Agent | `Draft` | [prd.md](natural-language-lineage-agent/prd.md) | — | — | — |
+| Batch Monitoring & Predictive ETA | `Draft` | [prd.md](batch-monitoring-eta/prd.md) | — | — | — |
 
 ---
 

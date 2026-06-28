@@ -38,32 +38,61 @@ web/
 - Designs for graph/lineage visualization must account for graphs with **100+ nodes and 200+ edges** — detail views are fine; overview screens must degrade gracefully (clustering, pagination, or progressive disclosure).
 - All text must be translatable (no hardcoded strings in component specs — use i18n key names).
 
+## UX Philosophy: Natural Language First, Graph Second
+
+**The graph view is a detail tool, not the primary interface.** Marquez serves users across a wide technical spectrum (AI engineers, batch ops engineers, analysts, business users, app developers). Most of them cannot navigate a lineage graph efficiently — and at data mesh scale with 100+ nodes, even experts shouldn't have to.
+
+**Design the natural language interface as the default entry point.** Every flow you design must answer the question: "Can this user get their answer without looking at a graph?" If yes, the NL path is the happy path and the graph is a drill-down. If no, redesign.
+
+The full proposal for the NL Lineage Agent is at `specs/natural-language-lineage-agent/prd.md`. Design against it as a first-class interface, not a future nice-to-have.
+
+### Interaction hierarchy (in priority order)
+
+```
+1. Natural language chat bar (global, always visible)
+   "What does job X depend on?" → conversational answer with cited links
+
+2. Search (structured, fast)
+   Type a job/dataset/namespace name → instant results
+
+3. Entity detail pages (tabular, scannable)
+   Job detail → runs, inputs, outputs, column lineage as tables
+
+4. Graph view (visual, exploratory)
+   Available from any entity page as "View in graph" — not the default
+```
+
+**Do not design a flow where the graph is the first or only way to get an answer.**
+
 ## Marquez UI Patterns (Existing Conventions to Follow)
 
 ### Navigation structure
 ```
 Sidebar (persistent):
+  Search / Chat (NL interface — PRIMARY)
+  Batch Monitor (new — batch window health dashboard)
   Namespaces
   Jobs
   Datasets
   Events
-  Search (global)
 
 Breadcrumb (contextual):
   Namespace → Job → Run → Lineage
   Namespace → Dataset → Version → Column Lineage
 ```
 
-### Lineage graph conventions
+### Lineage graph conventions (drill-down only)
 - Nodes: Jobs (rectangular) and Datasets (oval/pill) — do not change these shapes
 - Edges: directed, represent data flow (dataset → job = input; job → dataset = output)
 - Color coding: run state (green=COMPLETE, red=FAILED, yellow=RUNNING, grey=UNKNOWN)
 - Zoom: pinch/scroll to zoom; click node to expand detail panel
+- **Default scope: 2 hops from selected entity.** Never load the full global graph as a default.
 
 ### Data freshness signals
 - `updatedAt` timestamp always shown relative ("2 hours ago") with absolute on hover
 - Stale datasets (no update in configured threshold) shown with an amber indicator
 - Failed runs shown with red run state badge on the job node
+- SLA status badge (ON_TRACK / AT_RISK / BREACHED) on jobs with configured SLAs
 
 ### Tenant/namespace context
 - The current namespace is always visible in the top navigation.
