@@ -64,5 +64,6 @@ terraform/
 agents/
 .github/skills/
 
-# Claude Code
+# Claude Code — track project settings but not user-local settings
 .claude/
+!.claude/settings.json

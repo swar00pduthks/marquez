@@ -1,0 +1,33 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git status)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git branch*)",
+      "Bash(git fetch*)",
+      "Bash(git pull*)",
+      "Bash(git add*)",
+      "Bash(git commit*)",
+      "Bash(git push*)",
+      "Bash(gradle*)",
+      "Bash(./gradlew*)",
+      "Bash(docker-compose*)",
+      "Bash(docker compose*)",
+      "Bash(npm*)",
+      "Bash(yarn*)",
+      "Bash(psql*)",
+      "Bash(ls*)",
+      "Bash(find . *)",
+      "Bash(cat *)",
+      "Bash(head *)",
+      "Bash(tail *)"
+    ],
+    "deny": [
+      "Bash(rm -rf /)",
+      "Bash(git push --force origin main)",
+      "Bash(git push --force origin master)"
+    ]
+  },
+  "includeCoAuthoredBy": false
+}
