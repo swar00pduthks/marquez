@@ -1,0 +1,120 @@
+# SPDX-License-Identifier: Apache-2.0
+# Blocks implementation PRs unless the feature spec pipeline is complete.
+#
+# A PR is considered "implementation" if it modifies files under:
+#   api/src/main/java/**, web/src/**, api/src/main/resources/marquez/db/migration/**
+#
+# For implementation PRs, this check requires that the feature's spec directory
+# (identified by a `specs:` label on the PR or a `specs/<feature>/` directory
+# referenced in the changed files) has completed through Phase 5 (test-plan.md exists).
+#
+# Phases enforced:
+#   Phase 1: specs/<feature>/prd.md exists
+#   Phase 2: specs/<feature>/prd.md contains "Appendix A" (competitive analysis)
+#   Phase 2b: specs/<feature>/ux.md exists
+#   Phase 3: specs/<feature>/adr.md AND spec.md exist
+#   Phase 4: specs/<feature>/stories.md exists
+#   Phase 5: specs/<feature>/test-plan.md exists  ← gate before any code merges
+
+name: Spec gate
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  spec-gate:
+    name: Verify spec pipeline is complete before implementation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect if this is an implementation PR
+        id: impl
+        run: |
+          BASE=${{ github.event.pull_request.base.sha }}
+          HEAD=${{ github.event.pull_request.head.sha }}
+          CHANGED=$(git diff --name-only "$BASE"..."$HEAD")
+
+          IS_IMPL=false
+          FEATURE=""
+
+          # Check if any implementation files changed
+          if echo "$CHANGED" | grep -qE '^(api/src/main/java/|web/src/|api/src/main/resources/marquez/db/migration/)'; then
+            IS_IMPL=true
+          fi
+
+          # Try to infer the feature from PR labels (format: spec:feature-name)
+          # or from any specs/<feature>/ path in the changed files
+          FEATURE=$(echo "$CHANGED" | grep '^specs/' | head -1 | cut -d/ -f2 || true)
+
+          echo "is_impl=$IS_IMPL" >> "$GITHUB_OUTPUT"
+          echo "feature=$FEATURE" >> "$GITHUB_OUTPUT"
+          echo "changed_files<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$CHANGED" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Check spec pipeline completeness
+        if: steps.impl.outputs.is_impl == 'true' && steps.impl.outputs.feature != ''
+        run: |
+          FEATURE="${{ steps.impl.outputs.feature }}"
+          SPEC_DIR="specs/$FEATURE"
+          FAIL=false
+
+          echo "Checking spec pipeline for: $FEATURE"
+
+          check_file() {
+            local file="$1"
+            local phase="$2"
+            if [ ! -f "$file" ]; then
+              echo "❌ $phase INCOMPLETE — $file not found"
+              FAIL=true
+            else
+              echo "✅ $phase — $file exists"
+            fi
+          }
+
+          check_file "$SPEC_DIR/prd.md"       "Phase 1 (PRD)"
+          check_file "$SPEC_DIR/ux.md"         "Phase 2b (UX Design)"
+          check_file "$SPEC_DIR/adr.md"        "Phase 3a (ADR)"
+          check_file "$SPEC_DIR/spec.md"       "Phase 3b (Technical Spec)"
+          check_file "$SPEC_DIR/stories.md"    "Phase 4 (Stories)"
+          check_file "$SPEC_DIR/test-plan.md"  "Phase 5 (Test Plan)"
+
+          # Check Appendix A exists in PRD
+          if [ -f "$SPEC_DIR/prd.md" ]; then
+            if grep -q "Appendix A" "$SPEC_DIR/prd.md"; then
+              echo "✅ Phase 2a (Competitive Analysis) — Appendix A found in prd.md"
+            else
+              echo "❌ Phase 2a (Competitive Analysis) INCOMPLETE — Appendix A missing from prd.md"
+              FAIL=true
+            fi
+          fi
+
+          if [ "$FAIL" = "true" ]; then
+            echo ""
+            echo "This PR modifies implementation files under specs/$FEATURE but the spec"
+            echo "pipeline is not complete. Run /bmad $FEATURE in Claude Code to see"
+            echo "which phase is next and which agent to invoke."
+            echo ""
+            echo "If this PR is NOT associated with a spec (e.g., hotfix, infra-only change),"
+            echo "add the 'no-spec-required' label to the PR to bypass this check."
+            exit 1
+          fi
+
+          echo ""
+          echo "✅ All spec phases complete for $FEATURE — implementation PR approved by spec gate."
+
+      - name: Skip gate for non-implementation PRs
+        if: steps.impl.outputs.is_impl == 'false'
+        run: echo "✅ Not an implementation PR — spec gate skipped."
+
+      - name: Skip gate when feature cannot be inferred
+        if: steps.impl.outputs.is_impl == 'true' && steps.impl.outputs.feature == ''
+        run: |
+          echo "⚠️  Implementation files changed but no specs/<feature>/ directory found in diff."
+          echo "If this PR implements a spec'd feature, add specs/<feature>/ changes to this PR."
+          echo "If this is a standalone fix with no spec (hotfix, infra), add label 'no-spec-required'."
+          echo "Allowing merge — spec gate requires an inferable feature directory to enforce."
