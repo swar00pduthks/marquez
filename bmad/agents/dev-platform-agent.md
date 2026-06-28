@@ -30,12 +30,104 @@ METRICS.md                  # Prometheus metrics catalog
 4. **Own the Helm chart** — chart changes must be backward-compatible. Use `helm lint` and `helm template` to validate before committing. Bump `version` in `Chart.yaml` on every chart change.
 5. **Maintain observability** — new Prometheus metrics must be documented in `METRICS.md`. Alert rules must have a `summary` and `description` annotation. Runbooks must be linked.
 
+## Scaling Prerequisites — Data Mesh at Scale
+
+Marquez is deployed for data mesh with 50+ tenant teams and millions of OpenLineage messages per day. A PR is in flight addressing the core write bottleneck. **All infrastructure you configure must support this target architecture** — these are hard deployment requirements, not optional tuning.
+
+### PgBouncer Is Mandatory
+
+PostgreSQL's process-per-connection model cannot handle the connection count from a scaled Marquez deployment. PgBouncer in **transaction mode** is required between every API pod and PostgreSQL:
+
+```ini
+# pgbouncer.ini (required configuration)
+pool_mode = transaction
+max_client_conn = 2000        # API pods can have many threads
+default_pool_size = 25        # PostgreSQL sees only 25 connections
+reserve_pool_size = 5
+server_idle_timeout = 600
+```
+
+**Never deploy Marquez with direct API → PostgreSQL connections at scale.** Without PgBouncer, 20 API pods × 20 threads = 400 PostgreSQL processes = 4GB RAM for connections alone, and you will hit `max_connections` under load.
+
+Implication for Helm chart: the chart must include a PgBouncer sidecar or deployment, with `pool_mode`, `max_client_conn`, and `default_pool_size` configurable via `values.yaml`. The `MARQUEZ_DB_URL` environment variable must point to PgBouncer, not directly to PostgreSQL.
+
+### Read Replica Routing Is Required
+
+Analytical GET requests (lineage graph traversal, dataset search, run history) must not compete with ingestion writes on the primary. The Helm chart must expose separate connection strings for:
+
+```yaml
+# values.yaml additions required:
+db:
+  primaryUrl: ""          # write pool — goes to PgBouncer → PostgreSQL primary
+  readerUrl: ""           # read pool — goes to PgBouncer → read replica
+  heavyReaderUrl: ""      # AGE graph queries — separate pool with work_mem=256MB
+```
+
+The API must route reads through `readerUrl` and writes through `primaryUrl`.
+
+### PostgreSQL Configuration for Write-Heavy Workloads
+
+The PostgreSQL primary must be deployed with the following settings (configure via ConfigMap or pg_hba):
+
+```
+shared_buffers = 25% of node RAM
+effective_cache_size = 75% of node RAM
+wal_buffers = 64MB
+max_wal_size = 4GB
+checkpoint_completion_target = 0.9
+synchronous_commit = off          # for the marquez_writer role only
+autovacuum_vacuum_scale_factor = 0.01
+autovacuum_vacuum_cost_delay = 2ms
+work_mem = 16MB                   # base; heavy reader gets 256MB via SET LOCAL
+```
+
+Add these to the PostgreSQL Helm chart config or the init ConfigMap. Never leave them at PostgreSQL defaults — the defaults are tuned for a developer laptop.
+
+### Kafka Consumer Lag Monitoring Is Mandatory
+
+Once the async consumer is deployed (in-flight PR), consumer lag directly represents how far behind lineage data is from what Spark emitted. **If lag exceeds the alerting threshold, users see stale lineage.** Configure:
+
+```yaml
+# Prometheus alert rule required:
+- alert: MarquezConsumerLagHigh
+  expr: kafka_consumer_group_lag{group="marquez-normalized-writer"} > 50000
+  for: 5m
+  annotations:
+    summary: "Marquez consumer is falling behind; lineage data is delayed"
+    runbook: "https://github.com/MarquezProject/marquez/blob/main/docs/runbooks/consumer-lag.md"
+```
+
+Add consumer lag to `METRICS.md` and to the Grafana dashboard.
+
+### Per-Tenant Statement Timeout on the Heavy Reader
+
+AGE graph traversals from a single tenant can run for minutes and consume the entire heavy reader pool. Configure `statement_timeout` at the pool level for graph queries:
+
+```sql
+-- Set on the heavy_reader PostgreSQL role:
+ALTER ROLE marquez_heavy_reader SET statement_timeout = '30s';
+ALTER ROLE marquez_heavy_reader SET work_mem = '256MB';
+ALTER ROLE marquez_heavy_reader SET idle_in_transaction_session_timeout = '10s';
+```
+
+This ensures one slow graph query cannot starve all other tenants. Add this to the PostgreSQL init script in the Helm chart.
+
+### Zero-Downtime Deployment Checklist (Applies to Every Release)
+
+Before any Helm upgrade that touches the API or the database:
+1. Database migration is backward-compatible with the **previous** API version (old code + new schema must work).
+2. Kafka consumer group offsets are checkpointed (backfill_checkpoints) so consumers can restart without reprocessing.
+3. `maxUnavailable: 0` in Deployment rollout strategy — never take pods down before new ones are healthy.
+4. `/healthcheck` returns 200 before traffic is routed to new pods.
+5. PgBouncer pool drain: `PAUSE` the pool, verify zero active transactions, apply migration, `RESUME`.
+
 ## Your Constraints
 
 - **NEVER** use `latest` as a Docker image tag in production Dockerfiles or Helm default values — always pin to a specific version or digest.
 - **NEVER** store secrets in Helm values files, GitHub Actions workflow files, or Docker Compose files — use Kubernetes Secrets, GitHub Actions Secrets, or `.env` files that are gitignored.
 - **NEVER** add a `helm upgrade --force` to any automated pipeline — it can cause pod restarts and is not zero-downtime.
 - **NEVER** change a Helm chart value key name (breaking change for existing `values.yaml` overrides) without a major chart version bump and migration note in `CHANGELOG.md`.
+- **NEVER** deploy without PgBouncer in transaction mode between the API and PostgreSQL.
 - Always run `helm lint chart/` before committing chart changes.
 - Always run `./gradlew dependencyCheckAnalyze` if adding a new dependency — check for known CVEs.
 

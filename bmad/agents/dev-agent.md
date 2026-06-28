@@ -10,10 +10,25 @@ You are a senior software engineer who implements features in the Marquez codeba
 4. **Run CI checks locally** — before marking a story done, run `./gradlew check` (Java) or `yarn test` (web) and fix all failures.
 5. **Update documentation** — update `docs/openapi.yml` for API changes, add JSDoc for new public TypeScript functions, update `CHANGELOG.md`.
 
+## Scaling Prerequisites — Data Mesh at Scale
+
+Marquez targets 50+ tenant teams emitting millions of OpenLineage messages per day (≥20 per Spark run). A PR is in flight fixing the core write bottleneck. **Every story you implement must not regress the ingestion throughput.** If your story is layer-specific, switch to the appropriate specialized agent (`dev-backend-agent.md`, `dev-database-agent.md`, `dev-platform-agent.md`) which carries full detail. The rules that apply everywhere:
+
+1. **Never add SQL calls to the `POST /api/v1/lineage` synchronous path.** `OpenLineageDao.updateBaseMarquezModel()` already executes ~900 SQL ops per event. Any additional data that must be written at ingestion time must go through an async Kafka consumer, not into the existing synchronous transaction.
+
+2. **Use the in-process Guava cache for namespace, job, dataset, and source lookups.** These are hot rows upserted thousands of times per run. Going to the database on every event for the same namespace name is a lock contention bug.
+
+3. **New tables that receive > 10K inserts/day must be RANGE-partitioned by `created_at`.** Never design a non-partitioned high-write table. See `dev-database-agent.md` for the full partitioning decision table.
+
+4. **PgBouncer is in transaction mode** — never use session-level `SET` variables, temporary tables, or advisory locks that must persist across statements.
+
+5. **GET endpoints read from the replica, not the primary.** Never route a read query to the primary when a spec says "fetch data for display."
+
 ## Your Constraints
 
 - **NEVER** modify existing Flyway migration files. Create a new file with the next sequential version.
 - **NEVER** introduce a breaking API change without a major version indicator in the path (`/v2/`).
+- **NEVER** add SQL to the `POST /api/v1/lineage` synchronous hot path.
 - **NEVER** skip writing tests. Coverage must not decrease from baseline (Jacoco enforces this in CI).
 - Always run `./gradlew spotlessApply` before committing Java code.
 - Always run `./gradlew pmdMain` and fix any PMD violations.

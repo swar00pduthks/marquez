@@ -35,6 +35,74 @@ marquez_data_model.md           # Source-of-truth schema doc — update on every
 4. **Guard partition safety** — new indexes on partitioned tables must use `CREATE INDEX … ON ONLY parent` to avoid locking all partitions simultaneously.
 5. **AGE graph migrations** — changes to graph vertex/edge schemas require coordination with the Architect; document in `marquez_data_model.md` under the Graph Schema section.
 
+## Scaling Prerequisites — Data Mesh at Scale
+
+Marquez serves 50+ tenant teams with millions of OpenLineage events per day. A PR is in flight addressing the core write bottleneck. All new migrations and schema decisions must align with the target architecture below — these are hard constraints, not preferences.
+
+### Write Volume Reality Check
+
+At 10M events/day:
+- `lineage_events`: ~20 GB/day of new JSONB data
+- `runs`, `run_facets`, `dataset_versions`: millions of new rows per day
+- Without partitioning: table bloat degrades query performance continuously and `DELETE`-based retention is impractical (O(n) per row, huge WAL write)
+
+**Every new high-write table you design must be partitioned before it goes to production.** Use the rules in the table below — never add a non-partitioned table that will receive more than ~10K inserts/day.
+
+### Partitioning Decision Table
+
+| Table type | Correct strategy | Never do this |
+|---|---|---|
+| Time-series / event tables (`runs`, `run_facets`, `dataset_versions`, `lineage_events`) | `RANGE (created_at)` weekly or monthly buckets | `HASH` on a time-series table — no partition pruning on time-range queries |
+| Tenant-sharded lookup tables (no time-range queries) | `HASH (namespace_uuid)` 8 buckets | `RANGE` on a UUID — UUIDs are random, pruning never fires |
+| Very hot tables needing both | Sub-partition: `RANGE (created_at)` → `HASH (namespace_uuid)` | Single-key partition on a join-heavy lookup table |
+
+### Data Retention — Partition Drop, Never DELETE
+
+At this scale, `DELETE FROM runs WHERE created_at < now() - interval '90 days'` is catastrophic — it generates massive WAL, stalls autovacuum, and can take hours. The only safe retention strategy is:
+
+```sql
+-- Instant, WAL-free, lock-free for other partitions:
+DROP TABLE runs_2024_w01;
+-- (partition was already detached in a prior migration)
+```
+
+Design every new time-series table to support this from day one. Always create at least 3 months of future partitions in the migration, and create a scheduled job (backfill_checkpoints pattern) to auto-create new partitions 30 days ahead.
+
+### `synchronous_commit = off` for Ingestion Writes
+
+Lineage events are append-only audit data. Losing up to 100ms of data on a crash is acceptable in exchange for 2-3× write throughput. **Never change this setting for tables that store authoritative state (namespaces, jobs, datasets) — only for the ingestion event tables.**
+
+The writer DB role has `synchronous_commit = off` set at the role level. Do not override it to `on` in migrations or application code for event tables.
+
+### PgBouncer Transaction Mode — Schema Constraints
+
+All connections go through PgBouncer in **transaction mode**. This creates schema constraints:
+- **No `SEQUENCE` that assumes session-level caching** — use `gen_random_uuid()` for PKs, not sequences with large `CACHE` values (connection hop loses cached sequence values).
+- **No table-level advisory locks** held across statements in different transactions.
+- **Temp tables cannot be used** — they are not visible after the connection returns to the pool.
+- **`SET LOCAL` is fine** inside a transaction (e.g., for AGE `search_path`); `SET` (session-level) is forbidden.
+
+### Keyset Pagination — Never OFFSET on Large Tables
+
+The `backfill_checkpoints` table already implements the correct pattern: store `(last_cursor_time, last_run_id)` as a keyset cursor. Apply the same pattern to any new query that paginates over a large table:
+
+```sql
+-- Correct: keyset cursor — O(log n)
+WHERE (event_time, run_uuid) > (:lastTime, :lastId)
+ORDER BY event_time, run_uuid
+LIMIT 500;
+
+-- NEVER: OFFSET pagination on a large table — O(n), gets slower every page
+LIMIT 500 OFFSET 50000;
+```
+
+### Multi-Tenant Isolation
+
+Row-Level Security is enabled on core tables. New tables that store per-namespace data must:
+1. Include a `namespace_uuid UUID NOT NULL` column.
+2. Have RLS enabled: `ALTER TABLE your_table ENABLE ROW LEVEL SECURITY;`
+3. Have a policy: `CREATE POLICY tenant_isolation ON your_table USING (namespace_uuid = current_setting('app.namespace_uuid')::uuid);`
+
 ## Migration Rules (Non-Negotiable)
 
 | Rule | Rationale |

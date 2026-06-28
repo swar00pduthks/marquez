@@ -27,12 +27,54 @@ api/src/main/java/marquez/
 4. **Use existing patterns** — find the nearest analogous `*Resource.java` and mirror its structure. Do not introduce new frameworks without Architect sign-off.
 5. **Run CI checks** — `./gradlew :api:check` must pass with no regressions before marking a story done.
 
+## Scaling Prerequisites — Data Mesh at Scale
+
+Marquez serves 50+ tenant teams emitting millions of OpenLineage messages per day (≥20 messages per Spark run). A PR is in flight to fix the core bottleneck. Every story you implement must respect the following constraints — they are not optional and they override convenience.
+
+### The Write Hot Path — Never Make It Heavier
+
+`OpenLineageDao.updateBaseMarquezModel()` already executes ~900 SQL statements per event synchronously. **Never add more DAO calls to this method or to any code path that is invoked during `POST /api/v1/lineage` processing.** If a story requires persisting additional data at ingestion time, implement it as a new Kafka consumer that processes the already-written event asynchronously.
+
+Signs you are about to violate this rule:
+- You are about to add a new DAO call inside a loop that iterates over `event.getInputs()` or `event.getOutputs()`.
+- You are about to add a `SELECT` inside `upsertLineageDataset()` or `updateBaseMarquezModel()`.
+- The story says "on every lineage event, also write to table X" and you are doing it synchronously.
+
+### In-Process Cache — Use It, Don't Skip It
+
+Namespace, job, dataset, and source rows are "hot rows" — the same rows are upserted thousands of times per hour by Spark tasks in a single run. **Always look up the Guava `LoadingCache`** before calling the DAO for these entity types:
+
+```java
+// In the relevant Service or DAO helper:
+private final LoadingCache<String, NamespaceRow> namespaceCache = CacheBuilder.newBuilder()
+    .maximumSize(10_000)
+    .expireAfterWrite(5, TimeUnit.MINUTES)
+    .build(CacheLoader.from(name -> namespaceDao.upsertNamespaceRow(...)));
+```
+
+If a cache does not exist yet for the entity type your story requires, **add the cache** — do not go directly to the DAO on every event.
+
+### PgBouncer Transaction Mode — Session State is Forbidden
+
+All database connections are pooled through PgBouncer in **transaction mode**. A single JDBC connection is only guaranteed to be yours for the duration of one transaction. This means:
+- **No `SET session_variable`** that must survive beyond the current transaction — use `SET LOCAL` or pass as a bind parameter.
+- **No temporary tables** — they are not visible after the connection is returned to the pool.
+- **No `LISTEN/NOTIFY` calls** through the JDBI connection pool.
+- **No advisory locks** held across requests.
+
+### Read vs. Write Routing
+
+- All writes (INSERT/UPDATE/DELETE) → primary database connection (`marquez_writer` PgBouncer pool).
+- All GET API endpoints → read replica connection (`marquez_reader` pool).
+- Never perform a write followed by an immediate read in the same HTTP request and expect the read to see the write — replication lag (usually < 100ms) means it may not.
+
 ## Your Constraints
 
 - **NEVER** modify existing Flyway migration files. Always create a new `V{N+1}__...sql` file.
 - **NEVER** introduce a breaking change to a v1 API response shape. Adding optional fields is safe; removing or renaming fields is not.
 - **NEVER** put SQL directly in a Resource or Service class — SQL belongs in DAO `@SqlQuery` annotations or, for complex statements, in `*.sql` files in `resources/`.
 - **NEVER** use `System.out.println` — use SLF4J (`private static final Logger log = LoggerFactory.getLogger(YourClass.class)`).
+- **NEVER** add SQL calls to the `POST /api/v1/lineage` synchronous hot path — use async consumers instead.
 - Always run `./gradlew spotlessApply` before committing.
 - Always run `./gradlew pmdMain` and fix all PMD violations.
 - All source files require an Apache 2.0 license header.
