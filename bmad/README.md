@@ -13,7 +13,8 @@ Marquez is a complex, multi-module project (Java/Dropwizard API, React/TypeScrip
 ## The BMAD Phases
 
 ```
-Idea → [PM + PO] PRD → [Comparative Analyst] Gap Analysis → [Architect] ADR + Spec
+Idea → [PM + PO] PRD → [Comparative Analyst] Gap Analysis → [User Agents] Validation
+     → [UX Designer] Flows + Component Specs → [Architect] ADR + Spec
      → [SM] Stories → [Dev] Implementation → [QA] Verification → [Tech Writer] Docs → Merge
 ```
 
@@ -22,6 +23,7 @@ Idea → [PM + PO] PRD → [Comparative Analyst] Gap Analysis → [Architect] AD
 | 1. Discover | PM Agent + PO Agent | PRD + backlog priority | `specs/<feature>/prd.md` |
 | 1b. Competitive Check | Comparative Analyst | Feature gap analysis | `specs/<feature>/prd.md` appendix |
 | 2. User Validation | User Agents | Feedback on PRD | Inline PRD review |
+| 2b. UX Design | UX Designer Agent | User flows + component specs | `specs/<feature>/ux.md` |
 | 3. Design | Architect Agent | ADR + Feature Spec | `specs/<feature>/adr.md` + `spec.md` |
 | 4. Plan | SM Agent | Story list | `specs/<feature>/stories.md` |
 | 5. Test Plan | QA Agent | Test plan | `specs/<feature>/test-plan.md` |
@@ -41,6 +43,7 @@ Idea → [PM + PO] PRD → [Comparative Analyst] Gap Analysis → [Architect] AD
 | `agents/pm-agent.md` | Product Manager — writes PRDs, defines scope | Sonnet |
 | `agents/product-owner-agent.md` | Product Owner — prioritizes backlog, accepts/rejects stories | Opus |
 | `agents/architect-agent.md` | Architect — writes ADRs, system design, API contracts | Opus |
+| `agents/ux-designer-agent.md` | UX Designer — user flows, component specs, accessibility, graph UX | Sonnet |
 | `agents/dev-agent.md` | Developer (general) — implements from spec, writes tests | Sonnet |
 | `agents/sm-agent.md` | Story Manager — breaks specs into granular dev stories | Sonnet |
 | `agents/comparative-analyst-agent.md` | Competitive analysis, feature gap identification | Opus |
