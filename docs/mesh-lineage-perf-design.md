@@ -66,27 +66,62 @@ log.debug("DatasetVersionIds found in run data: {}", datasetVersionIds);
 
 **Impact:** At 1M events/day with log level INFO (typical in prod), this serializes a large `Set<DatasetVersionId>` to string on every lineage READ request, wasting CPU.
 
-### BUG-03: `OR` condition in recursive JOIN prevents index use
+### BUG-03: `OR` condition in recursive JOIN — and why it CANNOT be split into two arms
 
-**File:** `api/src/main/java/marquez/db/LineageDao.java:309`
+**File:** `api/src/main/java/marquez/db/LineageDao.java` (four recursive CTEs:
+`getRunLineage`, `getRunLineageWithFacets`, `getParentRunLineage`,
+`getParentRunLineageWithFacets`)
 
 ```sql
--- CURRENT — forces BitmapOr, may degrade to seq scan on the CTE work table
+-- The traversal join matches a neighbouring run in either direction:
 JOIN lineage l
   ON (io.input_version_uuid = l.output_version_uuid
       OR io.output_version_uuid = l.input_version_uuid)
-
--- SHOULD BE (two separate arms — planner can use each index independently)
-JOIN lineage l ON io.input_version_uuid = l.output_version_uuid
-  WHERE l.depth < :depth
-UNION ALL
-SELECT ... FROM run_lineage_denormalized io
-JOIN lineage l ON io.output_version_uuid = l.input_version_uuid
-  AND io.run_uuid != l.run_uuid
-  WHERE l.depth < :depth
+ AND io.run_uuid != l.run_uuid
 ```
 
-**Impact:** At scale, PostgreSQL's recursive CTE work table is not indexed. The OR join causes a sequential scan of the materialized CTE at every recursion level.
+**Original (incorrect) proposal — DO NOT USE.** An earlier draft proposed
+splitting this into two `UNION ALL` arms so each could use a dedicated index:
+
+```sql
+-- base
+SELECT ... 0 AS depth FROM run_lineage_denormalized r WHERE r.run_uuid IN (...)
+UNION ALL
+SELECT ... FROM run_lineage_denormalized io JOIN lineage l    -- upstream arm
+  ON io.input_version_uuid = l.output_version_uuid ...
+UNION ALL
+SELECT ... FROM run_lineage_denormalized io JOIN lineage l    -- downstream arm
+  ON io.output_version_uuid = l.input_version_uuid ...
+```
+
+**This does not work.** A PostgreSQL recursive CTE allows **exactly one
+recursive term**. With three branches PostgreSQL groups them left-associatively
+as `(base UNION ALL upstream) UNION ALL downstream`, which places a self
+reference (`lineage` in the upstream arm) inside what it treats as the
+*non-recursive* term, raising at execution time:
+
+```
+ERROR: recursive reference to query "lineage" must not appear within
+its non-recursive term
+```
+
+This was implemented, broke all 19 run/parent-run lineage tests, and was
+reverted. The correct, legal form keeps **one** recursive arm with the OR join.
+
+**Actual mitigation.** Index utilisation comes from the large side of the join
+(`run_lineage_denormalized io`), not from rewriting the CTE structure. With the
+V106 indexes (`idx_run_lineage_denorm_input_version`,
+`idx_run_lineage_denorm_output_version`, plus the `out_to_in` / `in_to_out`
+composites) PostgreSQL satisfies the OR via a **BitmapOr of two index scans** on
+`io` — not a sequential scan. The `lineage l` work table is small per recursion
+level and is scanned in memory; that is normal for recursive CTEs and is not the
+bottleneck. The truly index-accelerated traversal requires a different data
+model — see §3f (lineage_edges BFS) and §2c (GIN array overlap), both of which
+still use a **single** recursive/iterative step.
+
+**Impact (uncorrected):** none beyond the BitmapOr cost; the earlier claim of a
+"sequential scan at every recursion level" overstated the issue for the indexed
+`io` table.
 
 ### BUG-04: V2 lineage falls back to V1 for run/dataset-version nodes
 
@@ -214,7 +249,10 @@ CREATE TABLE run_lineage_summary (
 | Proposed row-per-run | 5,000 | ~1KB | ~5 MB | ~3.6 GB |
 | Reduction | **30×** | — | **15×** | **15×** |
 
-**Recursive CTE becomes simpler:**
+**Recursive CTE becomes simpler — but must keep a SINGLE recursive term**
+(see BUG-03). Both traversal directions go in **one** arm, OR-combined; the GIN
+indexes on the two array columns let PostgreSQL satisfy the OR with a BitmapOr of
+two GIN scans on the large `run_lineage_summary io` side:
 
 ```sql
 WITH RECURSIVE lineage AS (
@@ -226,18 +264,15 @@ WITH RECURSIVE lineage AS (
 
     UNION ALL
 
-    -- upstream: next run's outputs overlap this run's inputs
+    -- ONE recursive arm, both directions OR-combined (two UNION ALL arms that
+    -- each reference `lineage` are rejected: "recursive reference ... must not
+    -- appear within its non-recursive term").
+    --   upstream:   io.output_version_uuids && l.input_version_uuids
+    --   downstream: io.input_version_uuids  && l.output_version_uuids
     SELECT io.run_uuid, io.input_version_uuids, io.output_version_uuids, l.depth + 1
     FROM run_lineage_summary io, lineage l
-    WHERE io.output_version_uuids && l.input_version_uuids   -- GIN overlap operator
-      AND io.run_uuid != l.run_uuid
-      AND l.depth < :depth
-      AND io.run_date >= :minDate::date AND io.run_date <= :maxDate::date
-    UNION ALL
-    -- downstream: next run's inputs overlap this run's outputs
-    SELECT io.run_uuid, io.input_version_uuids, io.output_version_uuids, l.depth + 1
-    FROM run_lineage_summary io, lineage l
-    WHERE io.input_version_uuids && l.output_version_uuids
+    WHERE (io.output_version_uuids && l.input_version_uuids
+           OR io.input_version_uuids && l.output_version_uuids)   -- GIN overlap
       AND io.run_uuid != l.run_uuid
       AND l.depth < :depth
       AND io.run_date >= :minDate::date AND io.run_date <= :maxDate::date
@@ -352,6 +387,66 @@ Recursive CTEs on large graphs consume unbounded memory. Set per-transaction lim
 handle.execute("SET LOCAL work_mem = '128MB'");
 handle.execute("SET LOCAL statement_timeout = '30s'");
 ```
+
+`SET LOCAL` only takes effect inside an explicit transaction, so the recursive
+query and the `SET LOCAL` statements must run on the same `Handle` within a
+`jdbi.inTransaction(...)` block — a plain `@SqlQuery` on an on-demand DAO opens
+its own connection and the setting would not apply.
+
+### 3f. Pre-materialized `lineage_edges` BFS (the index-accelerated read path)
+
+The recursive CTE is bounded by the row-per-pair model and the single-recursive
+-term rule (BUG-03). The genuinely index-accelerated traversal replaces the CTE
+with a pre-computed adjacency table walked level-by-level in application code —
+the OpenMetadata pattern, kept inside PostgreSQL.
+
+**Status:** the table and the **write path are implemented** (V107 +
+`DenormalizedLineageService.populateLineageEdgesForRun`), populated at
+COMPLETE/FAIL/ABORT time and back-filled by V107. The **read path is NOT yet
+wired** — `lineage_edges` is currently write-only; lineage reads still issue the
+recursive CTE.
+
+**Schema (V107, shipped).** Each row is one hop between a run and a
+dataset_version:
+
+```sql
+lineage_edges (
+  from_node_id UUID, from_type TEXT,   -- 'run' | 'dataset_version'
+  to_node_id   UUID, to_type   TEXT,
+  edge_type    TEXT,                    -- 'PRODUCES' | 'CONSUMES'
+  run_uuid     UUID, run_date  DATE,
+  PRIMARY KEY (from_node_id, to_node_id, edge_type)
+)
+-- idx_lineage_edges_downstream (from_node_id, to_type, run_date DESC)
+-- idx_lineage_edges_upstream   (to_node_id,   from_type, run_date DESC)
+```
+
+**Read algorithm (to implement in Java).** Breadth-first, one indexed batch
+query per depth level instead of a single exponential recursive CTE:
+
+```
+frontier = { seed run/dataset-version node ids }
+visited  = {}
+for level in 0..depth:
+    next = SELECT to_node_id   FROM lineage_edges WHERE from_node_id = ANY(:frontier)   -- downstream
+           UNION
+           SELECT from_node_id FROM lineage_edges WHERE to_node_id   = ANY(:frontier)   -- upstream
+    frontier = next - visited
+    visited += next
+    if frontier empty: break
+```
+
+Each level is a single index range scan keyed on `from_node_id` / `to_node_id`
+(`= ANY(array)`), so cost is O(edges-touched), not O(graph^depth). Node/edge
+hydration (job names, dataset metadata, optional facets) is a second batched
+lookup over `visited`, reusing the existing entity-denorm queries so the emitted
+`Lineage` graph is byte-for-byte identical to the CTE output (required to keep
+the V1/V2 parity tests green).
+
+**Caveat:** this is a substantial read-path change. Because it must reproduce the
+exact graph shape the recursive CTE returns, it has to be validated against the
+`LineageResourceV1V2ParityIT` / `LineageServiceTest` suites before it can replace
+the CTE; until then it ships behind a flag and the CTE remains the default.
 
 ---
 
@@ -534,37 +629,41 @@ These must match V1 signature before V3 is production-ready.
 
 ## 8. Implementation Phases
 
+**Status legend:** ✅ done · 🟡 partial · ❌ not started · ⛔ withdrawn (see note)
+
 ### Phase 1 — Immediate (Days 1–3, zero schema change)
 
-| # | Change | File | Impact |
-|---|---|---|---|
-| P1-1 | Fix `dvf.run_uuid = dvf.run_uuid` tautology | `LineageDao.java:651` | Correct facets data |
-| P1-2 | Change `log.info` → `log.debug` on hot path | `LineageService.java:537,587-590` | CPU reduction |
-| P1-3 | Gate `populateDenormalizedEntitiesForEvent` on eventType | `OpenLineageService.java:179` | 200× write IOPS reduction |
-| P1-4 | Add `statement_timeout='30s'` to lineage DAO calls | `LineageDao.java` | Prevent runaway queries |
-| P1-5 | Add depth cap (max 10 V1, max 20 V2) in service layer | `LineageService.java` | Prevent OOM |
+| # | Change | File | Impact | Status |
+|---|---|---|---|---|
+| P1-1 | Fix `dvf.run_uuid = dvf.run_uuid` tautology | `LineageDao.java` | Correct facets data | ✅ |
+| P1-2 | Change `log.info` → `log.debug` on hot path | `LineageService.java` | CPU reduction | ✅ |
+| P1-3 | Gate `populateDenormalizedEntitiesForEvent` on eventType | `OpenLineageService.java` | 200× write IOPS reduction | ✅ |
+| P1-4 | Add `statement_timeout='30s'` / `work_mem` to lineage queries | `LineageDao` / `LineageService` | Prevent runaway queries | ❌ (needs `inTransaction` wrapper, see §3e) |
+| P1-5 | Add depth cap (max 10 V1, max 20 V2) in service layer | `LineageService.java` | Prevent OOM | ✅ |
 
 ### Phase 2 — Short-term (Weeks 1–2, schema additive)
 
-| # | Change | File | Impact |
-|---|---|---|---|
-| P2-1 | Add `DEFAULT` partition to run_lineage_denormalized | V106 migration | Prevent hard insert errors |
-| P2-2 | Add missing indexes (runs.parent_run_uuid, etc.) | V107 migration | Read performance |
-| P2-3 | Fix OR join → UNION ALL in recursive CTE | `LineageDao.java:307-313` | Index utilization |
-| P2-4 | Fix V2 run-type node fallback | `LineageService.java:202` | V2 parity |
-| P2-5 | Remove silent V2→V1 dataset fallback | `LineageService.java:253` | V2 correctness |
-| P2-6 | Partition `run_facets` table | V108 migration | 7.3B row problem |
-| P2-7 | Upsert only on state change (`WHERE ... IS DISTINCT FROM`) | `DenormalizedLineageService.java` | WAL reduction |
+| # | Change | File | Impact | Status |
+|---|---|---|---|---|
+| P2-1 | Add `DEFAULT` partition to run_lineage_denormalized | V106 migration | Prevent hard insert errors | ✅ |
+| P2-2 | Add missing indexes (runs.parent_run_uuid, etc.) | V106 migration | Read performance | ✅ |
+| P2-3 | ~~Fix OR join → UNION ALL in recursive CTE~~ | `LineageDao.java` | Index utilization | ⛔ withdrawn — illegal in a recursive CTE (BUG-03); single-arm OR + V106 indexes retained instead |
+| P2-4 | Fix V2 run-type node fallback (depth cap respected via `lineageImpl`) | `LineageService.java` | V2 parity | ✅ |
+| P2-5 | Remove silent V2→V1 dataset fallback | `LineageService.java` | V2 correctness | ❌ |
+| P2-6 | Partition `run_facets` table | V108 migration | 7.3B row problem | ❌ (tracked as TODO in V107) |
+| P2-7 | Upsert only on state change (`WHERE ... IS DISTINCT FROM`) | `DenormalizedLineageService.java` | WAL reduction | ❌ |
+| P2-8 | `lineage_edges` adjacency table + write path | V107 / `DenormalizedLineageService.java` | Enables §3f BFS read path | 🟡 write done, read not wired |
 
 ### Phase 3 — Medium-term (Month 1, schema replacement)
 
-| # | Change | Impact |
-|---|---|---|
-| P3-1 | Create `run_lineage_summary` (1 row/run, array-based) | 30× storage reduction, simpler recursive CTE |
-| P3-2 | Migrate V1 recursive CTE to use new schema | Query simplification |
-| P3-3 | Implement partition detach/archive job | 2-year retention enforcement |
-| P3-4 | Add `job_denormalized.namespace_name` column | V2 correctness |
-| P3-5 | Make AGE writes async | V3 write latency |
+| # | Change | Impact | Status |
+|---|---|---|---|
+| P3-0 | Wire `lineage_edges` BFS-in-Java read path behind a flag (§3f) | Index-accelerated reads, replaces recursive CTE | ❌ |
+| P3-1 | Create `run_lineage_summary` (1 row/run, array-based + GIN) | 30× storage reduction, single-arm OR CTE (§2c) | ❌ |
+| P3-2 | Migrate V1 recursive CTE to use new schema | Query simplification | ❌ |
+| P3-3 | Implement partition detach/archive job | 2-year retention enforcement | ❌ |
+| P3-4 | Add `job_denormalized.namespace_name` column | V2 correctness | ❌ |
+| P3-5 | Make AGE writes async | V3 write latency | ❌ |
 
 ### Phase 4 — Long-term (Month 2+, API parity)
 
