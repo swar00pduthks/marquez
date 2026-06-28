@@ -3,17 +3,17 @@
 openapi: 3.0.2
 info:
   title: Marquez
-  version: 0.51.2-SNAPSHOT
+  version: 0.50.0
   description: Marquez is an open source **metadata service** for the **collection**, **aggregation**,
     and **visualization** of a data ecosystem's metadata.
   license:
     name: Apache 2.0
     url: http://www.apache.org/licenses/LICENSE-2.0.html
 servers:
-  - url: /
+  - url: /api/v1
     description: Current API server
 paths:
-  /api/v1/namespaces/{namespace}:
+  /namespaces/{namespace}:
     parameters:
       - $ref: '#/components/parameters/namespace'
     put:
@@ -65,7 +65,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Namespace'
 
-  /api/v1/namespaces:
+  /namespaces:
     get:
       operationId: getNamespaces
       parameters:
@@ -83,7 +83,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/NamespaceList'
 
-  /api/v1/events/lineage:
+  /events/lineage:
     get:
       operationId: getLineageEvents
       parameters:
@@ -104,7 +104,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/LineageEventList'
 
-  /api/v1/sources/{source}:
+  /sources/{source}:
     parameters:
       - $ref: '#/components/parameters/source'
     put:
@@ -142,7 +142,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Source'
 
-  /api/v1/sources:
+  /sources:
     get:
       operationId: getSources
       parameters:
@@ -160,7 +160,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/SourceList'
 
-  /api/v1/namespaces/{namespace}/datasets/{dataset}:
+  /namespaces/{namespace}/datasets/{dataset}:
     parameters:
       - $ref: '#/components/parameters/namespace'
       - $ref: '#/components/parameters/dataset'
@@ -231,7 +231,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/DatasetVersion'
 
-  /api/v1/namespaces/{namespace}/datasets/{dataset}/versions:
+  /namespaces/{namespace}/datasets/{dataset}/versions:
     parameters:
       - $ref: '#/components/parameters/namespace'
       - $ref: '#/components/parameters/dataset'
@@ -251,12 +251,15 @@ paths:
               schema:
                 $ref: '#/components/schemas/DatasetVersionList'
 
-  /api/v1/namespaces/{namespace}/datasets:
+  /namespaces/{namespace}/datasets:
     parameters:
       - $ref: '#/components/parameters/namespace'
     get:
       operationId: getDatasets
       parameters:
+        - $ref: '#/components/parameters/orderBy'
+        - $ref: '#/components/parameters/sortDirection'
+        - $ref: '#/components/parameters/pattern'
         - $ref: '#/components/parameters/limit'
         - $ref: '#/components/parameters/offset'
       summary: List all datasets
@@ -271,7 +274,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/DatasetList'
 
-  /api/v1/namespaces/{namespace}/datasets/{dataset}/tags/{tag}:
+  /namespaces/{namespace}/datasets/{dataset}/tags/{tag}:
     parameters:
       - $ref: '#/components/parameters/namespace'
       - $ref: '#/components/parameters/dataset'
@@ -290,7 +293,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Dataset'
 
-  /api/v1/namespaces/{namespace}/datasets/{dataset}/fields/{field}/tags/{tag}:
+  /namespaces/{namespace}/datasets/{dataset}/fields/{field}/tags/{tag}:
     parameters:
       - $ref: '#/components/parameters/namespace'
       - $ref: '#/components/parameters/dataset'
@@ -310,7 +313,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Dataset'
 
-  /api/v1/namespaces/{namespace}/jobs/{job}:
+  /namespaces/{namespace}/jobs/{job}:
     parameters:
       - $ref: '#/components/parameters/namespace'
       - $ref: '#/components/parameters/job'
@@ -363,12 +366,15 @@ paths:
               schema:
                 $ref: '#/components/schemas/Job'
 
-  /api/v1/namespaces/{namespace}/jobs:
+  /namespaces/{namespace}/jobs:
     parameters:
       - $ref: '#/components/parameters/namespace'
     get:
       operationId: getJobs
       parameters:
+        - $ref: '#/components/parameters/orderBy'
+        - $ref: '#/components/parameters/sortDirection'
+        - $ref: '#/components/parameters/pattern'
         - $ref: '#/components/parameters/limit'
         - $ref: '#/components/parameters/offset'
       summary: List all jobs
@@ -383,7 +389,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/JobList'
 
-  /api/v1/namespaces/{namespace}/jobs/{job}/versions/{version}:
+  /namespaces/{namespace}/jobs/{job}/versions/{version}:
     parameters:
       - $ref: '#/components/parameters/namespace'
       - $ref: '#/components/parameters/job'
@@ -402,7 +408,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/JobVersion'
 
-  /api/v1/namespaces/{namespace}/jobs/{job}/versions:
+  /namespaces/{namespace}/jobs/{job}/versions:
     parameters:
       - $ref: '#/components/parameters/namespace'
       - $ref: '#/components/parameters/job'
@@ -420,7 +426,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/JobVersionList'
 
-  /api/v1/namespaces/{namespace}/jobs/{job}/runs:
+  /namespaces/{namespace}/jobs/{job}/runs:
     parameters:
       - $ref: '#/components/parameters/namespace'
       - $ref: '#/components/parameters/job'
@@ -460,7 +466,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/RunList'
 
-  /api/v1/jobs/runs/{id}:
+  /jobs/runs/{id}:
     parameters:
       - $ref: '#/components/parameters/runId'
     get:
@@ -477,7 +483,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Run'
 
-  /api/v1/jobs/runs/{id}/facets:
+  /jobs/runs/{id}/facets:
     parameters:
       - $ref: '#/components/parameters/runId'
       - $ref: '#/components/parameters/type'
@@ -495,7 +501,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/FacetsResult'
 
-  /api/v1/jobs/runs/{id}/start:
+  /jobs/runs/{id}/start:
     parameters:
       - $ref: '#/components/parameters/runId'
       - $ref: '#/components/parameters/at'
@@ -514,7 +520,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/IncompleteRun'
 
-  /api/v1/jobs/runs/{id}/complete:
+  /jobs/runs/{id}/complete:
     parameters:
       - $ref: '#/components/parameters/runId'
       - $ref: '#/components/parameters/at'
@@ -533,7 +539,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/Run'
 
-  /api/v1/jobs/runs/{id}/fail:
+  /jobs/runs/{id}/fail:
     parameters:
       - $ref: '#/components/parameters/runId'
       - $ref: '#/components/parameters/at'
@@ -552,7 +558,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/IncompleteRun'
 
-  /api/v1/jobs/runs/{id}/abort:
+  /jobs/runs/{id}/abort:
     parameters:
       - $ref: '#/components/parameters/runId'
       - $ref: '#/components/parameters/at'
@@ -571,7 +577,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/IncompleteRun'
 
-  /api/v1/lineage:
+  /lineage:
     post:
       operationId: recordLineage
       summary: Record a single lineage event
@@ -591,12 +597,9 @@ paths:
       parameters:
         - $ref: '#/components/parameters/nodeId'
         - $ref: '#/components/parameters/depth'
-        - $ref: '#/components/parameters/aggregateToParentRun'
-        - $ref: '#/components/parameters/includeFacets'
       tags:
         - Lineage
       summary: Get a lineage graph
-      description: Returns a lineage graph for the specified node. Optionally aggregate child runs to parent and filter facets to prevent large response sizes.
       responses:
         '200':
           description: OK
@@ -606,6 +609,9 @@ paths:
                 $ref: '#/components/schemas/LineageGraph'
 
   /api/v2/lineage:
+    servers:
+      - url: /
+        description: Root API server for V2 endpoints
     get:
       operationId: getLineageV2
       parameters:
@@ -624,31 +630,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/LineageGraph'
 
-  /api/v1/runlineage/upstream:
-    get:
-      operationId: getRunLineageUpstream
-      parameters:
-        - name: id
-          in: query
-          description: The ID of the run.
-          required: true
-          schema:
-            type: string
-            format: uuid
-            example: ea9badc5-7cb2-49af-9a9f-155771d3a797
-        - $ref: '#/components/parameters/depth'
-      tags:
-        - Lineage
-      summary: Get the upstream lineage for a given run
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/UpstreamRunLineage'
-
-  /api/v1/column-lineage:
+  /column-lineage:
     get:
       operationId: getColumnLineage
       parameters:
@@ -666,7 +648,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/LineageGraph'
 
-  /api/v1/tags/{tag}:
+  /tags/{tag}:
     parameters:
       - $ref: '#/components/parameters/tag'
     put:
@@ -688,7 +670,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/TagList'
 
-  /api/v1/tags:
+  /tags:
     get:
       operationId: getTags
       parameters:
@@ -706,7 +688,7 @@ paths:
               schema:
                 $ref: '#/components/schemas/TagList'
 
-  /api/v1/search:
+  /search:
     get:
       operationId: search
       parameters:
@@ -751,124 +733,942 @@ paths:
               schema:
                 $ref: '#/components/schemas/SearchResultList'
 
-  /api/v2/namespaces/{namespace}/datasets:
+  # ──────────────────────────────────────────────────────────────────────────
+  # Stats — V1
+  # ──────────────────────────────────────────────────────────────────────────
+  /api/v1/stats/lineage-events:
+    servers:
+      - url: /
+        description: V1 Stats (absolute path)
     get:
-      operationId: listDatasetsV2
+      operationId: getStatsLineageEvents
+      summary: Get lineage event statistics
+      description: Returns count statistics for OpenLineage events ingested over the requested period.
+      tags:
+        - Stats
       parameters:
-        - $ref: '#/components/parameters/namespace'
+        - $ref: '#/components/parameters/statsPeriod'
+        - $ref: '#/components/parameters/statsTimezone'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatsResult'
+        '400':
+          description: Bad Request — `timezone` is required when `period=WEEK`
+
+  /api/v1/stats/jobs:
+    servers:
+      - url: /
+        description: V1 Stats (absolute path)
+    get:
+      operationId: getStatsJobs
+      summary: Get job statistics
+      description: Returns count statistics for jobs over the requested period.
+      tags:
+        - Stats
+      parameters:
+        - $ref: '#/components/parameters/statsPeriod'
+        - $ref: '#/components/parameters/statsTimezone'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatsResult'
+        '400':
+          description: Bad Request — `timezone` is required when `period=WEEK`
+
+  /api/v1/stats/datasets:
+    servers:
+      - url: /
+        description: V1 Stats (absolute path)
+    get:
+      operationId: getStatsDatasets
+      summary: Get dataset statistics
+      description: Returns count statistics for datasets over the requested period.
+      tags:
+        - Stats
+      parameters:
+        - $ref: '#/components/parameters/statsPeriod'
+        - $ref: '#/components/parameters/statsTimezone'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatsResult'
+        '400':
+          description: Bad Request — `timezone` is required when `period=WEEK`
+
+  /api/v1/stats/sources:
+    servers:
+      - url: /
+        description: V1 Stats (absolute path)
+    get:
+      operationId: getStatsSources
+      summary: Get source statistics
+      description: Returns count statistics for sources over the requested period.
+      tags:
+        - Stats
+      parameters:
+        - $ref: '#/components/parameters/statsPeriod'
+        - $ref: '#/components/parameters/statsTimezone'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatsResult'
+        '400':
+          description: Bad Request — `timezone` is required when `period=WEEK`
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Stats — V2
+  # ──────────────────────────────────────────────────────────────────────────
+  /api/v2/stats/lineage-events:
+    servers:
+      - url: /
+        description: V2 API server
+    get:
+      operationId: getStatsLineageEventsV2
+      summary: Get lineage event statistics (V2)
+      description: Returns lineage event count statistics. Same semantics as V1 but served from the V2 read path.
+      tags:
+        - Stats
+      parameters:
+        - $ref: '#/components/parameters/statsPeriod'
+        - $ref: '#/components/parameters/statsTimezone'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatsResult'
+        '400':
+          description: Bad Request — `timezone` is required when `period=WEEK`
+
+  /api/v2/stats/jobs:
+    servers:
+      - url: /
+        description: V2 API server
+    get:
+      operationId: getStatsJobsV2
+      summary: Get job statistics (V2)
+      tags:
+        - Stats
+      parameters:
+        - $ref: '#/components/parameters/statsPeriod'
+        - $ref: '#/components/parameters/statsTimezone'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatsResult'
+
+  /api/v2/stats/datasets:
+    servers:
+      - url: /
+        description: V2 API server
+    get:
+      operationId: getStatsDatasetsV2
+      summary: Get dataset statistics (V2)
+      tags:
+        - Stats
+      parameters:
+        - $ref: '#/components/parameters/statsPeriod'
+        - $ref: '#/components/parameters/statsTimezone'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatsResult'
+
+  /api/v2/stats/sources:
+    servers:
+      - url: /
+        description: V2 API server
+    get:
+      operationId: getStatsSourcesV2
+      summary: Get source statistics (V2)
+      tags:
+        - Stats
+      parameters:
+        - $ref: '#/components/parameters/statsPeriod'
+        - $ref: '#/components/parameters/statsTimezone'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatsResult'
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Column Lineage — V2
+  # ──────────────────────────────────────────────────────────────────────────
+  /api/v2/column-lineage:
+    servers:
+      - url: /
+        description: V2 API server
+    get:
+      operationId: getColumnLineageV2
+      summary: Get a column lineage graph (V2)
+      description: Returns column-level lineage using the V2 denormalized read path.
+      tags:
+        - Column lineage
+      parameters:
+        - $ref: '#/components/parameters/nodeId'
+        - $ref: '#/components/parameters/depth'
+        - $ref: '#/components/parameters/withDownstream'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LineageGraph'
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Tags — V2
+  # ──────────────────────────────────────────────────────────────────────────
+  /api/v2/tags/{tag}:
+    servers:
+      - url: /
+        description: V2 API server
+    parameters:
+      - $ref: '#/components/parameters/tag'
+    put:
+      operationId: putTagV2
+      summary: Create or update a tag (V2)
+      description: Creates or updates a tag. Accepts a description for the tag.
+      tags:
+        - Tags
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatedTag'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tag'
+
+  /api/v2/tags:
+    servers:
+      - url: /
+        description: V2 API server
+    get:
+      operationId: getTagsV2
+      summary: List all tags (V2)
+      description: Returns a list of all tags.
+      tags:
+        - Tags
+      parameters:
         - $ref: '#/components/parameters/limit'
         - $ref: '#/components/parameters/offset'
-      summary: List all datasets (V2)
-      description: Returns a list of datasets for a namespace using internal DB models.
-      tags:
-        - Datasets V2
       responses:
         '200':
           description: OK
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/DatasetRow'
+                $ref: '#/components/schemas/TagList'
 
-  /api/v2/namespaces/{namespace}/datasets/{dataset}:
-    get:
-      operationId: getDatasetV2
-      parameters:
-        - $ref: '#/components/parameters/namespace'
-        - $ref: '#/components/parameters/dataset'
-      summary: Retrieve a dataset (V2)
-      description: Returns a dataset using internal DB models.
+  # ──────────────────────────────────────────────────────────────────────────
+  # Sources — V2
+  # ──────────────────────────────────────────────────────────────────────────
+  /api/v2/sources/{source}:
+    servers:
+      - url: /
+        description: V2 API server
+    parameters:
+      - $ref: '#/components/parameters/source'
+    put:
+      operationId: putSourceV2
+      summary: Create a source (V2)
+      description: Creates or updates a data source.
       tags:
-        - Datasets V2
+        - Sources
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatedSource'
       responses:
         '200':
           description: OK
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/DatasetRow'
-
-  /api/v2/namespaces/{namespace}/datasets/{dataset}/versions:
+                $ref: '#/components/schemas/Source'
     get:
-      operationId: listDatasetVersionsV2
+      operationId: getSourceV2
+      summary: Retrieve a source (V2)
+      tags:
+        - Sources
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Source'
+        '404':
+          description: Source not found
+
+  /api/v2/sources:
+    servers:
+      - url: /
+        description: V2 API server
+    get:
+      operationId: getSourcesV2
+      summary: List all sources (V2)
+      tags:
+        - Sources
       parameters:
-        - $ref: '#/components/parameters/namespace'
-        - $ref: '#/components/parameters/dataset'
         - $ref: '#/components/parameters/limit'
         - $ref: '#/components/parameters/offset'
-      summary: List all versions for a dataset (V2)
-      description: Returns a list of versions for a dataset using internal DB models.
-      tags:
-        - Datasets V2
       responses:
         '200':
           description: OK
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/DatasetVersionRow'
+                $ref: '#/components/schemas/SourceList'
 
-  /api/v2/namespaces/{namespace}/datasets/{dataset}/versions/{version}:
+  # ──────────────────────────────────────────────────────────────────────────
+  # Jobs — V2 (global list without namespace filter)
+  # ──────────────────────────────────────────────────────────────────────────
+  /api/v2/jobs:
+    servers:
+      - url: /
+        description: V2 API server
     get:
-      operationId: getDatasetVersionV2
-      parameters:
-        - $ref: '#/components/parameters/namespace'
-        - $ref: '#/components/parameters/dataset'
-        - $ref: '#/components/parameters/version'
-      summary: Retrieve a version for a dataset (V2)
-      description: Returns a version for a dataset using internal DB models.
+      operationId: getJobsV2Global
+      summary: List all jobs across all namespaces (V2)
+      description: Returns a paginated list of all jobs across every namespace using the V2 denormalized read path.
       tags:
-        - Datasets V2
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DatasetVersionRow'
-
-  /api/v2/namespaces/{namespace}/jobs:
-    get:
-      operationId: listJobsV2
+        - Jobs
       parameters:
-        - $ref: '#/components/parameters/namespace'
         - $ref: '#/components/parameters/limit'
         - $ref: '#/components/parameters/offset'
-      summary: List all jobs (V2)
-      description: Returns a list of jobs for a namespace using internal DB models.
-      tags:
-        - Jobs V2
       responses:
         '200':
           description: OK
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/JobRow'
+                $ref: '#/components/schemas/JobList'
 
-  /api/v2/namespaces/{namespace}/jobs/{job}:
+  # ──────────────────────────────────────────────────────────────────────────
+  # Search — V2 Beta (OpenSearch-backed)
+  # ──────────────────────────────────────────────────────────────────────────
+  /api/v2beta/search/jobs:
+    servers:
+      - url: /
+        description: V2 Beta API server
     get:
-      operationId: getJobV2
-      parameters:
-        - $ref: '#/components/parameters/namespace'
-        - $ref: '#/components/parameters/job'
-      summary: Retrieve a job (V2)
-      description: Returns a job using internal DB models.
+      operationId: searchJobsV2Beta
+      summary: Full-text search for jobs (V2 Beta)
+      description: |
+        Searches jobs using the OpenSearch backend. Returns 503 if OpenSearch is not configured.
+        This endpoint provides richer full-text matching than the V1 `%`-pattern search.
       tags:
-        - Jobs V2
+        - Search
+      parameters:
+        - name: q
+          in: query
+          required: true
+          description: Full-text search query string.
+          schema:
+            type: string
+            example: my-etl-job
       responses:
         '200':
           description: OK
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/JobRow'
+                $ref: '#/components/schemas/SearchResultList'
+        '503':
+          description: Service Unavailable — OpenSearch is not enabled
+
+  /api/v2beta/search/datasets:
+    servers:
+      - url: /
+        description: V2 Beta API server
+    get:
+      operationId: searchDatasetsV2Beta
+      summary: Full-text search for datasets (V2 Beta)
+      description: |
+        Searches datasets using the OpenSearch backend. Returns 503 if OpenSearch is not configured.
+      tags:
+        - Search
+      parameters:
+        - name: q
+          in: query
+          required: true
+          description: Full-text search query string.
+          schema:
+            type: string
+            example: customer_orders
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchResultList'
+        '503':
+          description: Service Unavailable — OpenSearch is not enabled
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # V3 API — Graph-backed lineage (Apache AGE / Cypher)
+  # ──────────────────────────────────────────────────────────────────────────
+  /api/v3/lineage:
+    servers:
+      - url: /
+        description: V3 API server
+    post:
+      operationId: recordLineageV3
+      summary: Ingest an OpenLineage event (V3)
+      description: |
+        Receives an OpenLineage event and writes it to both the relational store and the
+        Apache AGE property graph (`marquez_v3` schema). Cypher writes are performed for all
+        entity types in the event.
+      tags:
+        - Lineage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LineageEvent'
+      responses:
+        '200':
+          description: OK
+        '400':
+          description: Bad Request — malformed OpenLineage event
+    get:
+      operationId: getLineageV3
+      summary: Get a lineage graph (V3)
+      description: |
+        Returns a lineage graph for the given node using Cypher queries against the Apache AGE
+        property graph. Supports `aggregateToParentRun` for grouping child runs.
+      tags:
+        - Lineage
+      parameters:
+        - $ref: '#/components/parameters/nodeId'
+        - $ref: '#/components/parameters/depth'
+        - $ref: '#/components/parameters/aggregateToParentRun'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LineageGraph'
+
+  /api/v3beta/lineage:
+    servers:
+      - url: /
+        description: V3 Beta API server
+    get:
+      operationId: getLineageV3Beta
+      summary: Get a lineage graph with edge-type filtering (V3 Beta)
+      description: |
+        Experimental lineage graph endpoint with additional filtering by edge type
+        and optional parent-run aggregation. Interface may change without notice.
+      tags:
+        - Lineage
+      parameters:
+        - $ref: '#/components/parameters/nodeId'
+        - $ref: '#/components/parameters/depth'
+        - $ref: '#/components/parameters/aggregateToParentRun'
+        - name: edgeType
+          in: query
+          required: false
+          description: Filter graph edges by type (e.g. `READS`, `WRITES`, `PRODUCES`).
+          schema:
+            type: string
+            example: WRITES
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LineageGraph'
+
+  /api/v3/namespaces:
+    servers:
+      - url: /
+        description: V3 API server
+    get:
+      operationId: getNamespacesV3
+      summary: List namespaces (V3)
+      description: Returns namespaces from the AGE graph.
+      tags:
+        - Namespaces
+      parameters:
+        - $ref: '#/components/parameters/limit'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NamespaceList'
+
+  /api/v3/namespaces/{namespace}:
+    servers:
+      - url: /
+        description: V3 API server
+    parameters:
+      - $ref: '#/components/parameters/namespace'
+    get:
+      operationId: getNamespaceV3
+      summary: Retrieve a namespace (V3)
+      tags:
+        - Namespaces
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Namespace'
+        '404':
+          description: Namespace not found
+
+  /api/v3/namespaces/{namespace}/datasets:
+    servers:
+      - url: /
+        description: V3 API server
+    parameters:
+      - $ref: '#/components/parameters/namespace'
+    get:
+      operationId: getNamespaceDatasetsV3
+      summary: List datasets in a namespace (V3)
+      tags:
+        - Datasets
+      parameters:
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DatasetList'
+
+  /api/v3/namespaces/{namespace}/datasets/{dataset}:
+    servers:
+      - url: /
+        description: V3 API server
+    parameters:
+      - $ref: '#/components/parameters/namespace'
+      - $ref: '#/components/parameters/dataset'
+    get:
+      operationId: getNamespaceDatasetV3
+      summary: Retrieve a dataset (V3)
+      tags:
+        - Datasets
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Dataset'
+        '404':
+          description: Dataset not found
+
+  /api/v3/namespaces/{namespace}/datasets/{dataset}/versions:
+    servers:
+      - url: /
+        description: V3 API server
+    parameters:
+      - $ref: '#/components/parameters/namespace'
+      - $ref: '#/components/parameters/dataset'
+    get:
+      operationId: getNamespaceDatasetVersionsV3
+      summary: List versions for a dataset (V3)
+      tags:
+        - Datasets
+      parameters:
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DatasetVersionList'
+
+  /api/v3/namespaces/{namespace}/jobs:
+    servers:
+      - url: /
+        description: V3 API server
+    parameters:
+      - $ref: '#/components/parameters/namespace'
+    get:
+      operationId: getNamespaceJobsV3
+      summary: List jobs in a namespace (V3)
+      tags:
+        - Jobs
+      parameters:
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobList'
+
+  /api/v3/namespaces/{namespace}/jobs/{job}:
+    servers:
+      - url: /
+        description: V3 API server
+    parameters:
+      - $ref: '#/components/parameters/namespace'
+      - $ref: '#/components/parameters/job'
+    get:
+      operationId: getNamespaceJobV3
+      summary: Retrieve a job (V3)
+      tags:
+        - Jobs
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+        '404':
+          description: Job not found
+
+  /api/v3/namespaces/{namespace}/jobs/{job}/runs:
+    servers:
+      - url: /
+        description: V3 API server
+    parameters:
+      - $ref: '#/components/parameters/namespace'
+      - $ref: '#/components/parameters/job'
+    get:
+      operationId: getNamespaceJobRunsV3
+      summary: List runs for a job (V3)
+      tags:
+        - Jobs
+      parameters:
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RunList'
+
+  /api/v3/datasets:
+    servers:
+      - url: /
+        description: V3 API server
+    get:
+      operationId: getDatasetsV3
+      summary: List all datasets across namespaces (V3)
+      tags:
+        - Datasets
+      parameters:
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DatasetList'
+
+  /api/v3/jobs:
+    servers:
+      - url: /
+        description: V3 API server
+    get:
+      operationId: getJobsV3
+      summary: List all jobs across namespaces (V3)
+      tags:
+        - Jobs
+      parameters:
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/offset'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobList'
+
+  /api/v3/jobs/runs:
+    servers:
+      - url: /
+        description: V3 API server
+    get:
+      operationId: getRunsV3
+      summary: List all runs (V3)
+      tags:
+        - Jobs
+      parameters:
+        - $ref: '#/components/parameters/limit'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RunList'
+
+  /api/v3/jobs/runs/{id}:
+    servers:
+      - url: /
+        description: V3 API server
+    parameters:
+      - $ref: '#/components/parameters/runId'
+    get:
+      operationId: getRunV3
+      summary: Retrieve a run by ID (V3)
+      tags:
+        - Jobs
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Run'
+        '404':
+          description: Run not found
+
+  /api/v3/jobs/runs/{id}/inputs:
+    servers:
+      - url: /
+        description: V3 API server
+    parameters:
+      - $ref: '#/components/parameters/runId'
+    get:
+      operationId: getRunInputsV3
+      summary: List input datasets for a run (V3)
+      tags:
+        - Jobs
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DatasetList'
+
+  /api/v3/jobs/runs/{id}/outputs:
+    servers:
+      - url: /
+        description: V3 API server
+    parameters:
+      - $ref: '#/components/parameters/runId'
+    get:
+      operationId: getRunOutputsV3
+      summary: List output datasets for a run (V3)
+      tags:
+        - Jobs
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DatasetList'
+
+  /api/v3/events/lineage:
+    servers:
+      - url: /
+        description: V3 API server
+    get:
+      operationId: getLineageEventsV3
+      summary: List OpenLineage events (V3)
+      description: Returns raw OpenLineage events from the graph-backed event store.
+      tags:
+        - Events
+      parameters:
+        - $ref: '#/components/parameters/limit'
+        - $ref: '#/components/parameters/before'
+        - $ref: '#/components/parameters/after'
+        - $ref: '#/components/parameters/offset'
+        - $ref: '#/components/parameters/sortDirection'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LineageEventList'
+
+  /api/v3/column-lineage:
+    servers:
+      - url: /
+        description: V3 API server
+    get:
+      operationId: getColumnLineageV3
+      summary: Get a column lineage graph (V3)
+      description: Returns column-level lineage using Cypher traversal against the AGE graph.
+      tags:
+        - Column lineage
+      parameters:
+        - $ref: '#/components/parameters/nodeId'
+        - $ref: '#/components/parameters/depth'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LineageGraph'
+
+  /api/v3/sources:
+    servers:
+      - url: /
+        description: V3 API server
+    get:
+      operationId: getSourcesV3
+      summary: List all sources (V3)
+      tags:
+        - Sources
+      parameters:
+        - $ref: '#/components/parameters/limit'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SourceList'
+
+  /api/v3/tags:
+    servers:
+      - url: /
+        description: V3 API server
+    get:
+      operationId: getTagsV3
+      summary: List all tags (V3)
+      tags:
+        - Tags
+      parameters:
+        - $ref: '#/components/parameters/limit'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TagList'
+
+  /api/v3/stats/lineage-events:
+    servers:
+      - url: /
+        description: V3 API server
+    get:
+      operationId: getStatsLineageEventsV3
+      summary: Get lineage event statistics (V3)
+      tags:
+        - Stats
+      parameters:
+        - $ref: '#/components/parameters/statsPeriod'
+        - $ref: '#/components/parameters/statsTimezone'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatsResult'
+
+  /api/v3/stats/jobs:
+    servers:
+      - url: /
+        description: V3 API server
+    get:
+      operationId: getStatsJobsV3
+      summary: Get job statistics (V3)
+      tags:
+        - Stats
+      parameters:
+        - $ref: '#/components/parameters/statsPeriod'
+        - $ref: '#/components/parameters/statsTimezone'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatsResult'
+
+  /api/v3/stats/datasets:
+    servers:
+      - url: /
+        description: V3 API server
+    get:
+      operationId: getStatsDatasetsV3
+      summary: Get dataset statistics (V3)
+      tags:
+        - Stats
+      parameters:
+        - $ref: '#/components/parameters/statsPeriod'
+        - $ref: '#/components/parameters/statsTimezone'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatsResult'
+
+  /api/v3/stats/sources:
+    servers:
+      - url: /
+        description: V3 API server
+    get:
+      operationId: getStatsSourcesV3
+      summary: Get source statistics (V3)
+      tags:
+        - Stats
+      parameters:
+        - $ref: '#/components/parameters/statsPeriod'
+        - $ref: '#/components/parameters/statsTimezone'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatsResult'
 
 components:
   parameters:
@@ -1014,21 +1814,8 @@ components:
       schema:
         type: boolean
         default: false
-      description: When true, aggregates all child runs to their parent run UUID, grouping facets and lineage data together. Useful for jobs with dynamic child tasks.
+      description: When true, aggregates all child runs to their parent run UUID, grouping facets and lineage data together.
       required: false
-
-    includeFacets:
-      name: includeFacets
-      in: query
-      schema:
-        type: array
-        items:
-          type: string
-        example: ["spark", "processing_engine"]
-      description: Filters run facets to include only the specified facet names. Reduces response size and prevents PostgreSQL 256MB JSONB limit issues with large lineage queries. Facets are filtered at SQL level for optimal performance.
-      required: false
-      style: form
-      explode: true
 
     q:
       name: q
@@ -1068,6 +1855,26 @@ components:
         description: Sorts the results of your query by indicated direction `asc` or `desc`.
       required: false
 
+    pattern:
+      name: pattern
+      in: query
+      schema:
+        default: '%'
+        type: string
+        example: etl
+        description: Filters the results of your query by indicated pattern. Matches any substring
+      required: false
+
+    orderBy:
+      name: orderBy
+      in: query
+      schema:
+        type: string
+        default: name
+        example: name
+        description: Orders the results of your query by indicated `sortDirection` by any column on the row.
+      required: false
+
     before:
       name: before
       in: query
@@ -1098,6 +1905,25 @@ components:
         enum:
           - run
           - job
+
+    statsPeriod:
+      name: period
+      in: query
+      description: Time period for the statistic — `DAY` (last 24 h) or `WEEK` (last 7 days). Defaults to `DAY`.
+      required: false
+      schema:
+        type: string
+        enum: [DAY, WEEK]
+        default: DAY
+
+    statsTimezone:
+      name: timezone
+      in: query
+      description: IANA timezone identifier (e.g. `America/New_York`). Required when `period=WEEK`.
+      required: false
+      schema:
+        type: string
+        example: America/New_York
 
   schemas:
     CreatedNamespace:
@@ -1718,15 +2544,6 @@ components:
         name:
           description: The name of the job.
           type: string
-        simpleName:
-          description: The shortened name of the job.
-          type: string
-        parentJobName:
-          description: The name of the parent job.
-          type: string
-        parentJobUuid:
-          description: The UUID of the parent job.
-          type: string
         createdAt:
           description: An [ISO-8601](https://en.wikipedia.org/wiki/ISO_8601) timestamp representing the date/time the job was created.
           type: string
@@ -1763,10 +2580,6 @@ components:
           type: string
         latestRun:
           $ref: '#/components/schemas/Run'
-        latestRuns:
-          type: array
-          items:
-            $ref: '#/components/schemas/Run'
         facets:
           $ref: '#/components/schemas/JobFacets'
         currentVersion:
@@ -1788,7 +2601,6 @@ components:
         context: {'SQL': "SELECT * FROM mytable;"}
         description: My first job!
         latestRun: null
-        latestRuns: []
         facets: {}
         currentVersion: "b1d626a2-6d3a-475e-9ecf-943176d4a8c6"
 
@@ -2111,88 +2923,28 @@ components:
       example:
         description: My first tag!
 
-    UpstreamRunLineage:
-      type: object
-      properties:
-        runs:
-          description: the list of upstream runs including the selected run in topological order upstream
-          type: array
-          items:
-            type: object
-            properties:
-              job:
-                type: object
-                description: identifier of the job version for this run
-                properties:
-                  namespace:
-                    type: string
-                  name:
-                    type: string
-                  version:
-                    type: string
-                    format: uuid
-              run:
-                description: run information
-                type: object
-                properties:
-                  id:
-                    description: the run identifier
-                    type: string
-                    format: uuid
-                  start:
-                    description: start time of the run
-                    type: string
-                    format: date-time
-                  end:
-                    description: end time of the run
-                    type: string
-                    format: date-time
-                  status:
-                    description: whether the run completed succesfully or not
-                    type: string
-              inputs:
-                description: ustream input dataset versions
-                type: array
-                items:
-                  description: identifier of the upstream dataset version consumed by this run
-                  type: object
-                  properties:
-                    namespace:
-                      type: string
-                    name:
-                      type: string
-                    version:
-                      type: string
-                      format: uuid
-                    producedByRunId:
-                      description: the run that produced this dataset version
-                      type: string
-                      format: uuid
-
     LineageEvent:
       example:
         eventType: COMPLETE
         eventTime: 2019-05-09T19:49:24.201361Z
         run: {runId: d46e465b-d358-4d32-83d4-df660ff614dd}
         job: {namespace: my-namespace,name: my-job}
-        outputs: [
-          {
-            namespace: my-namespace,
-            name: my-output,
-            facets: {
-              schema: {
-                _producer: "https://github.com/OpenLineage/OpenLineage/blob/v1-0-0/client",
-                _schemaURL: "https://github.com/OpenLineage/OpenLineage/blob/v1-0-0/spec/OpenLineage.json#/definitions/SchemaDatasetFacet",
-                fields: [
-                  { name: a, type: INTEGER },
-                  { name: b, type: TIMESTAMP },
-                  { name: c, type: INTEGER },
-                  { name: d, type: INTEGER }
-                ]
-              }
+        outputs: [{
+          namespace: my-namespace,
+          name: my-output,
+          facets: {
+            schema: {
+              _producer: "https://github.com/OpenLineage/OpenLineage/blob/v1-0-0/client",
+              _schemaURL: "https://github.com/OpenLineage/OpenLineage/blob/v1-0-0/spec/OpenLineage.json#/definitions/SchemaDatasetFacet",
+              fields: [
+                {name: a, type: INTEGER},
+                {name: b, type: TIMESTAMP},
+                {name: c, type: INTEGER},
+                {name: d, type: INTEGER}
+              ]
             }
           }
-        ]
+        }]
         producer: "https://github.com/OpenLineage/OpenLineage/blob/v1-0-0/client"
 
     SearchResultList:
@@ -2274,115 +3026,37 @@ components:
         - datasetVersionId
         - facets
 
-    DatasetRow:
+    StatsResult:
       type: object
+      description: Statistics count for a given period.
       properties:
-        uuid:
+        count:
+          type: integer
+          description: Total count of entities in the requested period.
+          example: 42
+        period:
           type: string
-          format: uuid
-        type:
-          type: string
-        createdAt:
-          type: string
-          format: date-time
-        updatedAt:
-          type: string
-          format: date-time
-        namespaceUuid:
-          type: string
-          format: uuid
-        namespaceName:
-          type: string
-        sourceUuid:
-          type: string
-          format: uuid
-        sourceName:
-          type: string
-        name:
-          type: string
-        physicalName:
-          type: string
-        lastModifiedAt:
-          type: string
-          format: date-time
-        description:
-          type: string
-        currentVersionUuid:
-          type: string
-          format: uuid
-        isDeleted:
-          type: boolean
-
-    JobRow:
-      type: object
-      properties:
-        uuid:
-          type: string
-          format: uuid
-        type:
-          type: string
-        createdAt:
-          type: string
-          format: date-time
-        updatedAt:
-          type: string
-          format: date-time
-        namespaceUuid:
-          type: string
-          format: uuid
-        namespaceName:
-          type: string
-        name:
-          type: string
-        simpleName:
-          type: string
-        parentJobName:
-          type: string
-        parentJobUuid:
-          type: string
-          format: uuid
-        description:
-          type: string
-        currentVersionUuid:
-          type: string
-          format: uuid
-        location:
-          type: string
-        inputs:
+          enum: [DAY, WEEK]
+          description: The period this statistic covers.
+          example: DAY
+        breakdown:
           type: array
+          description: Per-time-bucket breakdown (hourly for DAY, daily for WEEK).
           items:
-            $ref: '#/components/schemas/DatasetId'
-        symlinkTargetId:
-          type: string
-          format: uuid
-        currentRunUuid:
-          type: string
-          format: uuid
-
-    DatasetVersionRow:
-      type: object
-      properties:
-        uuid:
-          type: string
-          format: uuid
-        createdAt:
-          type: string
-          format: date-time
-        datasetUuid:
-          type: string
-          format: uuid
-        version:
-          type: string
-          format: uuid
-        schemaVersionUuid:
-          type: string
-          format: uuid
-        lifecycleState:
-          type: string
-        runUuid:
-          type: string
-          format: uuid
-        namespaceName:
-          type: string
-        datasetName:
-          type: string
+            type: object
+            properties:
+              timestamp:
+                type: string
+                format: date-time
+                description: Start of the time bucket.
+              count:
+                type: integer
+                description: Count within this bucket.
+      example:
+        count: 42
+        period: DAY
+        breakdown:
+          - timestamp: "2024-01-15T00:00:00Z"
+            count: 5
+          - timestamp: "2024-01-15T01:00:00Z"
+            count: 12
