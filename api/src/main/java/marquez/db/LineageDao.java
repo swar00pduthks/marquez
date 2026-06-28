@@ -675,11 +675,12 @@ public interface LineageDao {
              GROUP BY m.dataset_uuid
          ) t ON t.dataset_uuid = dv.dataset_uuid
          LEFT JOIN (
-             SELECT dvf.uuid AS dataset_uuid, JSONB_AGG(dvf.facet ORDER BY dvf.lineage_event_time ASC) AS facets
+             SELECT dvf.uuid AS dataset_uuid, dvf.run_uuid,
+                    JSONB_AGG(dvf.facet ORDER BY dvf.lineage_event_time ASC) AS facets
              FROM selected_dataset_version_facets dvf
-             WHERE dvf.run_uuid = dv.run_uuid
-             GROUP BY dvf.uuid
-         ) f ON f.dataset_uuid = dv.uuid""")
+             WHERE dvf.run_uuid IS NOT NULL
+             GROUP BY dvf.uuid, dvf.run_uuid
+         ) f ON f.dataset_uuid = dv.uuid AND f.run_uuid = dv.run_uuid""")
   Set<DatasetVersionData> getDatasetVersionData(
       @BindList(value = "versions", onEmpty = BindList.EmptyHandling.NULL_STRING)
           Set<UUID> versions);
