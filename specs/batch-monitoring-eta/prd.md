@@ -31,6 +31,55 @@ The Batch Ops Engineer user persona (see `bmad/agents/users/batch-ops-engineer-u
 
 ---
 
+### Appendix A — Competitive Analysis (Comparative Analyst Agent)
+
+*Reviewed by: Comparative Analyst agent (`bmad/agents/comparative-analyst-agent.md`)*
+
+| Competitor | SLA Tracking | Predictive ETA | Blast Radius | Cross-Platform | Key Gap vs Marquez |
+|---|---|---|---|---|---|
+| **Monte Carlo** | Anomaly detection (freshness, volume, schema) — NOT SLA-based | No — detects anomalies after they happen, no forward prediction | No — observability only, no lineage dependency traversal | Yes (via connectors) | Detects problems reactively; cannot predict "will job X make its 6 AM deadline?"; no downstream dependency chain |
+| **Bigeye / Lightup** | Rule-based freshness and volume checks | No | No | Yes | Same gap as Monte Carlo; data quality focus, not operational batch health |
+| **Prefect** | SLA miss alerts (after breach) | No | No — only within Prefect runs | Prefect-only | SLA detection fires after breach; no ETA; limited to Prefect orchestrator; not lineage-aware |
+| **Apache Airflow** | SLA miss callbacks (after breach) | No | No | Airflow-only | Same as Prefect; fires after breach; no ETA computation; no cross-job blast radius |
+| **Databricks Job Monitoring** | Run health (success/failure rates, duration trends) | No | No | Databricks-only | Duration trends visible but no forward prediction; no cross-platform; no blast radius |
+| **Dagster Asset Health** | Asset freshness policies | Partial — "expected materialization" window | Partial — within Dagster assets | Dagster-only | Best-in-class within Dagster; but not cross-platform; no probabilistic ETA; no integration with non-Dagster jobs |
+
+**Marquez's structural advantage**: No tool in the market offers **predictive ETA before SLA breach** for cross-platform batch jobs. Every competitor detects problems after they happen. Marquez's `runs` table contains years of historical duration data that no current tool is using for prediction. The lineage graph gives Marquez unique capability for blast radius — no observability tool knows what downstream jobs depend on a failing job because they don't have the lineage data.
+
+**Design implication**: The winning differentiator is **pre-breach alerting** ("your 6 AM SLA is at risk — act now") and **cross-platform blast radius** ("these 12 jobs across Spark, dbt, and Airflow are blocked"). If we ship reactive SLA alerts (after breach only), we are no better than Airflow. Predictive ETA is the feature that justifies the investment.
+
+---
+
+### Appendix B — User Persona Validation
+
+*Each relevant persona agent reviewed the PRD. Key feedback recorded below.*
+
+**Batch Ops Engineer** (`bmad/agents/users/batch-ops-engineer-user.md`):
+> "The predictive alert (FR-6) is the P0 of P0s. Everything else is nice to have if this one doesn't fire 15 minutes before breach. But the 60-second polling interval means my alert could come up to 60 seconds late. For a job with a 5-minute SLA buffer, that's 20% of my response window gone. Can we poll faster for jobs that are AT_RISK?"
+*Resolution: Polling interval reduces to 10 seconds when a job transitions to AT_RISK status. Normal polling remains 60 seconds.*
+
+**Data Engineer** (`bmad/agents/users/data-engineer-user.md`):
+> "I want to configure SLAs via the API during DAG deployment, not through a UI. `PUT /api/v1/jobs/{namespace}/{name}/sla` is exactly right. But I need it to be idempotent so I can call it every time my DAG deploys without creating duplicates."
+*Resolution: `PUT` is idempotent by design — upsert semantics on `(job_uuid, profile_name)`.*
+
+**Data Analyst** (`bmad/agents/users/data-analyst-user.md`):
+> "The `freshnessStatus` field on datasets is the thing I care about. I don't care about job internals — I care that the dataset my dashboard is reading is FRESH. But what does FRESH mean? Last updated within 24 hours? Within the job's expected run cadence? The definition needs to be configurable."
+*Resolution: `freshnessStatus` is derived from the dataset's producing job's SLA configuration. If the job has an SLA with a 24-hour expected cadence and the last successful run was > 24 hours ago, status is STALE. Configurable per-job via SLA profile.*
+
+**Business User** (`bmad/agents/users/business-user.md`):
+> "The batch window summary (FR-14) is perfect for me. 'All reports on time / 2 delayed / 1 failed' is exactly what I need for my morning dashboard. But can it map to business concepts? Instead of 'jobs', can it say 'Finance reports (3/4 on time)'? Grouping by team or tag would make this useful for a CDO."
+*Resolution: P2 enhancement — add optional `tag`-based grouping to the summary endpoint. Tags are already a first-class Marquez concept. Not in v1 scope.*
+
+**Platform Engineer** (`bmad/agents/users/platform-engineer-user.md`):
+> "The ETA computation background poller (FR-3) runs every 60 seconds and queries historical run data. At 10,000 configured SLAs with years of history, this could become an expensive query. I need it to use the read replica, not the primary, and I need it to be observable (how long did the poll cycle take? how many ETA computations timed out?)"
+*Resolution: Poller always uses the read replica. Prometheus metrics: `marquez_eta_poll_duration_seconds`, `marquez_eta_computation_timeout_total`. Poll cycle must complete in < 30 seconds total; individual job ETA computation times out at 200ms.*
+
+**App Developer** (`bmad/agents/users/app-developer-user.md`):
+> "The blast radius API (FR-7) only traverses job-to-job dependencies. But my application consumes datasets directly. If `customer_orders` dataset is stale because its producing job is late, my API is serving stale data — but I won't appear in the blast radius unless application consumers are tracked."
+*Resolution: Blast radius traversal includes registered application consumers (from the app-developer consumer registration feature) when available. Documents this dependency in Open Questions.*
+
+---
+
 ## 2. Goals & Non-Goals
 
 ### Goals

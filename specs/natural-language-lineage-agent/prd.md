@@ -34,7 +34,54 @@ Marquez already has the data to answer all of these questions: Apache AGE graph 
 
 Claude API with tool use is the right implementation vehicle: it can generate Cypher queries as tool calls, call the Marquez REST API, and synthesize results into natural language. The agent does not need its own storage — it is a stateless query layer over existing Marquez data.
 
-Competitive context: DataHub has introduced "DataHub AI Assistant"; OpenMetadata has "OpenMetadata AI"; neither has deep graph traversal capability or multi-turn conversational context. This is a meaningful differentiator for Marquez.
+---
+
+### Appendix A — Competitive Analysis (Comparative Analyst Agent)
+
+*Reviewed by: Comparative Analyst agent (`bmad/agents/comparative-analyst-agent.md`)*
+
+| Competitor | NL Interface | Lineage Depth | Multi-turn | Open Source | Key Gap vs Marquez |
+|---|---|---|---|---|---|
+| **DataHub AI Assistant** | Yes — metadata Q&A | Shallow — pre-defined query patterns, no free-form graph traversal | No | No | Cannot execute multi-hop Cypher; limited to DataHub's own metadata schema; no tool-use architecture |
+| **OpenMetadata AI** | Partial — search-assist and entity tagging | Weak — entity lookup only, no traversal | No | Yes | AI layer assists search/tagging but cannot reason about lineage chains; no graph query capability |
+| **Atlan "Ask Atlan"** | Yes — governance Q&A (ownership, PII, certifications) | Weak — governance metadata, not lineage depth | Partial | No | Strong NL UX but lineage traversal is shallow; not open-source; no namespace-scoped multi-tenancy |
+| **Alation** | Partial — AI-powered search with trust signals | None — search only | No | No | No conversational interface; trust signals are heuristic, not lineage-derived |
+| **Collibra AI** | Yes — data governance workflow Q&A | None — governance metadata only | No | No | Governance-focused; cannot answer lineage questions ("what does job X produce?") |
+| **Apache Atlas** | No | Deep — Graph traversal via Gremlin | No | Yes | No NL layer at all; raw Gremlin API is inaccessible to non-technical users |
+
+**Marquez's structural advantage**: The Apache AGE graph enables true multi-hop Cypher traversal as an LLM tool call — not metadata lookup, but actual graph reasoning. Namespace-scoped RLS means tenant isolation is enforced at the query layer. No competitor combines open-source, deep graph traversal, multi-turn context, and multi-tenant isolation in a single NL interface.
+
+**Design implication**: The differentiator is depth + context. A shallow NL interface (entity lookup only) puts Marquez behind Atlan and DataHub on UX polish. The winning design prioritizes multi-hop reasoning ("trace this output back to its source data 4 hops upstream") and multi-turn conversation ("now show me only the failed runs in that chain").
+
+---
+
+### Appendix B — User Persona Validation
+
+*Each relevant persona agent reviewed the PRD. Key feedback recorded below.*
+
+**Data Engineer** (`bmad/agents/users/data-engineer-user.md`):
+> "The API-first approach is right — `POST /api/v1/agent/query` means I can integrate this into my incident runbooks programmatically. But I need the cited links to be machine-readable (entity UUIDs in the citations array), not just human-readable text. And the 5-second p95 latency target is acceptable only if it's for simple queries — multi-hop traversal that takes 15 seconds is a deal-breaker for incident debugging."
+*Resolution: Citations array includes `{ entity_type, name, uuid, url }` objects. Tiered latency SLA: simple queries ≤ 3s, complex traversal ≤ 12s.*
+
+**Batch Ops Engineer** (`bmad/agents/users/batch-ops-engineer-user.md`):
+> "The blast radius tool (`get_downstream_impact`) is the most important thing here. During an incident at 2 AM I need to ask 'if job X is failing, what downstream jobs are blocked?' and get a sorted list by deadline. The answer needs to include SLA status on downstream jobs, not just names."
+*Resolution: `get_downstream_impact` tool returns jobs annotated with SLA status when batch monitoring module is available (gracefully omits when not configured).*
+
+**Business User** (`bmad/agents/users/business-user.md`):
+> "I would actually use this. The graph was completely unusable for me. But the citations need to be plain English — 'this data came from the customer_orders pipeline, last updated 2 hours ago' — not 'run_uuid: a3f9c... in namespace analytics'. The technical IDs mean nothing to me."
+*Resolution: Answer text renders entity names, not UUIDs. UUIDs are in the citations metadata for programmatic use only. Plain-English answer is the primary output.*
+
+**AI Engineer** (`bmad/agents/users/ai-engineer-user.md`):
+> "Will the agent understand questions about my LLM pipeline runs? If I ask 'why did this RAG chain return a wrong answer on run a3f9c', can it traverse the retrieval sources and prompt version? This only works if the run facets contain that data."
+*Resolution: The agent surfaces whatever is in the run facets. AI-specific lineage questions degrade gracefully when AI facets are absent ("this run does not have prompt or retrieval metadata"). Full AI lineage support is gated on the AI facets story in the data model.*
+
+**App Developer** (`bmad/agents/users/app-developer-user.md`):
+> "The schema impact tool (`FR-9`) is what I need most — 'if column user_id is renamed in transactions, what breaks?' But it needs to include application consumers, not just downstream jobs. Otherwise I'm invisible in the blast radius."
+*Resolution: Schema impact tool traverses both job consumers AND registered application consumers. Application consumer registration (app-developer PRD) is a dependency for full coverage.*
+
+**OSS Contributor** (`bmad/agents/users/oss-contributor-user.md`):
+> "The tool definitions need to be extensible by the community. If I want to add a `get_data_quality_metrics` tool, is there a plugin interface? Or do I have to fork the core?"
+*Resolution: Tool registry designed as an interface that can be extended via configuration without forking. Documented in the ADR.*
 
 ---
 
