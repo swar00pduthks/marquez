@@ -21,7 +21,8 @@
       "Bash(find . *)",
       "Bash(cat *)",
       "Bash(head *)",
-      "Bash(tail *)"
+      "Bash(tail *)",
+      "Bash(cp docs/openapi.yml spec/openapi.yml)"
     ],
     "deny": [
       "Bash(rm -rf /)",
@@ -29,5 +30,18 @@
       "Bash(git push --force origin master)"
     ]
   },
-  "includeCoAuthoredBy": false
+  "includeCoAuthoredBy": false,
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'f=\"${CLAUDE_TOOL_INPUT_FILE_PATH:-}\"; if [[ \"$f\" == *\"db/migration/V\"* ]]; then echo \"\"; echo \"⚠️  BMAD REMINDER: Flyway migration edited.\"; echo \"   → Update marquez_data_model.md (Technical Writer agent)\"; echo \"\"; fi; if [[ \"$f\" == *\"Resource.java\"* ]]; then echo \"\"; echo \"⚠️  BMAD REMINDER: Resource class edited.\"; echo \"   → Update docs/openapi.yml (Technical Writer agent)\"; echo \"   → Run: cp docs/openapi.yml spec/openapi.yml\"; echo \"\"; fi'"
+          }
+        ]
+      }
+    ]
+  }
 }
