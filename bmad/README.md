@@ -41,10 +41,23 @@ Idea → [PM + PO] PRD → [Comparative Analyst] Gap Analysis → [Architect] AD
 | `agents/pm-agent.md` | Product Manager — writes PRDs, defines scope | Sonnet |
 | `agents/product-owner-agent.md` | Product Owner — prioritizes backlog, accepts/rejects stories | Opus |
 | `agents/architect-agent.md` | Architect — writes ADRs, system design, API contracts | Opus |
-| `agents/dev-agent.md` | Developer — implements from spec, writes tests | Sonnet |
+| `agents/dev-agent.md` | Developer (general) — implements from spec, writes tests | Sonnet |
 | `agents/sm-agent.md` | Story Manager — breaks specs into granular dev stories | Sonnet |
 | `agents/comparative-analyst-agent.md` | Competitive analysis, feature gap identification | Opus |
 | `agents/technical-writer-agent.md` | Docs, OpenAPI spec freshness, user guides | Sonnet |
+
+### Specialized Developer Agents
+
+Use these in place of (or alongside) the general `dev-agent.md` when a story is domain-specific. Each agent has deep knowledge of its layer's patterns, pitfalls, and tooling.
+
+| File | Specialization | Layer | Best Model |
+|------|---------------|-------|-----------|
+| `agents/dev-frontend-agent.md` | React/TypeScript UI — Redux, MUI, Vitest, API client | `web/` | Sonnet |
+| `agents/dev-backend-agent.md` | Java/Dropwizard — Resource → Service → DAO, JUnit 5, Mockito | `api/` | Sonnet |
+| `agents/dev-database-agent.md` | PostgreSQL/Flyway — migrations, query optimization, partitioning, AGE | `db/migration/` | Sonnet / Opus* |
+| `agents/dev-platform-agent.md` | DevOps — Docker, Helm, GitHub Actions, Gradle, Prometheus | `chart/`, `.github/` | Sonnet / Opus* |
+
+> \* Use **Opus** for the Database and Platform agents when the decision has high blast radius — e.g., repartitioning a large table, redesigning the CI pipeline, or planning a zero-downtime schema migration.
 
 ### QA Agents
 
@@ -163,7 +176,14 @@ cp bmad/templates/prd-template.md specs/<feature-name>/prd.md
 # and produce specs/<feature-name>/test-plan.md"
 
 # 10. Dev Agent: implement story by story
-# Prompt: "Act as the Dev agent. Implement story 1 from specs/<feature-name>/stories.md"
+# Use the specialized agent that matches the story's layer:
+#   Backend story  → dev-backend-agent.md
+#   Frontend story → dev-frontend-agent.md
+#   DB migration   → dev-database-agent.md
+#   Infra/CI story → dev-platform-agent.md
+#   Cross-layer    → dev-agent.md (general)
+# Prompt: "Act as the Backend Dev agent (bmad/agents/dev-backend-agent.md).
+# Implement story 1 from specs/<feature-name>/stories.md"
 
 # 11. Performance + Security QA
 # Prompt: "Act as the QA Performance agent. Run load tests for the new endpoints
