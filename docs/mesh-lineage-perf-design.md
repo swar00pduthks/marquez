@@ -531,27 +531,48 @@ CREATE TABLE run_parent_lineage_denormalized_default
 
 Alert when rows land in the DEFAULT partition — it means the partition creation job failed.
 
-### 5c. Normalized Table Retention
+### 5c. Large Raw-Table Retention (the 2-year problem)
 
-The `lineage_events`, `runs`, `run_facets`, `dataset_versions`, and `run_states` tables are NOT partitioned. At 1M events/day × 730 days:
+**Verified against the live schema (V107):** only the *denormalized* tables are
+partitioned. Every large *raw* table is plain and — importantly — **none of the
+big facet/event tables has a PRIMARY KEY or UNIQUE constraint**, so they can be
+RANGE-partitioned with no need to fold the partition key into a unique index.
 
-| Table | Rows at 2 years |
-|---|---|
-| lineage_events | ~730M |
-| runs | ~3.65M (5,000/day) |
-| run_states | ~14.6M (4 states/run) |
-| run_facets | ~7.3B (at 10 facets/event × 200 events) |
-| dataset_versions | ~7.3M |
+| Table | Partitioned? | Unique constraint? | Partition key (verified col) | Rows at 2yr (1M events/day) | Retention |
+|---|:---:|:---:|---|---|---|
+| `run_facets` | ❌ | none | `lineage_event_time` | ~7.3B (~1.1 TB) | 12 months |
+| `dataset_facets` | ❌ | none | `lineage_event_time` | ~0.7–3.6B | 12 months |
+| `lineage_events` | ❌ | none | `event_time` (or `run_date`) | ~730M, large JSONB → TBs | 24 months |
+| `job_facets` | ❌ | none | `lineage_event_time` | ~3.6M | 24 months |
+| `column_lineage` | ❌ | none | `created_at` | schema-dependent | 24 months |
+| `run_states` | ❌ | — | (small) | ~14.6M | keep |
+| `runs`, `dataset_versions` | ❌ | — | (small) | ~3.6M / ~7.3M | keep |
 
-**`run_facets` is the critical one**: at 10 facets/event × 1M events/day = 10M rows/day → **7.3 billion rows** over 2 years. This must be partitioned.
+The three critical tables are **`run_facets`, `dataset_facets`, `lineage_events`** —
+together they dominate storage. Each gets the same treatment: RANGE partition by
+its event-time column, one partition per month, plus a `DEFAULT` safety-net
+partition (validated working on PostgreSQL: `LIKE … PARTITION BY RANGE` routes
+rows to the correct monthly partition).
 
 ```sql
--- V106: Partition run_facets by lineage_event_time
--- (requires data migration — do as background job)
-CREATE TABLE run_facets_partitioned (
-    LIKE run_facets INCLUDING ALL
-) PARTITION BY RANGE (lineage_event_time);
+-- V108 (per table; run_facets shown). Tables are populated, so partition via a
+-- shadow table + copy + swap inside a maintenance window. For FRESH installs,
+-- create the table partitioned from the start (no copy needed).
+CREATE TABLE run_facets_p (LIKE run_facets INCLUDING DEFAULTS INCLUDING INDEXES)
+    PARTITION BY RANGE (lineage_event_time);
+-- monthly partitions 2024-01 … current+1, created by PartitionManagementService
+CREATE TABLE run_facets_p_default PARTITION OF run_facets_p DEFAULT;
+-- copy in batches by month, then swap:
+INSERT INTO run_facets_p SELECT * FROM run_facets;     -- batched in production
+BEGIN;
+  ALTER TABLE run_facets        RENAME TO run_facets_old;
+  ALTER TABLE run_facets_p      RENAME TO run_facets;
+COMMIT;                                                  -- drop _old after verify
 ```
+
+`PartitionManagementService` already creates monthly partitions for the
+denormalized tables; extend it to also manage these three (create next month on
+the 1st, detach + drop/archive partitions past the retention window).
 
 ### 5d. Retention Policy Table
 
