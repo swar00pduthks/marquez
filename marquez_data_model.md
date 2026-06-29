@@ -375,11 +375,17 @@ Same structure as `run_lineage_denormalized`. RANGE partitioned by `run_date`.
 > lookups.
 
 ### `lineage_edges` (V107)
+**Partition strategy:** composite RANGE(`run_date`, monthly) → HASH(`namespace`, 8)
++ hash-subpartitioned `DEFAULT` (same convention as the denormalized tables:
+RANGE-by-date like `run_lineage_denormalized`, HASH-by-namespace like
+`dataset_denormalized`). Monthly partitions give O(1) retention (DROP an old
+month); the namespace hash gives per-tenant physical isolation so one high-volume
+namespace cannot bloat another's storage/IO/vacuum.
+
 Pre-materialized run↔dataset_version adjacency for BFS-style lineage reads
 (an alternative to the recursive CTE). One row per hop. Written at COMPLETE/FAIL/
 ABORT time by `DenormalizedLineageService.populateLineageEdgesForRun` and
-back-filled from `runs_input_mapping` / `dataset_versions` by V107. **Not
-partitioned** (PK must be globally unique on the physical edge).
+back-filled from `runs_input_mapping` / `dataset_versions` by V107.
 
 | Column | Type |
 |--------|------|
@@ -388,17 +394,27 @@ partitioned** (PK must be globally unique on the physical edge).
 | `to_node_id` | UUID NOT NULL (part of PK) |
 | `to_type` | TEXT NOT NULL |
 | `edge_type` | TEXT NOT NULL — `PRODUCES` \| `CONSUMES` (part of PK) |
+| `namespace` | TEXT NOT NULL — namespace (tenant) of the run endpoint (HASH key, part of PK) |
 | `run_uuid` | UUID NOT NULL — run endpoint of the edge |
-| `run_date` | DATE NOT NULL |
+| `run_date` | DATE NOT NULL — RANGE partition key (part of PK) |
 | `created_at` | TIMESTAMPTZ NOT NULL DEFAULT NOW() |
 
-PK `(from_node_id, to_node_id, edge_type)`; indexes `idx_lineage_edges_downstream`
-`(from_node_id, to_type, run_date DESC)` and `idx_lineage_edges_upstream`
-`(to_node_id, from_type, run_date DESC)` for bidirectional traversal.
+PK `(from_node_id, to_node_id, edge_type, run_date, namespace)` — `run_date` and
+`namespace` are functionally determined by the run endpoint, so including them in
+the key does not change physical-edge dedup. Parent indexes
+`idx_lineage_edges_downstream (from_node_id, to_type, run_date DESC)` and
+`idx_lineage_edges_upstream (to_node_id, from_type, run_date DESC)` propagate to
+every partition.
 
-> **V107 PART 2 (advisory):** `run_facets` reaches ~7.3B rows over 2 years at
-> 1M events/day and must be RANGE-partitioned by `lineage_event_time`; tracked as
-> a follow-up (V108) requiring a maintenance window.
+> **Read note:** a BFS lookup keyed only on `from_node_id`/`to_node_id` scans all
+> partitions; passing a `run_date` range (e.g. the UI's time window) prunes to one
+> month's hash buckets. `lineage_edges` is currently write-only, so this applies
+> only once the BFS read path replaces the recursive CTE (follow-up).
+
+> **V108 (planned):** `run_facets` (~7.3B rows/2yr), `dataset_facets`, and
+> `lineage_events` get the same composite RANGE(event_date)→HASH(namespace)
+> scheme via shadow-table + swap; `run_facets`/`dataset_facets` gain a `namespace`
+> column (`lineage_events` already has `job_namespace`).
 
 ### `dataset_denormalized`
 **Partition strategy:** HASH by `namespace_uuid` (8 partitions)

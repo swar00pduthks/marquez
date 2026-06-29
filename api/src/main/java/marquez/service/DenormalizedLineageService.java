@@ -701,12 +701,15 @@ public class DenormalizedLineageService {
   private void populateLineageEdgesForRun(org.jdbi.v3.core.Handle handle, UUID runUuid) {
     log.debug("Populating lineage_edges for run: {}", runUuid);
 
-    // CONSUMES edges: input dataset_version → run
+    // CONSUMES edges: input dataset_version → run.
+    // namespace (the run's namespace) and run_date are part of the PK — both are
+    // functionally determined by the run, so the 5-column ON CONFLICT dedupes
+    // exactly one row per physical edge while feeding the RANGE→HASH partitioning.
     String consumesSql =
         """
         INSERT INTO lineage_edges (
             from_node_id, from_type, to_node_id, to_type,
-            edge_type, run_uuid, run_date, created_at
+            edge_type, namespace, run_uuid, run_date, created_at
         )
         SELECT
             rim.dataset_version_uuid   AS from_node_id,
@@ -714,13 +717,14 @@ public class DenormalizedLineageService {
             r.uuid                     AS to_node_id,
             'run'                      AS to_type,
             'CONSUMES'                 AS edge_type,
+            r.namespace_name           AS namespace,
             r.uuid                     AS run_uuid,
             DATE(COALESCE(r.ended_at, r.started_at, r.created_at)) AS run_date,
             NOW()                      AS created_at
         FROM runs r
         INNER JOIN runs_input_mapping rim ON rim.run_uuid = r.uuid
         WHERE r.uuid = :runUuid
-        ON CONFLICT (from_node_id, to_node_id, edge_type) DO NOTHING
+        ON CONFLICT (from_node_id, to_node_id, edge_type, run_date, namespace) DO NOTHING
         """;
 
     // PRODUCES edges: run → output dataset_version
@@ -728,7 +732,7 @@ public class DenormalizedLineageService {
         """
         INSERT INTO lineage_edges (
             from_node_id, from_type, to_node_id, to_type,
-            edge_type, run_uuid, run_date, created_at
+            edge_type, namespace, run_uuid, run_date, created_at
         )
         SELECT
             r.uuid                     AS from_node_id,
@@ -736,13 +740,14 @@ public class DenormalizedLineageService {
             dv.uuid                    AS to_node_id,
             'dataset_version'          AS to_type,
             'PRODUCES'                 AS edge_type,
+            r.namespace_name           AS namespace,
             r.uuid                     AS run_uuid,
             DATE(COALESCE(r.ended_at, r.started_at, r.created_at)) AS run_date,
             NOW()                      AS created_at
         FROM runs r
         INNER JOIN dataset_versions dv ON dv.run_uuid = r.uuid
         WHERE r.uuid = :runUuid
-        ON CONFLICT (from_node_id, to_node_id, edge_type) DO NOTHING
+        ON CONFLICT (from_node_id, to_node_id, edge_type, run_date, namespace) DO NOTHING
         """;
 
     int consumesRows = handle.createUpdate(consumesSql).bind("runUuid", runUuid).execute();

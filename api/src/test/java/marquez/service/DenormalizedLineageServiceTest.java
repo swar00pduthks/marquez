@@ -243,27 +243,29 @@ public class DenormalizedLineageServiceTest {
               handle
                   .createUpdate(
                       "INSERT INTO lineage_edges (from_node_id, from_type, to_node_id, to_type,"
-                          + " edge_type, run_uuid, run_date, created_at) "
+                          + " edge_type, namespace, run_uuid, run_date, created_at) "
                           + "SELECT rim.dataset_version_uuid, 'dataset_version', r.uuid, 'run',"
-                          + " 'CONSUMES', r.uuid,"
+                          + " 'CONSUMES', r.namespace_name, r.uuid,"
                           + " DATE(COALESCE(r.ended_at, r.started_at, r.created_at)), NOW() "
                           + "FROM runs_input_mapping rim INNER JOIN runs r ON r.uuid = rim.run_uuid "
                           + "WHERE r.current_run_state IN ('COMPLETED', 'FAILED', 'ABORTED') "
-                          + "ON CONFLICT (from_node_id, to_node_id, edge_type) DO NOTHING")
+                          + "ON CONFLICT (from_node_id, to_node_id, edge_type, run_date, namespace)"
+                          + " DO NOTHING")
                   .execute();
 
           int produces =
               handle
                   .createUpdate(
                       "INSERT INTO lineage_edges (from_node_id, from_type, to_node_id, to_type,"
-                          + " edge_type, run_uuid, run_date, created_at) "
+                          + " edge_type, namespace, run_uuid, run_date, created_at) "
                           + "SELECT dv.run_uuid, 'run', dv.uuid, 'dataset_version', 'PRODUCES',"
-                          + " dv.run_uuid,"
+                          + " r.namespace_name, dv.run_uuid,"
                           + " DATE(COALESCE(r.ended_at, r.started_at, r.created_at)), NOW() "
                           + "FROM dataset_versions dv INNER JOIN runs r ON r.uuid = dv.run_uuid "
                           + "WHERE dv.run_uuid IS NOT NULL"
                           + " AND r.current_run_state IN ('COMPLETED', 'FAILED', 'ABORTED') "
-                          + "ON CONFLICT (from_node_id, to_node_id, edge_type) DO NOTHING")
+                          + "ON CONFLICT (from_node_id, to_node_id, edge_type, run_date, namespace)"
+                          + " DO NOTHING")
                   .execute();
 
           assertThat(consumes + produces)
