@@ -1,6 +1,6 @@
 # Marquez Data Model
 
-> **Last updated:** 2026-06-28 — verified against Flyway migration **V105** (`add_index_for_latest_run_lookup`).
+> **Last updated:** 2026-06-29 — verified against Flyway migration **V107** (`create_lineage_edges_and_partition_run_facets`).
 > This document is maintained by the Technical Writer agent. After any Flyway migration, run
 > `bmad/agents/technical-writer-agent.md` → "Audit Migration" to update this file.
 
@@ -367,6 +367,38 @@ These tables are maintained asynchronously by background jobs (backfill checkpoi
 
 ### `run_parent_lineage_denormalized`
 Same structure as `run_lineage_denormalized`. RANGE partitioned by `run_date`.
+
+> **V106** added safety-net `DEFAULT` partitions to both `run_lineage_denormalized`
+> and `run_parent_lineage_denormalized` (catch rows whose `run_date` has no monthly
+> partition), plus covering indexes for the recursive-CTE traversal join and the
+> `runs.parent_run_uuid` / `runs_input_mapping.run_uuid` / `dataset_versions.run_uuid`
+> lookups.
+
+### `lineage_edges` (V107)
+Pre-materialized run↔dataset_version adjacency for BFS-style lineage reads
+(an alternative to the recursive CTE). One row per hop. Written at COMPLETE/FAIL/
+ABORT time by `DenormalizedLineageService.populateLineageEdgesForRun` and
+back-filled from `runs_input_mapping` / `dataset_versions` by V107. **Not
+partitioned** (PK must be globally unique on the physical edge).
+
+| Column | Type |
+|--------|------|
+| `from_node_id` | UUID NOT NULL (part of PK) |
+| `from_type` | TEXT NOT NULL — `dataset_version` \| `run` \| `job` |
+| `to_node_id` | UUID NOT NULL (part of PK) |
+| `to_type` | TEXT NOT NULL |
+| `edge_type` | TEXT NOT NULL — `PRODUCES` \| `CONSUMES` (part of PK) |
+| `run_uuid` | UUID NOT NULL — run endpoint of the edge |
+| `run_date` | DATE NOT NULL |
+| `created_at` | TIMESTAMPTZ NOT NULL DEFAULT NOW() |
+
+PK `(from_node_id, to_node_id, edge_type)`; indexes `idx_lineage_edges_downstream`
+`(from_node_id, to_type, run_date DESC)` and `idx_lineage_edges_upstream`
+`(to_node_id, from_type, run_date DESC)` for bidirectional traversal.
+
+> **V107 PART 2 (advisory):** `run_facets` reaches ~7.3B rows over 2 years at
+> 1M events/day and must be RANGE-partitioned by `lineage_event_time`; tracked as
+> a follow-up (V108) requiring a maintenance window.
 
 ### `dataset_denormalized`
 **Partition strategy:** HASH by `namespace_uuid` (8 partitions)
