@@ -48,6 +48,10 @@ marquez:
   ## Indicates if Flyway database migration will execute upon deployment
   ##
   migrateOnStartup: true
+  ## PostgreSQL schema the application and Flyway target (passed as currentSchema
+  ## on the JDBC URL). On PostgreSQL 15+ the database role must own this schema —
+  ## the public schema no longer grants CREATE to non-owners. Defaults to public.
+  postgresSchema: "public"
   ## Enables Apache AGE graph extension features (V3 Graph API).
   ## Set to true only when AGE is installed on the PostgreSQL server.
   ## V3 endpoints return 404 when false. Currently deferred — single-DB Flex Server PG17 only.

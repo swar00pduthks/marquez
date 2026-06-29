@@ -85,6 +85,8 @@ spec:
               value: {{ include "marquez.database.port" . | quote }}
             - name: POSTGRES_DB
               value: {{ include "marquez.database.name" . | quote }}
+            - name: POSTGRES_SCHEMA
+              value: {{ .Values.marquez.postgresSchema | default "public" | quote }}
             - name: POSTGRES_USER
               value: {{ include "marquez.database.user" . | quote }}
             - name: POSTGRES_PASSWORD

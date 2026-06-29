@@ -8,6 +8,9 @@ services:
       - MARQUEZ_PORT=${API_PORT}
       - MARQUEZ_ADMIN_PORT=${API_ADMIN_PORT}
       - POSTGRES_HOST=db
+      # Pass the schema explicitly on the JDBC connection (appended to the URL in
+      # marquez.dev.yml as ${POSTGRES_QUERY_PARAMS}). Defaults to the public schema.
+      - POSTGRES_QUERY_PARAMS=?currentSchema=${POSTGRES_SCHEMA:-public}
       - SEARCH_ENABLED=${SEARCH_ENABLED}
     ports:
       - "${API_PORT}:${API_PORT}"
@@ -33,6 +36,9 @@ services:
       - MARQUEZ_DB=marquez
       - MARQUEZ_USER=marquez
       - MARQUEZ_PASSWORD=marquez
+      # Schema owned by the marquez user; init-db.sh grants ownership so Flyway
+      # can create objects on PostgreSQL 15+. Must match currentSchema above.
+      - MARQUEZ_SCHEMA=${POSTGRES_SCHEMA:-public}
     volumes:
       - db-conf:/etc/postgresql
       - db-init:/docker-entrypoint-initdb.d

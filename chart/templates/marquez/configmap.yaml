@@ -34,7 +34,10 @@ data:
     db:
       driverClass: org.postgresql.Driver
       # Add prepareThreshold=0 when PGBOUNCER_ENABLED=true (transaction mode requires no server-side prepared stmts)
-      url: jdbc:postgresql://${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}?sslmode=${POSTGRES_SSL_MODE:-prefer}&prepareThreshold=${PGBOUNCER_PREPARE_THRESHOLD:-0}
+      # currentSchema is passed explicitly so the app and Flyway target a known
+      # schema. On PostgreSQL 15+ the role must own this schema (it no longer has
+      # CREATE on public by default). Defaults to public.
+      url: jdbc:postgresql://${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}?currentSchema=${POSTGRES_SCHEMA:-public}&sslmode=${POSTGRES_SSL_MODE:-prefer}&prepareThreshold=${PGBOUNCER_PREPARE_THRESHOLD:-0}
       user: ${POSTGRES_USER}
       password: ${POSTGRES_PASSWORD}
       maxSize: ${DB_POOL_MAX_SIZE:-20}
