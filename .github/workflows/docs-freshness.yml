@@ -1,0 +1,86 @@
+# SPDX-License-Identifier: Apache-2.0
+# Fails the PR if reference documents are not kept in sync with code changes.
+#
+# Rules enforced:
+#   1. New Flyway migration → marquez_data_model.md must be updated
+#   2. *Resource.java modified → docs/openapi.yml + spec/openapi.yml must be updated
+#   3. docs/openapi.yml and spec/openapi.yml must always be identical (hard failure)
+#   4. Prometheus metrics source changed → METRICS.md warning (non-blocking)
+
+name: Docs freshness
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  check-docs-freshness:
+    name: Verify reference docs are current
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect changed files
+        id: changed
+        run: |
+          BASE=${{ github.event.pull_request.base.sha }}
+          HEAD=${{ github.event.pull_request.head.sha }}
+          CHANGED=$(git diff --name-only "$BASE"..."$HEAD")
+          echo "$CHANGED"
+
+          # Classify changes into categories
+          echo "migrations=$(echo "$CHANGED" | grep -c 'api/src/main/resources/marquez/db/migration/V' || true)" >> "$GITHUB_OUTPUT"
+          echo "resources=$(echo "$CHANGED"  | grep -c 'api/src/main/java/marquez/.*/.*Resource\.java' || true)" >> "$GITHUB_OUTPUT"
+          echo "data_model=$(echo "$CHANGED" | grep -c 'marquez_data_model\.md' || true)" >> "$GITHUB_OUTPUT"
+          echo "openapi_docs=$(echo "$CHANGED" | grep -c 'docs/openapi\.yml' || true)" >> "$GITHUB_OUTPUT"
+          echo "openapi_spec=$(echo "$CHANGED" | grep -c 'spec/openapi\.yml' || true)" >> "$GITHUB_OUTPUT"
+          echo "metrics_src=$(echo "$CHANGED" | grep -c 'StatsResource\|MetricsResource\|metrics\.' || true)" >> "$GITHUB_OUTPUT"
+          echo "metrics_doc=$(echo "$CHANGED" | grep -c 'METRICS\.md' || true)" >> "$GITHUB_OUTPUT"
+
+      - name: Rule 1 — Migration requires data model update
+        if: steps.changed.outputs.migrations != '0'
+        run: |
+          echo "::notice::New Flyway migration(s) detected."
+          if [ "${{ steps.changed.outputs.data_model }}" = "0" ]; then
+            echo "::error file=marquez_data_model.md::A new Flyway migration was added but marquez_data_model.md was not updated."
+            echo ""
+            echo "  To fix: act as the Technical Writer agent (bmad/agents/technical-writer-agent.md)"
+            echo "  and run the data model audit to update marquez_data_model.md."
+            exit 1
+          fi
+          echo "✅ marquez_data_model.md updated alongside migration."
+
+      - name: Rule 2 — Resource class change requires OpenAPI spec update
+        if: steps.changed.outputs.resources != '0'
+        run: |
+          echo "::notice::Resource class change(s) detected."
+          if [ "${{ steps.changed.outputs.openapi_docs }}" = "0" ]; then
+            echo "::error file=docs/openapi.yml::A *Resource.java was modified but docs/openapi.yml was not updated."
+            echo ""
+            echo "  To fix: act as the Technical Writer agent (bmad/agents/technical-writer-agent.md)"
+            echo "  and run the OpenAPI audit to sync the spec."
+            exit 1
+          fi
+          echo "✅ docs/openapi.yml updated alongside Resource class change."
+
+      - name: Rule 3 — docs/openapi.yml and spec/openapi.yml must be identical
+        run: |
+          if ! diff -q docs/openapi.yml spec/openapi.yml > /dev/null 2>&1; then
+            echo "::error::docs/openapi.yml and spec/openapi.yml are out of sync."
+            echo "  Run: cp docs/openapi.yml spec/openapi.yml"
+            diff docs/openapi.yml spec/openapi.yml | head -40
+            exit 1
+          fi
+          echo "✅ docs/openapi.yml and spec/openapi.yml are in sync."
+
+      - name: Rule 4 — Metrics source change requires METRICS.md update
+        if: steps.changed.outputs.metrics_src != '0'
+        run: |
+          echo "::notice::Metrics-related source change detected."
+          if [ "${{ steps.changed.outputs.metrics_doc }}" = "0" ]; then
+            echo "::warning file=METRICS.md::Metrics source changed but METRICS.md was not updated. Please verify no new Prometheus metrics were added without documentation."
+          else
+            echo "✅ METRICS.md updated."
+          fi
