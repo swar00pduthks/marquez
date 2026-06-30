@@ -581,6 +581,15 @@ COMMIT;                                                  -- drop _old after veri
 denormalized tables; extend it to also manage these three (create next month on
 the 1st, detach + drop/archive partitions past the retention window).
 
+> **Status (V110):** lifecycle for the two composite RANGE→HASH tables shipped so
+> far (`lineage_edges`, `run_facets`) is now automated. V110 adds
+> `create_monthly_hash_partition()` and `drop_old_hash_partitions()`, and
+> `PartitionManagementJob` calls `createCompositePartitionsForPeriod` (provision
+> upcoming months, indexes auto-propagate) + `cleanupOldCompositePartitions`
+> (`DROP … CASCADE` whole months past retention: `run_facets` 12mo,
+> `lineage_edges` 24mo). `dataset_facets` / `lineage_events` follow the same
+> pattern when they are partitioned.
+
 ### 5d. Retention Policy Table
 
 ```sql
@@ -680,7 +689,8 @@ These must match V1 signature before V3 is production-ready.
 | P2-5 | Remove silent V2→V1 dataset fallback | `LineageService.java` | V2 correctness | ❌ |
 | P2-6 | Partition `run_facets` table | V108 migration | 7.3B row problem | ❌ (tracked as TODO in V107) |
 | P2-7 | Upsert only on state change (`WHERE ... IS DISTINCT FROM`) | `DenormalizedLineageService.java` | WAL reduction | ❌ |
-| P2-8 | `lineage_edges` adjacency table + write path | V107 / `DenormalizedLineageService.java` | Enables §3f BFS read path | 🟡 write done, read not wired |
+| P2-8 | `lineage_edges` adjacency table + write/read path | V107/V109 / `LineageService.java` | §3f BFS read path | ✅ write + read (run & job/dataset) wired behind `MARQUEZ_LINEAGE_USE_EDGE_BFS` |
+| P2-6 | Partition `run_facets` table | V108 migration | 7.3B row problem | ✅ |
 
 ### Phase 3 — Medium-term (Month 1, schema replacement)
 
@@ -689,7 +699,7 @@ These must match V1 signature before V3 is production-ready.
 | P3-0 | Wire `lineage_edges` BFS-in-Java read path behind a flag (§3f) | Index-accelerated reads, replaces recursive CTE | ❌ |
 | P3-1 | Create `run_lineage_summary` (1 row/run, array-based + GIN) | 30× storage reduction, single-arm OR CTE (§2c) | ❌ |
 | P3-2 | Migrate V1 recursive CTE to use new schema | Query simplification | ❌ |
-| P3-3 | Implement partition detach/archive job | 2-year retention enforcement | ❌ |
+| P3-3 | Implement partition detach/archive job | 2-year retention enforcement | 🟡 V110: create + drop-by-retention automated for `lineage_edges`/`run_facets` (composite tables); `dataset_facets`/`lineage_events` pending |
 | P3-4 | Add `job_denormalized.namespace_name` column | V2 correctness | ❌ |
 | P3-5 | Make AGE writes async | V3 write latency | ❌ |
 

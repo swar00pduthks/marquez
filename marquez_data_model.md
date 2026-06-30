@@ -1,6 +1,6 @@
 # Marquez Data Model
 
-> **Last updated:** 2026-06-30 — verified against Flyway migration **V109** (`add_job_dataset_lineage_edges`).
+> **Last updated:** 2026-06-30 — verified against Flyway migration **V110** (`composite_partition_management_functions`).
 > This document is maintained by the Technical Writer agent. After any Flyway migration, run
 > `bmad/agents/technical-writer-agent.md` → "Audit Migration" to update this file.
 
@@ -451,8 +451,35 @@ disabled) are dropped, not recreated. `run_facets` has no PRIMARY KEY (INSERT-on
 > `getParentRunLineageWithFacets`) pass the seed runs' `lineage_event_time` range
 > (the same `:minDate`/`:maxDate` they already bind), pruning ~104 → ~8 partitions.
 
-> **V109/V110 (planned):** `dataset_facets` and `lineage_events` get the same
+> **Follow-up (planned):** `dataset_facets` and `lineage_events` get the same
 > composite scheme (`lineage_events` already has `job_namespace`).
+
+### Partition lifecycle for the composite tables (V110)
+
+The pre-existing `create_monthly_partition()` / `drop_old_partitions()` helpers
+only understand the single-level denormalized tables (flat RANGE + denorm-specific
+indexes). V110 adds two helpers for the composite RANGE→HASH tables
+(`lineage_edges`, `run_facets`):
+
+- **`create_monthly_hash_partition(parent_table, partition_prefix, start_date, hash_modulus)`**
+  — creates one monthly RANGE partition that is itself HASH(`namespace`)-subpartitioned
+  into `hash_modulus` buckets. No index DDL: Postgres propagates the parent's
+  partitioned indexes to every new partition automatically (verified — function-created
+  partitions carry the same indexes as the V107/V108 ones). Advisory-locked +
+  exception-guarded for concurrent/idempotent runs. `partition_prefix` is passed
+  separately because `run_facets`' partitions keep the shadow `_p` prefix
+  (`run_facets_p_y2026m01`) after V108's rename swap.
+- **`drop_old_hash_partitions(parent_table, retention_months)`** — discovers monthly
+  partitions via `pg_inherits` (prefix-agnostic; the DEFAULT partition has no
+  `y####m##` suffix and is skipped) and `DROP … CASCADE`s any month older than the
+  retention window, removing its hash sub-partitions with it.
+
+`PartitionManagementJob` (runs at startup, then every `frequencyDays`) calls
+`createCompositePartitionsForPeriod` to provision upcoming months and
+`cleanupOldCompositePartitions` to enforce retention. Retention per the design doc:
+**`run_facets` 12 months, `lineage_edges` 24 months** (hash modulus 8). These run
+only at runtime — never from the historical Flyway migrations (V86 etc.) that
+predate the tables and helpers.
 
 ### `dataset_denormalized`
 **Partition strategy:** HASH by `namespace_uuid` (8 partitions)

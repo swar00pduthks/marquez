@@ -83,6 +83,16 @@ public class PartitionManagementJob extends AbstractScheduledService implements 
 
       partitionManagementService.createPartitionsForPeriod(startDate, totalMonths);
 
+      // Also provision the composite RANGE->HASH subtrees (lineage_edges / run_facets). Wrapped
+      // independently so a missing helper/parent (e.g. migrateOnStartup=false on an older schema)
+      // doesn't block the denormalized-table partitioning above.
+      try {
+        partitionManagementService.createCompositePartitionsForPeriod(startDate, totalMonths);
+      } catch (Exception error) {
+        log.error(
+            "Failed to create composite partitions. Will retry on next scheduled run.", error);
+      }
+
       log.info(
           "Partition management completed successfully. Ensured partitions exist from {} for {} months.",
           startDate,
@@ -90,6 +100,15 @@ public class PartitionManagementJob extends AbstractScheduledService implements 
 
     } catch (Exception error) {
       log.error("Failed to create partitions. Will retry on next scheduled run.", error);
+    }
+
+    // Retention: drop composite (lineage_edges / run_facets) partitions past their window. Kept
+    // separate from creation so a cleanup failure never blocks future-partition provisioning.
+    try {
+      partitionManagementService.cleanupOldCompositePartitions();
+    } catch (Exception error) {
+      log.error(
+          "Failed to drop old composite partitions. Will retry on next scheduled run.", error);
     }
   }
 
