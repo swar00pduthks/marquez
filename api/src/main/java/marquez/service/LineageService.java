@@ -127,6 +127,42 @@ public class LineageService extends DelegatingLineageDao {
     return visited;
   }
 
+  /**
+   * Breadth-first traversal of the job<->dataset edges in {@code lineage_edges}, returning every
+   * job reachable within {@code depth} job-to-job hops of the seeds (inclusive). Two jobs are
+   * adjacent when they share ANY dataset (input or output) — the same adjacency the job-lineage
+   * recursive CTE computes via {@code array_cat(inputs,outputs) && array_cat(inputs,outputs)}. Each
+   * hop expands job → all its datasets (outputs via PRODUCES, inputs via CONSUMES) → all jobs
+   * touching those datasets (producers + consumers). Reuses the run-path edge queries; the
+   * job/dataset UUID space is disjoint from the run/dataset_version space so there is no
+   * cross-family contamination.
+   */
+  Set<UUID> traverseJobLineageEdges(
+      Set<UUID> seedJobIds, int depth, String minDate, String maxDate) {
+    Set<UUID> visited = new HashSet<>(seedJobIds);
+    Set<UUID> frontier = new HashSet<>(seedJobIds);
+    for (int level = 0; level < depth && !frontier.isEmpty(); level++) {
+      // Datasets touched by the frontier jobs: outputs (job --PRODUCES--> dataset) and inputs
+      // (dataset --CONSUMES--> job).
+      Set<UUID> datasets = new HashSet<>();
+      datasets.addAll(findLineageEdgeTargets(frontier, "PRODUCES", minDate, maxDate));
+      datasets.addAll(findLineageEdgeSources(frontier, "CONSUMES", minDate, maxDate));
+
+      Set<UUID> next = new HashSet<>();
+      if (!datasets.isEmpty()) {
+        // Jobs touching those datasets: producers (job --PRODUCES--> dataset) and consumers
+        // (dataset --CONSUMES--> job).
+        next.addAll(findLineageEdgeSources(datasets, "PRODUCES", minDate, maxDate));
+        next.addAll(findLineageEdgeTargets(datasets, "CONSUMES", minDate, maxDate));
+      }
+
+      next.removeAll(visited);
+      visited.addAll(next);
+      frontier = next;
+    }
+    return visited;
+  }
+
   // TODO make input parameters easily extendable if adding more options like 'withJobFacets'
   public Lineage lineage(NodeId nodeId, int depth, boolean aggregateToParentRun) {
     return lineage(nodeId, depth, aggregateToParentRun, null);
@@ -209,7 +245,16 @@ public class LineageService extends DelegatingLineageDao {
       }
       UUID job = optionalUUID.get();
       log.debug("Attempting to get lineage for job '{}'", job);
-      Set<JobData> jobData = getLineage(Collections.singleton(job), depth);
+      Set<JobData> jobData;
+      if (useEdgeBfs) {
+        // BFS over the job<->dataset edges resolves the full reachable job set; hydrate it at
+        // depth 0 so the emitted graph matches the recursive-CTE path. Job lineage is not
+        // date-bounded, so no run_date pruning predicate is passed.
+        Set<UUID> reachableJobs = traverseJobLineageEdges(Set.of(job), depth, null, null);
+        jobData = getLineage(reachableJobs, 0);
+      } else {
+        jobData = getLineage(Collections.singleton(job), depth);
+      }
 
       // Ensure job data is not empty, an empty set cannot be passed to LineageDao.getCurrentRuns()
       // or
@@ -301,7 +346,17 @@ public class LineageService extends DelegatingLineageDao {
     String maxDate =
         dateRange != null && dateRange.maxDate() != null ? dateRange.maxDate().toString() : null;
 
-    Set<JobData> jobData = getLineageV2(Collections.singleton(job), depth, minDate, maxDate);
+    Set<JobData> jobData;
+    if (useEdgeBfs) {
+      // BFS over the job<->dataset edges resolves the full reachable job set; hydrate at depth 0
+      // so the emitted graph matches the recursive-CTE path. Job edges are dated by the job
+      // version's made_current_at (not run time), so no run_date pruning predicate is passed to
+      // the traversal; the run-derived date range still prunes the denormalized hydration reads.
+      Set<UUID> reachableJobs = traverseJobLineageEdges(Set.of(job), depth, null, null);
+      jobData = getLineageV2(reachableJobs, 0, minDate, maxDate);
+    } else {
+      jobData = getLineageV2(Collections.singleton(job), depth, minDate, maxDate);
+    }
     if (jobData.isEmpty()) {
       log.warn(
           "Failed to get V2 lineage for job '{}' associated with node '{}', returning orphan graph...",

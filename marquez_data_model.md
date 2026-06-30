@@ -1,6 +1,6 @@
 # Marquez Data Model
 
-> **Last updated:** 2026-06-30 — verified against Flyway migration **V108** (`partition_run_facets`).
+> **Last updated:** 2026-06-30 — verified against Flyway migration **V109** (`add_job_dataset_lineage_edges`).
 > This document is maintained by the Technical Writer agent. After any Flyway migration, run
 > `bmad/agents/technical-writer-agent.md` → "Audit Migration" to update this file.
 
@@ -374,7 +374,7 @@ Same structure as `run_lineage_denormalized`. RANGE partitioned by `run_date`.
 > `runs.parent_run_uuid` / `runs_input_mapping.run_uuid` / `dataset_versions.run_uuid`
 > lookups.
 
-### `lineage_edges` (V107)
+### `lineage_edges` (V107; job↔dataset edges added in V109)
 **Partition strategy:** composite RANGE(`run_date`, monthly) → HASH(`namespace`, 8)
 + hash-subpartitioned `DEFAULT` (same convention as the denormalized tables:
 RANGE-by-date like `run_lineage_denormalized`, HASH-by-namespace like
@@ -382,34 +382,48 @@ RANGE-by-date like `run_lineage_denormalized`, HASH-by-namespace like
 month); the namespace hash gives per-tenant physical isolation so one high-volume
 namespace cannot bloat another's storage/IO/vacuum.
 
-Pre-materialized run↔dataset_version adjacency for BFS-style lineage reads
-(an alternative to the recursive CTE). One row per hop. Written at COMPLETE/FAIL/
-ABORT time by `DenormalizedLineageService.populateLineageEdgesForRun` and
-back-filled from `runs_input_mapping` / `dataset_versions` by V107.
+Pre-materialized adjacency for BFS-style lineage reads (an alternative to the
+recursive CTE). Stores **two edge families** in one table — the node-id spaces are
+disjoint so they never collide:
+- **run ↔ dataset_version** (run / dataset-version lineage): one row per hop,
+  `run_uuid` set. Written at COMPLETE/FAIL/ABORT by
+  `DenormalizedLineageService.populateLineageEdgesForRun`, back-filled from
+  `runs_input_mapping` / `dataset_versions` by V107.
+- **job ↔ dataset** (job / dataset lineage, **V109**): `dataset --CONSUMES--> job`
+  (input) and `job --PRODUCES--> dataset` (output), `run_uuid` NULL. A BFS over
+  these reproduces the job-lineage adjacency (two jobs are connected when they
+  share ANY dataset). Written alongside run edges by
+  `populateLineageEdgesForRun`; back-filled from current `job_versions_io_mapping`
+  by V109 (`run_date` = the job version's `made_current_at`).
 
 | Column | Type |
 |--------|------|
 | `from_node_id` | UUID NOT NULL (part of PK) |
-| `from_type` | TEXT NOT NULL — `dataset_version` \| `run` \| `job` |
+| `from_type` | TEXT NOT NULL — `dataset_version` \| `run` \| `dataset` \| `job` |
 | `to_node_id` | UUID NOT NULL (part of PK) |
 | `to_type` | TEXT NOT NULL |
 | `edge_type` | TEXT NOT NULL — `PRODUCES` \| `CONSUMES` (part of PK) |
-| `namespace` | TEXT NOT NULL — namespace (tenant) of the run endpoint (HASH key, part of PK) |
-| `run_uuid` | UUID NOT NULL — run endpoint of the edge |
+| `namespace` | TEXT NOT NULL — namespace (tenant) of the run/job endpoint (HASH key, part of PK) |
+| `run_uuid` | UUID **NULL** — run endpoint of run edges; NULL for job↔dataset edges (V109 relaxed NOT NULL) |
 | `run_date` | DATE NOT NULL — RANGE partition key (part of PK) |
 | `created_at` | TIMESTAMPTZ NOT NULL DEFAULT NOW() |
 
 PK `(from_node_id, to_node_id, edge_type, run_date, namespace)` — `run_date` and
-`namespace` are functionally determined by the run endpoint, so including them in
-the key does not change physical-edge dedup. Parent indexes
+`namespace` are functionally determined by the run/job endpoint, so including them
+in the key does not change physical-edge dedup. Parent indexes
 `idx_lineage_edges_downstream (from_node_id, to_type, run_date DESC)` and
 `idx_lineage_edges_upstream (to_node_id, from_type, run_date DESC)` propagate to
 every partition.
 
-> **Read note:** a BFS lookup keyed only on `from_node_id`/`to_node_id` scans all
-> partitions; passing a `run_date` range (e.g. the UI's time window) prunes to one
-> month's hash buckets. `lineage_edges` is currently write-only, so this applies
-> only once the BFS read path replaces the recursive CTE (follow-up).
+> **Read note:** the BFS read path is wired behind the `MARQUEZ_LINEAGE_USE_EDGE_BFS`
+> flag (default OFF) in `LineageService` — run/dataset-version lineage via
+> `traverseRunLineageEdges`, job/dataset lineage via `traverseJobLineageEdges` —
+> hydrating the visited set with the existing queries so the emitted graph matches
+> the recursive-CTE path. A lookup keyed only on `from_node_id`/`to_node_id` scans
+> all partitions; passing a `run_date` range (e.g. the UI's time window) prunes to
+> one month's hash buckets. Run-edge BFS passes the run date range; job-edge BFS is
+> not date-bounded (job edges are dated by `made_current_at`) so it scans across
+> months and relies on the namespace hash + indexes.
 
 ### `run_facets` (partitioned in V108)
 **Partition strategy:** composite RANGE(`lineage_event_time`, monthly) →
