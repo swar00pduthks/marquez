@@ -131,9 +131,10 @@ export default function (data) {
       'response time < 10s': (r) => r.timings.duration < 10000,
     });
 
-    if (!success) {
-      errorRate.add(1);
-    }
+    // Record every request so 'errors' is the true failure fraction. Adding only
+    // on failure makes the Rate 1/1=100% on the first slow request (a single CI
+    // outlier), which trips the rate<0.05 threshold spuriously.
+    errorRate.add(!success);
 
     responseTimeWithFacets.add(response.timings.duration);
     responseSizeWithFacets.add(response.body.length);
@@ -157,9 +158,8 @@ export default function (data) {
       'response time < 10s': (r) => r.timings.duration < 10000,
     });
 
-    if (!success) {
-      errorRate.add(1);
-    }
+    // Record every request so 'errors' is the true failure fraction (see above).
+    errorRate.add(!success);
 
     responseTimeWithoutFacets.add(response.timings.duration);
     responseSizeWithoutFacets.add(response.body.length);
@@ -199,8 +199,8 @@ function textSummary(data, options) {
   if (data.metrics.response_time_without_facets?.values?.avg !== undefined) {
     summary += `${indent}Without Facets:\n`;
     summary += `${indent}  Response Time (avg): ${data.metrics.response_time_without_facets.values.avg.toFixed(2)}ms\n`;
-    summary += `${indent}  Response Time (p95): ${data.metrics.response_time_without_facets.values['p(95)'].toFixed(2)}ms\n`;
-    summary += `${indent}  Response Time (p99): ${data.metrics.response_time_without_facets.values['p(99)'].toFixed(2)}ms\n`;
+    summary += `${indent}  Response Time (p95): ${(data.metrics.response_time_without_facets.values['p(95)'] ?? 0).toFixed(2)}ms\n`;
+    summary += `${indent}  Response Time (p99): ${(data.metrics.response_time_without_facets.values['p(99)'] ?? 0).toFixed(2)}ms\n`;
     summary += `${indent}  Response Size (avg): ${(data.metrics.response_size_without_facets.values.avg / 1024).toFixed(2)}KB\n\n`;
   }
 
@@ -208,8 +208,8 @@ function textSummary(data, options) {
   if (data.metrics.response_time_with_facets?.values?.avg !== undefined) {
     summary += `${indent}With Facets:\n`;
     summary += `${indent}  Response Time (avg): ${data.metrics.response_time_with_facets.values.avg.toFixed(2)}ms\n`;
-    summary += `${indent}  Response Time (p95): ${data.metrics.response_time_with_facets.values['p(95)'].toFixed(2)}ms\n`;
-    summary += `${indent}  Response Time (p99): ${data.metrics.response_time_with_facets.values['p(99)'].toFixed(2)}ms\n`;
+    summary += `${indent}  Response Time (p95): ${(data.metrics.response_time_with_facets.values['p(95)'] ?? 0).toFixed(2)}ms\n`;
+    summary += `${indent}  Response Time (p99): ${(data.metrics.response_time_with_facets.values['p(99)'] ?? 0).toFixed(2)}ms\n`;
     summary += `${indent}  Response Size (avg): ${(data.metrics.response_size_with_facets.values.avg / 1024).toFixed(2)}KB\n\n`;
   }
 
