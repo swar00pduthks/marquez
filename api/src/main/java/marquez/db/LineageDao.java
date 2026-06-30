@@ -658,6 +658,46 @@ public interface LineageDao {
       @BindList(value = "versions", onEmpty = BindList.EmptyHandling.NULL_STRING)
           Set<UUID> versions);
 
+  /**
+   * One forward hop of the lineage_edges BFS read path: the {@code to_node_id}s of edges of a given
+   * {@code edge_type} whose {@code from_node_id} is in the frontier. The run_date range prunes the
+   * RANGE(run_date)→HASH(namespace) partitions; pass NULL bounds to scan all partitions.
+   */
+  @SqlQuery(
+      """
+      SELECT DISTINCT to_node_id
+      FROM lineage_edges
+      WHERE from_node_id IN (<nodeIds>)
+        AND edge_type = :edgeType
+        AND (:minDate::date IS NULL OR run_date >= :minDate::date)
+        AND (:maxDate::date IS NULL OR run_date <= :maxDate::date)
+      """)
+  Set<UUID> findLineageEdgeTargets(
+      @BindList(value = "nodeIds", onEmpty = BindList.EmptyHandling.NULL_STRING) Set<UUID> nodeIds,
+      @Bind("edgeType") String edgeType,
+      @Bind("minDate") String minDate,
+      @Bind("maxDate") String maxDate);
+
+  /**
+   * One backward hop of the lineage_edges BFS read path: the {@code from_node_id}s of edges of a
+   * given {@code edge_type} whose {@code to_node_id} is in the frontier. Mirror of {@link
+   * #findLineageEdgeTargets} for upstream traversal.
+   */
+  @SqlQuery(
+      """
+      SELECT DISTINCT from_node_id
+      FROM lineage_edges
+      WHERE to_node_id IN (<nodeIds>)
+        AND edge_type = :edgeType
+        AND (:minDate::date IS NULL OR run_date >= :minDate::date)
+        AND (:maxDate::date IS NULL OR run_date <= :maxDate::date)
+      """)
+  Set<UUID> findLineageEdgeSources(
+      @BindList(value = "nodeIds", onEmpty = BindList.EmptyHandling.NULL_STRING) Set<UUID> nodeIds,
+      @Bind("edgeType") String edgeType,
+      @Bind("minDate") String minDate,
+      @Bind("maxDate") String maxDate);
+
   @SqlQuery(
       """
       WITH RECURSIVE

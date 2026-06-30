@@ -400,11 +400,18 @@ The recursive CTE is bounded by the row-per-pair model and the single-recursive
 with a pre-computed adjacency table walked level-by-level in application code —
 the OpenMetadata pattern, kept inside PostgreSQL.
 
-**Status:** the table and the **write path are implemented** (V107 +
-`DenormalizedLineageService.populateLineageEdgesForRun`), populated at
-COMPLETE/FAIL/ABORT time and back-filled by V107. The **read path is NOT yet
-wired** — `lineage_edges` is currently write-only; lineage reads still issue the
-recursive CTE.
+**Status:** the table + write path are implemented (V107 +
+`DenormalizedLineageService.populateLineageEdgesForRun`). The **read path is wired
+behind a flag** (`LineageService.traverseRunLineageEdges` +
+`LineageDao.findLineageEdgeTargets`/`findLineageEdgeSources`), enabled by env
+`MARQUEZ_LINEAGE_USE_EDGE_BFS=true`, **default off** until V1/V2 parity is proven
+in CI. When off, the recursive CTE path is unchanged. The BFS resolves the
+reachable run set, then hydrates it at depth 0 via the existing `getRunLineage`,
+so the emitted graph is identical to the CTE (`LineageServiceTest
+.testRunLineage_edgeBfs_matchesRecursiveCte` asserts node-set parity at depths
+1/2/5). Each run hop = two edge hops (run→dataset_version→run), both directions
+followed to match the CTE's `input=output OR output=input` adjacency. Lookups
+pass the seed runs' `run_date` range to prune the RANGE→HASH partitions.
 
 **Schema (V107, shipped).** Each row is one hop between a run and a
 dataset_version:

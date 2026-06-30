@@ -73,10 +73,58 @@ public class LineageService extends DelegatingLineageDao {
 
   private final RunDao runDao;
 
+  /**
+   * When true, run/dataset-version lineage reads traverse the pre-materialized {@code
+   * lineage_edges} adjacency table (BFS in Java) instead of the recursive CTE. Default false — the
+   * CTE path is unchanged until parity is proven. Toggled via env {@code
+   * MARQUEZ_LINEAGE_USE_EDGE_BFS}.
+   */
+  private final boolean useEdgeBfs;
+
   public LineageService(LineageDao delegate, JobDao jobDao, RunDao runDao) {
+    this(delegate, jobDao, runDao, false);
+  }
+
+  public LineageService(LineageDao delegate, JobDao jobDao, RunDao runDao, boolean useEdgeBfs) {
     super(delegate);
     this.jobDao = jobDao;
     this.runDao = runDao;
+    this.useEdgeBfs = useEdgeBfs;
+  }
+
+  /**
+   * Breadth-first traversal of the {@code lineage_edges} adjacency table, returning every run
+   * reachable within {@code depth} run-to-run hops of the seeds (inclusive). Each CTE-style run hop
+   * is two edge hops (run→dataset_version→run); both directions are followed so the result set is
+   * identical to the recursive CTE's {@code io.input_version = l.output_version OR
+   * io.output_version = l.input_version} adjacency. The {@code minDate}/{@code maxDate} bounds
+   * match the CTE's partition-pruning predicate and prune the RANGE(run_date)→HASH(namespace)
+   * partitions.
+   */
+  Set<UUID> traverseRunLineageEdges(
+      Set<UUID> seedRunIds, int depth, String minDate, String maxDate) {
+    Set<UUID> visited = new HashSet<>(seedRunIds);
+    Set<UUID> frontier = new HashSet<>(seedRunIds);
+    for (int level = 0; level < depth && !frontier.isEmpty(); level++) {
+      Set<UUID> next = new HashSet<>();
+
+      // Downstream: run --PRODUCES--> dataset_version --CONSUMES--> run'
+      Set<UUID> producedVersions = findLineageEdgeTargets(frontier, "PRODUCES", minDate, maxDate);
+      if (!producedVersions.isEmpty()) {
+        next.addAll(findLineageEdgeTargets(producedVersions, "CONSUMES", minDate, maxDate));
+      }
+
+      // Upstream: run' --PRODUCES--> dataset_version --CONSUMES--> run
+      Set<UUID> consumedVersions = findLineageEdgeSources(frontier, "CONSUMES", minDate, maxDate);
+      if (!consumedVersions.isEmpty()) {
+        next.addAll(findLineageEdgeSources(consumedVersions, "PRODUCES", minDate, maxDate));
+      }
+
+      next.removeAll(visited);
+      visited.addAll(next);
+      frontier = next;
+    }
+    return visited;
   }
 
   // TODO make input parameters easily extendable if adding more options like 'withJobFacets'
@@ -124,6 +172,15 @@ public class LineageService extends DelegatingLineageDao {
           runData = getParentRunLineageWithFacets(runIds, depth, includeFacets, minDate, maxDate);
         } else {
           runData = getParentRunLineage(runIds, depth, minDate, maxDate);
+        }
+      } else if (useEdgeBfs) {
+        // BFS over lineage_edges resolves the full reachable run set; hydrate it at depth 0 (no
+        // further recursion) so the emitted graph is identical to the recursive-CTE path.
+        Set<UUID> reachableRuns = traverseRunLineageEdges(runIds, depth, minDate, maxDate);
+        if (includeFacets != null && !includeFacets.isEmpty()) {
+          runData = getRunLineageWithFacets(reachableRuns, 0, includeFacets, minDate, maxDate);
+        } else {
+          runData = getRunLineage(reachableRuns, 0, minDate, maxDate);
         }
       } else {
         if (includeFacets != null && !includeFacets.isEmpty()) {
