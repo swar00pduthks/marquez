@@ -1,6 +1,6 @@
 # Marquez Data Model
 
-> **Last updated:** 2026-06-29 — verified against Flyway migration **V107** (`create_lineage_edges_and_partition_run_facets`).
+> **Last updated:** 2026-06-30 — verified against Flyway migration **V108** (`partition_run_facets`).
 > This document is maintained by the Technical Writer agent. After any Flyway migration, run
 > `bmad/agents/technical-writer-agent.md` → "Audit Migration" to update this file.
 
@@ -411,10 +411,34 @@ every partition.
 > month's hash buckets. `lineage_edges` is currently write-only, so this applies
 > only once the BFS read path replaces the recursive CTE (follow-up).
 
-> **V108 (planned):** `run_facets` (~7.3B rows/2yr), `dataset_facets`, and
-> `lineage_events` get the same composite RANGE(event_date)→HASH(namespace)
-> scheme via shadow-table + swap; `run_facets`/`dataset_facets` gain a `namespace`
-> column (`lineage_events` already has `job_namespace`).
+### `run_facets` (partitioned in V108)
+**Partition strategy:** composite RANGE(`lineage_event_time`, monthly) →
+HASH(`namespace`, 8) + hash-subpartitioned `DEFAULT` — the top storage table
+(~7.3B rows / ~1.1 TB over 2 years at 1M events/day). V108 adds a `namespace`
+column (denormalized from `runs.namespace_name` via `run_uuid`; NULL when
+`run_uuid` is NULL) and migrates the populated table via shadow-table + copy +
+atomic rename swap, re-adding the `run_facets_run_uuid_fkey` FK (→`runs` ON DELETE
+CASCADE) and the trivial `run_facets_view`. The dead matviews `run_lineage_view`
+and `run_parent_lineage_view` (replaced by `run_lineage_denormalized`; refresher
+disabled) are dropped, not recreated. `run_facets` has no PRIMARY KEY (INSERT-only).
+
+| Column | Type |
+|--------|------|
+| `created_at` | TIMESTAMPTZ NOT NULL |
+| `run_uuid` | UUID (FK → runs, nullable) |
+| `lineage_event_time` | TIMESTAMPTZ NOT NULL — RANGE partition key |
+| `lineage_event_type` | VARCHAR NOT NULL |
+| `name` | VARCHAR NOT NULL |
+| `facet` | JSONB NOT NULL |
+| `namespace` | TEXT — HASH key; the run's `namespace_name` (tenant) |
+
+> **Read note:** facet lookups are keyed on `run_uuid`; to prune the partitions,
+> the lineage facet joins (`getRunLineageWithFacets` /
+> `getParentRunLineageWithFacets`) pass the seed runs' `lineage_event_time` range
+> (the same `:minDate`/`:maxDate` they already bind), pruning ~104 → ~8 partitions.
+
+> **V109/V110 (planned):** `dataset_facets` and `lineage_events` get the same
+> composite scheme (`lineage_events` already has `job_namespace`).
 
 ### `dataset_denormalized`
 **Partition strategy:** HASH by `namespace_uuid` (8 partitions)

@@ -418,6 +418,10 @@ public interface LineageDao {
       FROM lineage_nodes l
       LEFT JOIN run_facets rf ON rf.run_uuid = l.run_uuid
         AND rf.name IN (<includeFacets>)
+        -- prune the run_facets RANGE(lineage_event_time) partitions to the seed
+        -- runs' window (run_facets is partitioned in V108)
+        AND (:minDate::date IS NULL OR rf.lineage_event_time >= :minDate::date)
+        AND (:maxDate::date IS NULL OR rf.lineage_event_time < (:maxDate::date + 1))
       GROUP BY
         l.run_uuid, l.created_at, l.updated_at, l.started_at, l.ended_at,
         l.state, l.job_uuid, l.job_version_uuid, l.namespace_name, l.job_name, l.input_uuids, l.output_uuids
@@ -611,6 +615,9 @@ public interface LineageDao {
       FROM lineage_graph l
       LEFT JOIN run_facets rf ON (rf.run_uuid = l.uuid OR rf.run_uuid = l.run_uuid)
         AND rf.name IN (<includeFacets>)
+        -- prune the run_facets RANGE(lineage_event_time) partitions (V108)
+        AND (:minDate::date IS NULL OR rf.lineage_event_time >= :minDate::date)
+        AND (:maxDate::date IS NULL OR rf.lineage_event_time < (:maxDate::date + 1))
       GROUP BY
         COALESCE(l.run_uuid, l.uuid), l.created_at, l.updated_at, l.started_at, l.ended_at,
         l.state, l.job_uuid, l.job_version_uuid, l.namespace_name, l.job_name, l.input_uuids, l.output_uuids
