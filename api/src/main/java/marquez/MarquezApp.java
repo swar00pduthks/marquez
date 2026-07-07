@@ -42,6 +42,7 @@ import marquez.jobs.MaterializeViewRefresherJob;
 import marquez.jobs.PartitionManagementJob;
 import marquez.jobs.backfill.DenormV1BackfillJob;
 import marquez.jobs.backfill.GraphV1BackfillJob;
+import marquez.jobs.backfill.RunFacetsPartitionBackfillJob;
 import marquez.logging.DelegatingSqlLogger;
 import marquez.logging.LabelledSqlLogger;
 import marquez.logging.LoggingMdcFilter;
@@ -219,19 +220,29 @@ public final class MarquezApp extends Application<MarquezConfig> {
 
     final Jdbi jdbi = context.getJdbi();
 
-    // Build orchestrator early so both AGE-dependent and relational backfill jobs can register
-    BackfillConfig backfillConfig = config.getBackfill();
-    final BackfillOrchestrator backfillOrchestrator =
-        (backfillConfig != null
-                && backfillConfig.getEnabledVersions() != null
-                && !backfillConfig.getEnabledVersions().isEmpty())
-            ? new BackfillOrchestrator(backfillConfig)
-            : null;
+    // Build orchestrator early so both AGE-dependent and relational backfill jobs can register.
+    BackfillConfig backfillConfig =
+        config.getBackfill() != null ? config.getBackfill() : BackfillConfig.builder().build();
 
-    // DENORM_V1 only needs the relational DB — register it regardless of AGE availability
-    if (backfillOrchestrator != null) {
-      backfillOrchestrator.register(new DenormV1BackfillJob(jdbi, backfillConfig));
+    // The run_facets online partitioning cutover (RUN_FACETS_PARTITION_V1) must always complete,
+    // regardless of which other backfills an operator enabled — otherwise a large table armed by
+    // V108 would never finish its copy + swap. Inject it into the enabled set if absent; on
+    // small/empty installs V108 already swapped inline and the job no-ops immediately.
+    java.util.List<String> enabledVersions =
+        new java.util.ArrayList<>(
+            backfillConfig.getEnabledVersions() != null
+                ? backfillConfig.getEnabledVersions()
+                : java.util.List.of());
+    if (!enabledVersions.contains(RunFacetsPartitionBackfillJob.VERSION)) {
+      enabledVersions.add(RunFacetsPartitionBackfillJob.VERSION);
     }
+    backfillConfig.setEnabledVersions(enabledVersions);
+
+    final BackfillOrchestrator backfillOrchestrator = new BackfillOrchestrator(backfillConfig);
+
+    // Relational jobs need only the DB — register regardless of AGE availability.
+    backfillOrchestrator.register(new DenormV1BackfillJob(jdbi, backfillConfig));
+    backfillOrchestrator.register(new RunFacetsPartitionBackfillJob(jdbi, backfillConfig));
 
     // Register V3 Graph API Resources conditionally to prevent crashing standard V1 databases
     final AtomicBoolean ageEnabled = new AtomicBoolean(false);

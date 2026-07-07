@@ -88,6 +88,11 @@ public class PartitionManagementService {
     jdbi.useHandle(
         handle -> {
           for (CompositePartition cp : COMPOSITE_PARTITIONS) {
+            // A composite table may not be partitioned yet: on a large install run_facets stays a
+            // plain table until RUN_FACETS_PARTITION_V1 performs the swap. Skip until then.
+            if (!isPartitioned(handle, cp.parentTable())) {
+              continue;
+            }
             handle.execute(
                 "SELECT create_monthly_hash_partition(?, ?, ?::date, ?)",
                 cp.parentTable(),
@@ -96,6 +101,15 @@ public class PartitionManagementService {
                 cp.hashModulus());
           }
         });
+  }
+
+  private boolean isPartitioned(org.jdbi.v3.core.Handle handle, String table) {
+    return handle
+        .createQuery(
+            "SELECT EXISTS(SELECT 1 FROM pg_partitioned_table WHERE partrelid = to_regclass(:t))")
+        .bind("t", table)
+        .mapTo(Boolean.class)
+        .one();
   }
 
   /**
@@ -149,6 +163,9 @@ public class PartitionManagementService {
     jdbi.useHandle(
         handle -> {
           for (CompositePartition cp : COMPOSITE_PARTITIONS) {
+            if (!isPartitioned(handle, cp.parentTable())) {
+              continue;
+            }
             log.info(
                 "Dropping {} partitions older than {} months",
                 cp.parentTable(),

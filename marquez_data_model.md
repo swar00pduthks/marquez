@@ -425,16 +425,31 @@ every partition.
 > not date-bounded (job edges are dated by `made_current_at`) so it scans across
 > months and relies on the namespace hash + indexes.
 
-### `run_facets` (partitioned in V108)
+### `run_facets` (partitioned in V108, online cutover)
 **Partition strategy:** composite RANGE(`lineage_event_time`, monthly) →
 HASH(`namespace`, 8) + hash-subpartitioned `DEFAULT` — the top storage table
 (~7.3B rows / ~1.1 TB over 2 years at 1M events/day). V108 adds a `namespace`
 column (denormalized from `runs.namespace_name` via `run_uuid`; NULL when
-`run_uuid` is NULL) and migrates the populated table via shadow-table + copy +
-atomic rename swap, re-adding the `run_facets_run_uuid_fkey` FK (→`runs` ON DELETE
-CASCADE) and the trivial `run_facets_view`. The dead matviews `run_lineage_view`
-and `run_parent_lineage_view` (replaced by `run_lineage_denormalized`; refresher
-disabled) are dropped, not recreated. `run_facets` has no PRIMARY KEY (INSERT-only).
+`run_uuid` is NULL) and builds the empty partitioned shadow. `run_facets` has no
+PRIMARY KEY (INSERT-only). The dead matviews `run_lineage_view` /
+`run_parent_lineage_view` (replaced by `run_lineage_denormalized`; refresher
+disabled) are dropped, not recreated.
+
+**Size-branched, online cutover** (V108 does not block startup):
+- **Small / empty (≤ 1 GiB — fresh installs, CI):** copy + atomic rename swap
+  **inline** in the migration (instant on an empty table), re-adding the
+  `run_facets_run_uuid_fkey` FK (→`runs` ON DELETE CASCADE) and `run_facets_view`.
+  Marker `run_facets_partition_state.state = 'SWAPPED'`.
+- **Large (> 1 GiB — production):** the migration only arms an **online cutover** —
+  an `AFTER INSERT` trigger mirrors every row with `created_at >= cutover` into the
+  shadow (dual-write), and records `cutover` + `state = 'DUAL_WRITE'`. The heavy
+  historical copy (`created_at < cutover`) and the swap are deferred to the
+  `RUN_FACETS_PARTITION_V1` backfill job (see below), off the startup path.
+
+The `created_at < cutover` / `>= cutover` split is disjoint by value, so the copy
+and the trigger each own every row exactly once — no primary key needed. The old
+table stays the source of truth until a count-verified atomic swap, so an
+interrupted copy loses nothing.
 
 | Column | Type |
 |--------|------|

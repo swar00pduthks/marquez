@@ -690,7 +690,7 @@ These must match V1 signature before V3 is production-ready.
 | P2-6 | Partition `run_facets` table | V108 migration | 7.3B row problem | ❌ (tracked as TODO in V107) |
 | P2-7 | Upsert only on state change (`WHERE ... IS DISTINCT FROM`) | `DenormalizedLineageService.java` | WAL reduction | ❌ |
 | P2-8 | `lineage_edges` adjacency table + write/read path | V107/V109 / `LineageService.java` | §3f BFS read path | ✅ write + read (run & job/dataset) wired behind `MARQUEZ_LINEAGE_USE_EDGE_BFS` |
-| P2-6 | Partition `run_facets` table | V108 migration | 7.3B row problem | ✅ |
+| P2-6 | Partition `run_facets` table | V108 + `RunFacetsPartitionBackfillJob` | 7.3B row problem | ✅ online cutover: inline swap ≤1 GiB; large tables dual-write trigger + background ctid-keyset copy + count-verified swap (never blocks startup) |
 
 ### Phase 3 — Medium-term (Month 1, schema replacement)
 
