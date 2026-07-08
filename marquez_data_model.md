@@ -1,6 +1,6 @@
 # Marquez Data Model
 
-> **Last updated:** 2026-06-30 — verified against Flyway migration **V110** (`composite_partition_management_functions`).
+> **Last updated:** 2026-06-30 — verified against Flyway migration **V111** (`partition_dataset_facets`).
 > This document is maintained by the Technical Writer agent. After any Flyway migration, run
 > `bmad/agents/technical-writer-agent.md` → "Audit Migration" to update this file.
 
@@ -466,8 +466,23 @@ interrupted copy loses nothing.
 > `getParentRunLineageWithFacets`) pass the seed runs' `lineage_event_time` range
 > (the same `:minDate`/`:maxDate` they already bind), pruning ~104 → ~8 partitions.
 
-> **Follow-up (planned):** `dataset_facets` and `lineage_events` get the same
-> composite scheme (`lineage_events` already has `job_namespace`).
+### `dataset_facets` (partitioned in V111, online cutover)
+Same composite RANGE(`lineage_event_time`) → HASH(`namespace`, 8) scheme and the
+**identical size-branched online cutover** as `run_facets` (inline swap ≤ 1 GiB;
+large tables arm a dual-write trigger + `DATASET_FACETS_PARTITION_V1` background
+copy + count-verified swap). Differences from `run_facets`: three FKs
+(`dataset_uuid`→datasets, `dataset_version_uuid`→dataset_versions,
+`run_uuid`→runs), all restored at swap; dependent `dataset_facets_view` recreated;
+`namespace` denormalized from the run's `namespace_name`. INSERT-only, no PK.
+
+Both cutover jobs share `AbstractPartitionCutoverBackfillJob` (ctid-keyset copy +
+verified swap); each subclass supplies only its table-specific column list, FK/view
+DDL, and marker/trigger names.
+
+> **Follow-up (planned):** `lineage_events` gets the same composite scheme
+> (`lineage_events` already has `job_namespace`), with extra care for its
+> actively-refreshed matview `lineage_events_by_type_hourly_view` and nullable
+> `created_at`.
 
 ### Partition lifecycle for the composite tables (V110)
 

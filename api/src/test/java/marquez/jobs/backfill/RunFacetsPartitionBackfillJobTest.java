@@ -6,6 +6,7 @@
 package marquez.jobs.backfill;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.UUID;
 import marquez.api.JdbiUtils;
@@ -148,6 +149,71 @@ public class RunFacetsPartitionBackfillJobTest {
           assertThat(triggerGone).withFailMessage("mirror trigger should be dropped").isTrue();
           assertThat(viewOk).withFailMessage("run_facets_view should be recreated").isTrue();
           assertThat(fkOnParent).withFailMessage("FK should be restored on run_facets").isTrue();
+        });
+  }
+
+  @Test
+  public void testCountMismatchAbortsSwapAndPreservesOldTable() {
+    // Arm the online cutover, then inject an extra shadow row with no counterpart in the old table
+    // so the post-copy count parity fails. The job must refuse to swap and leave the old table
+    // untouched (source of truth) rather than lose or corrupt data.
+    jdbi.useHandle(
+        h -> {
+          h.execute("DROP VIEW IF EXISTS run_facets_view");
+          h.execute("ALTER TABLE run_facets RENAME TO run_facets_p");
+          h.execute("CREATE TABLE run_facets (LIKE run_facets_p INCLUDING DEFAULTS)");
+          h.execute("ALTER TABLE run_facets_p DROP CONSTRAINT IF EXISTS run_facets_run_uuid_fkey");
+          h.execute(
+              "INSERT INTO namespaces (uuid, created_at, updated_at, name, current_owner_name)"
+                  + " VALUES (gen_random_uuid(), now(), now(), 'nsX', 'owner') ON CONFLICT DO NOTHING");
+          h.execute(
+              "INSERT INTO runs (uuid, created_at, updated_at, current_run_state, namespace_name,"
+                  + " job_name, job_uuid) VALUES (?, now(), now(), 'COMPLETED', 'nsX', 'j',"
+                  + " gen_random_uuid())",
+              RUN);
+          h.execute(
+              "INSERT INTO run_facets (created_at, run_uuid, lineage_event_time, lineage_event_type,"
+                  + " name, facet, namespace) SELECT '2026-05-01 00:00:00+00'::timestamptz +"
+                  + " (g||' seconds')::interval, ?, '2026-05-01'::timestamptz, 'COMPLETE', 'f'||g,"
+                  + " '{}'::jsonb, 'nsX' FROM generate_series(1,100) g",
+              RUN);
+          h.execute(
+              "INSERT INTO run_facets_partition_state (singleton, state, cutover_at) VALUES (true,"
+                  + " 'DUAL_WRITE', '"
+                  + CUTOVER
+                  + "') ON CONFLICT (singleton) DO UPDATE SET state='DUAL_WRITE',"
+                  + " cutover_at=EXCLUDED.cutover_at");
+          // Extra shadow row (not in old) -> after copy shadow=101, old=100 -> mismatch.
+          h.execute(
+              "INSERT INTO run_facets_p (created_at, run_uuid, lineage_event_time,"
+                  + " lineage_event_type, name, facet, namespace) VALUES ('2026-05-01', ?,"
+                  + " '2026-05-01', 'COMPLETE', 'orphan', '{}'::jsonb, 'nsX')",
+              RUN);
+        });
+
+    BackfillConfig cfg = BackfillConfig.builder().batchSize(7).delayBetweenBatchesMs(0).build();
+    assertThatThrownBy(() -> new RunFacetsPartitionBackfillJob(jdbi, cfg).run())
+        .hasMessageContaining("count mismatch");
+
+    // Old table preserved, unpartitioned, with all its rows; state still DUAL_WRITE (will retry).
+    jdbi.useHandle(
+        h -> {
+          assertThat(
+                  h.createQuery(
+                          "SELECT EXISTS(SELECT 1 FROM pg_partitioned_table WHERE partrelid ="
+                              + " 'run_facets'::regclass)")
+                      .mapTo(Boolean.class)
+                      .one())
+              .withFailMessage("run_facets must NOT be swapped on a count mismatch")
+              .isFalse();
+          assertThat(h.createQuery("SELECT count(*) FROM run_facets").mapTo(Long.class).one())
+              .withFailMessage("old table must be intact")
+              .isEqualTo(100L);
+          assertThat(
+                  h.createQuery("SELECT state FROM run_facets_partition_state")
+                      .mapTo(String.class)
+                      .one())
+              .isEqualTo("DUAL_WRITE");
         });
   }
 }

@@ -44,7 +44,8 @@ public class PartitionManagementService {
   private static final List<CompositePartition> COMPOSITE_PARTITIONS =
       List.of(
           new CompositePartition("lineage_edges", "lineage_edges", 8, 24),
-          new CompositePartition("run_facets", "run_facets_p", 8, 12));
+          new CompositePartition("run_facets", "run_facets_p", 8, 12),
+          new CompositePartition("dataset_facets", "dataset_facets_p", 8, 12));
 
   private final Jdbi jdbi;
   private final int monthsAhead;

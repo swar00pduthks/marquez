@@ -40,6 +40,7 @@ import marquez.jobs.BackfillOrchestrator;
 import marquez.jobs.DbRetentionJob;
 import marquez.jobs.MaterializeViewRefresherJob;
 import marquez.jobs.PartitionManagementJob;
+import marquez.jobs.backfill.DatasetFacetsPartitionBackfillJob;
 import marquez.jobs.backfill.DenormV1BackfillJob;
 import marquez.jobs.backfill.GraphV1BackfillJob;
 import marquez.jobs.backfill.RunFacetsPartitionBackfillJob;
@@ -233,8 +234,12 @@ public final class MarquezApp extends Application<MarquezConfig> {
             backfillConfig.getEnabledVersions() != null
                 ? backfillConfig.getEnabledVersions()
                 : java.util.List.of());
-    if (!enabledVersions.contains(RunFacetsPartitionBackfillJob.VERSION)) {
-      enabledVersions.add(RunFacetsPartitionBackfillJob.VERSION);
+    for (String v :
+        java.util.List.of(
+            RunFacetsPartitionBackfillJob.VERSION, DatasetFacetsPartitionBackfillJob.VERSION)) {
+      if (!enabledVersions.contains(v)) {
+        enabledVersions.add(v);
+      }
     }
     backfillConfig.setEnabledVersions(enabledVersions);
 
@@ -243,6 +248,7 @@ public final class MarquezApp extends Application<MarquezConfig> {
     // Relational jobs need only the DB — register regardless of AGE availability.
     backfillOrchestrator.register(new DenormV1BackfillJob(jdbi, backfillConfig));
     backfillOrchestrator.register(new RunFacetsPartitionBackfillJob(jdbi, backfillConfig));
+    backfillOrchestrator.register(new DatasetFacetsPartitionBackfillJob(jdbi, backfillConfig));
 
     // Register V3 Graph API Resources conditionally to prevent crashing standard V1 databases
     final AtomicBoolean ageEnabled = new AtomicBoolean(false);

@@ -92,7 +92,8 @@ public interface DatasetFacetsDao {
              lineage_event_type,
              type,
              name,
-             facet
+             facet,
+             namespace
           ) VALUES (
              :createdAt,
              :datasetUuid,
@@ -102,7 +103,8 @@ public interface DatasetFacetsDao {
              :lineageEventType,
              :type,
              :name,
-             :facet
+             :facet,
+             (SELECT namespace_name FROM runs WHERE uuid = :runUuid)
           )
       """)
   void insertDatasetFacet(
