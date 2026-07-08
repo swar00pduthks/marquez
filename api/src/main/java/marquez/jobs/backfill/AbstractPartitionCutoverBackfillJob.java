@@ -62,8 +62,23 @@ public abstract class AbstractPartitionCutoverBackfillJob implements BackfillJob
   /** The dual-write trigger name, dropped at swap, e.g. {@code run_facets_mirror_trg}. */
   protected abstract String triggerName();
 
-  /** NOT NULL write-time column defining the copy/trigger boundary, e.g. {@code created_at}. */
+  /** Write-time column defining the copy/trigger boundary, e.g. {@code created_at}. */
   protected abstract String boundaryColumn();
+
+  /**
+   * Predicate (over the live table, binding {@code :cutover}) selecting the rows the backfill owns
+   * — the complement of what the {@code >= cutover} trigger mirrors. Default {@code col <
+   * :cutover}; override to treat pre-existing NULLs as historical when the boundary column is
+   * nullable.
+   */
+  protected String copyBoundaryPredicate() {
+    return boundaryColumn() + " < :cutover";
+  }
+
+  /**
+   * Hook run after the swap transaction commits (e.g. refresh a dependent matview). No-op default.
+   */
+  protected void afterSwapCommitted() {}
 
   /** Column list for the shadow INSERT (matching {@link #selectExpr()}). */
   protected abstract String insertColumns();
@@ -125,9 +140,9 @@ public abstract class AbstractPartitionCutoverBackfillJob implements BackfillJob
     final String selectCtids =
         "SELECT ctid::text AS ctid_text FROM "
             + table()
-            + " WHERE "
-            + boundaryColumn()
-            + " < :cutover AND ctid > :from::tid"
+            + " WHERE ("
+            + copyBoundaryPredicate()
+            + ") AND ctid > :from::tid"
             + " ORDER BY ctid LIMIT :batchSize";
     final String copyBatch =
         "INSERT INTO "
@@ -205,6 +220,7 @@ public abstract class AbstractPartitionCutoverBackfillJob implements BackfillJob
           handle.execute("DROP TABLE " + table() + "_old");
           handle.execute("UPDATE " + stateTable() + " SET state = 'SWAPPED'");
         });
+    afterSwapCommitted();
     markCompleted();
     log.info("{}: verified swap complete — {} is partitioned.", version(), table());
   }

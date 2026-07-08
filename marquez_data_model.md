@@ -1,6 +1,6 @@
 # Marquez Data Model
 
-> **Last updated:** 2026-06-30 — verified against Flyway migration **V111** (`partition_dataset_facets`).
+> **Last updated:** 2026-06-30 — verified against Flyway migration **V112** (`partition_lineage_events`).
 > This document is maintained by the Technical Writer agent. After any Flyway migration, run
 > `bmad/agents/technical-writer-agent.md` → "Audit Migration" to update this file.
 
@@ -479,10 +479,27 @@ Both cutover jobs share `AbstractPartitionCutoverBackfillJob` (ctid-keyset copy 
 verified swap); each subclass supplies only its table-specific column list, FK/view
 DDL, and marker/trigger names.
 
-> **Follow-up (planned):** `lineage_events` gets the same composite scheme
-> (`lineage_events` already has `job_namespace`), with extra care for its
-> actively-refreshed matview `lineage_events_by_type_hourly_view` and nullable
-> `created_at`.
+### `lineage_events` (partitioned in V112, online cutover)
+Same online cutover, RANGE(`event_time`) → **HASH(`job_namespace`, 8)** — it uses
+the existing `job_namespace` column, so no new column is added. Two differences
+handled by the shared base:
+- **Nullable boundary:** `created_at` (DEFAULT `now()`) is the cutover boundary,
+  but rows predating that column may be NULL. The backfill's `copyBoundaryPredicate`
+  is `created_at < :cutover OR created_at IS NULL`, so NULLs are copied as history
+  (new rows always get the default, so they're never NULL and stay on the trigger's
+  side — disjoint).
+- **Actively-refreshed matview:** `lineage_events_by_type_hourly_view` is dropped
+  before the rename and recreated `WITH NO DATA` after (instant, short lock), then
+  repopulated by the job's `afterSwapCommitted()` hook (`REFRESH MATERIALIZED
+  VIEW`). No FKs, so nothing else to restore.
+
+**V112 also generalizes** `create_monthly_hash_partition(parent, prefix, date,
+modulus, hash_column)` (V110's version hardcoded `HASH (namespace)`); the runtime
+lifecycle now passes each table's hash column (`namespace` for the facet/edge
+tables, `job_namespace` for `lineage_events`). `lineage_events` retention: 24 months.
+
+All three large facet/event tables (`run_facets`, `dataset_facets`,
+`lineage_events`) now use the same `AbstractPartitionCutoverBackfillJob`.
 
 ### Partition lifecycle for the composite tables (V110)
 

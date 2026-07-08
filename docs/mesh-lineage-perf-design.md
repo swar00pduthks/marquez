@@ -699,7 +699,7 @@ These must match V1 signature before V3 is production-ready.
 | P3-0 | Wire `lineage_edges` BFS-in-Java read path behind a flag (§3f) | Index-accelerated reads, replaces recursive CTE | ❌ |
 | P3-1 | Create `run_lineage_summary` (1 row/run, array-based + GIN) | 30× storage reduction, single-arm OR CTE (§2c) | ❌ |
 | P3-2 | Migrate V1 recursive CTE to use new schema | Query simplification | ❌ |
-| P3-3 | Implement partition detach/archive job | 2-year retention enforcement | 🟡 V110: create + drop-by-retention automated for `lineage_edges`/`run_facets` (composite tables); `dataset_facets`/`lineage_events` pending |
+| P3-3 | Implement partition detach/archive job | 2-year retention enforcement | ✅ V110/V112: create + drop-by-retention automated for all composite tables (`lineage_edges`, `run_facets`, `dataset_facets`, `lineage_events`) |
 | P3-4 | Add `job_denormalized.namespace_name` column | V2 correctness | ❌ |
 | P3-5 | Make AGE writes async | V3 write latency | ❌ |
 

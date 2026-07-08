@@ -39,13 +39,18 @@ public class PartitionManagementService {
    * retentionMonths} follows the design doc: run_facets 12 months, lineage_edges 24 months.
    */
   private record CompositePartition(
-      String parentTable, String partitionPrefix, int hashModulus, int retentionMonths) {}
+      String parentTable,
+      String partitionPrefix,
+      String hashColumn,
+      int hashModulus,
+      int retentionMonths) {}
 
   private static final List<CompositePartition> COMPOSITE_PARTITIONS =
       List.of(
-          new CompositePartition("lineage_edges", "lineage_edges", 8, 24),
-          new CompositePartition("run_facets", "run_facets_p", 8, 12),
-          new CompositePartition("dataset_facets", "dataset_facets_p", 8, 12));
+          new CompositePartition("lineage_edges", "lineage_edges", "namespace", 8, 24),
+          new CompositePartition("run_facets", "run_facets_p", "namespace", 8, 12),
+          new CompositePartition("dataset_facets", "dataset_facets_p", "namespace", 8, 12),
+          new CompositePartition("lineage_events", "lineage_events_p", "job_namespace", 8, 24));
 
   private final Jdbi jdbi;
   private final int monthsAhead;
@@ -95,11 +100,12 @@ public class PartitionManagementService {
               continue;
             }
             handle.execute(
-                "SELECT create_monthly_hash_partition(?, ?, ?::date, ?)",
+                "SELECT create_monthly_hash_partition(?, ?, ?::date, ?, ?)",
                 cp.parentTable(),
                 cp.partitionPrefix(),
                 firstOfMonth,
-                cp.hashModulus());
+                cp.hashModulus(),
+                cp.hashColumn());
           }
         });
   }

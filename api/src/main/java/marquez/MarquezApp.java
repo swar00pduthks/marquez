@@ -43,6 +43,7 @@ import marquez.jobs.PartitionManagementJob;
 import marquez.jobs.backfill.DatasetFacetsPartitionBackfillJob;
 import marquez.jobs.backfill.DenormV1BackfillJob;
 import marquez.jobs.backfill.GraphV1BackfillJob;
+import marquez.jobs.backfill.LineageEventsPartitionBackfillJob;
 import marquez.jobs.backfill.RunFacetsPartitionBackfillJob;
 import marquez.logging.DelegatingSqlLogger;
 import marquez.logging.LabelledSqlLogger;
@@ -236,7 +237,9 @@ public final class MarquezApp extends Application<MarquezConfig> {
                 : java.util.List.of());
     for (String v :
         java.util.List.of(
-            RunFacetsPartitionBackfillJob.VERSION, DatasetFacetsPartitionBackfillJob.VERSION)) {
+            RunFacetsPartitionBackfillJob.VERSION,
+            DatasetFacetsPartitionBackfillJob.VERSION,
+            LineageEventsPartitionBackfillJob.VERSION)) {
       if (!enabledVersions.contains(v)) {
         enabledVersions.add(v);
       }
@@ -249,6 +252,7 @@ public final class MarquezApp extends Application<MarquezConfig> {
     backfillOrchestrator.register(new DenormV1BackfillJob(jdbi, backfillConfig));
     backfillOrchestrator.register(new RunFacetsPartitionBackfillJob(jdbi, backfillConfig));
     backfillOrchestrator.register(new DatasetFacetsPartitionBackfillJob(jdbi, backfillConfig));
+    backfillOrchestrator.register(new LineageEventsPartitionBackfillJob(jdbi, backfillConfig));
 
     // Register V3 Graph API Resources conditionally to prevent crashing standard V1 databases
     final AtomicBoolean ageEnabled = new AtomicBoolean(false);
