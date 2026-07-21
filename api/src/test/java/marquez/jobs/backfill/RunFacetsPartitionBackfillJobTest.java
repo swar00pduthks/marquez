@@ -215,5 +215,14 @@ public class RunFacetsPartitionBackfillJobTest {
                       .one())
               .isEqualTo("DUAL_WRITE");
         });
+
+    // Restore a clean, partitioned run_facets for the other tests sharing this DB: remove the
+    // injected orphan (fixing parity) and let the job finish the swap so no trigger/shadow leaks.
+    jdbi.useHandle(h -> h.execute("DELETE FROM run_facets_p WHERE name = 'orphan'"));
+    try {
+      new RunFacetsPartitionBackfillJob(jdbi, cfg).run();
+    } catch (Exception e) {
+      throw new AssertionError("cleanup swap failed: " + e.getMessage(), e);
+    }
   }
 }
