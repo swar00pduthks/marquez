@@ -46,6 +46,12 @@ public class RunFacetsPartitionBackfillJobTest {
     // run_facets_p (no FK, as LIKE leaves it in V108), and a fresh plain run_facets holds history.
     jdbi.useHandle(
         h -> {
+          // Shared test DB: reset this version's checkpoint so the job actually runs (a prior
+          // cutover test may have marked it completed) and starts its keyset from the beginning.
+          h.execute(
+              "DELETE FROM backfill_checkpoints WHERE version = '"
+                  + RunFacetsPartitionBackfillJob.VERSION
+                  + "'");
           h.execute("DROP VIEW IF EXISTS run_facets_view");
           h.execute("ALTER TABLE run_facets RENAME TO run_facets_p");
           h.execute("CREATE TABLE run_facets (LIKE run_facets_p INCLUDING DEFAULTS)");
@@ -159,6 +165,12 @@ public class RunFacetsPartitionBackfillJobTest {
     // untouched (source of truth) rather than lose or corrupt data.
     jdbi.useHandle(
         h -> {
+          // Shared test DB: reset this version's checkpoint so the job actually runs (a prior
+          // cutover test may have marked it completed) and starts its keyset from the beginning.
+          h.execute(
+              "DELETE FROM backfill_checkpoints WHERE version = '"
+                  + RunFacetsPartitionBackfillJob.VERSION
+                  + "'");
           h.execute("DROP VIEW IF EXISTS run_facets_view");
           h.execute("ALTER TABLE run_facets RENAME TO run_facets_p");
           h.execute("CREATE TABLE run_facets (LIKE run_facets_p INCLUDING DEFAULTS)");

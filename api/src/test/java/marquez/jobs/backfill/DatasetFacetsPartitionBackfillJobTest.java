@@ -44,6 +44,11 @@ public class DatasetFacetsPartitionBackfillJobTest {
   public void testOnlineCutoverCopiesExactlyOnceAndSwaps() {
     jdbi.useHandle(
         h -> {
+          // Shared test DB: reset this version's checkpoint so the job runs fresh.
+          h.execute(
+              "DELETE FROM backfill_checkpoints WHERE version = '"
+                  + DatasetFacetsPartitionBackfillJob.VERSION
+                  + "'");
           h.execute("DROP VIEW IF EXISTS dataset_facets_view");
           h.execute("ALTER TABLE dataset_facets RENAME TO dataset_facets_p");
           h.execute("CREATE TABLE dataset_facets (LIKE dataset_facets_p INCLUDING DEFAULTS)");

@@ -42,6 +42,11 @@ public class LineageEventsPartitionBackfillJobTest {
   public void testOnlineCutoverCopiesExactlyOnceWithNullBoundaryAndRefreshesMatview() {
     jdbi.useHandle(
         h -> {
+          // Shared test DB: reset this version's checkpoint so the job runs fresh.
+          h.execute(
+              "DELETE FROM backfill_checkpoints WHERE version = '"
+                  + LineageEventsPartitionBackfillJob.VERSION
+                  + "'");
           h.execute("DROP MATERIALIZED VIEW IF EXISTS lineage_events_by_type_hourly_view");
           h.execute("ALTER TABLE lineage_events RENAME TO lineage_events_p");
           h.execute(
