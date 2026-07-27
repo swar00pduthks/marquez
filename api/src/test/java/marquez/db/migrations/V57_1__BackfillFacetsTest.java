@@ -263,6 +263,12 @@ public class V57_1__BackfillFacetsTest {
       when(Jdbi.create(connection)).thenReturn(jdbi);
 
       // should be no data to import
+      // lineage_events is now a partitioned table (V112). An empty partitioned parent reports
+      // pg_class.reltuples = -1 until ANALYZEd (VACUUM alone does not roll up empty partitions),
+      // which makes V57.1's reltuples == 0 empty-check miss and skip the lock insert. ANALYZE so
+      // the
+      // estimate is 0 for the empty table, matching the pre-partition behavior this test asserts.
+      jdbi.useHandle(h -> h.execute("ANALYZE lineage_events"));
       subject.migrate(flywayContext);
 
       Instant lockCreatedAt =
