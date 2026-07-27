@@ -40,6 +40,19 @@ $ ./gradlew :api:testIntegration  # run only integration tests
 $ ./gradlew :api:testDataAccess   # run only data access tests
 ```
 
+By default the `api` integration tests spin up a PostgreSQL container via [Testcontainers](https://testcontainers.com/), which requires a running Docker daemon. In environments without Docker, point the tests at an already-running PostgreSQL by setting `MARQUEZ_TEST_PG_HOST` (this is off by default, so CI is unaffected):
+
+```bash
+$ export MARQUEZ_TEST_PG_HOST=localhost   # enables external-DB mode (skips Testcontainers)
+$ export MARQUEZ_TEST_PG_PORT=5432        # optional, default 5432
+$ export MARQUEZ_TEST_PG_DB=marquez_test  # optional, default marquez_test — a THROWAWAY db (Flyway cleans it)
+$ export MARQUEZ_TEST_PG_USER=postgres    # optional, default postgres
+$ export MARQUEZ_TEST_PG_PASSWORD=        # optional, default empty
+$ ./gradlew :api:test --tests marquez.db.OpenLineageDaoTest
+```
+
+The target database is dropped/re-migrated by Flyway on each test class, so always use a dedicated throwaway database.
+
 We use [spotless](https://github.com/diffplug/spotless) to format our code. This ensures `.java` files are formatted to comply with [Google Java Style](https://google.github.io/styleguide/javaguide.html). Make sure your code is formatted before pushing any changes, otherwise CI will fail:
 
 ```
