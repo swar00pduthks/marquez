@@ -779,6 +779,122 @@ public class LineageServiceTest {
   }
 
   @Test
+  public void testRunLineage_edgeBfs_matchesRecursiveCte() {
+    // Build a chain A -> d1 -> B -> d2 -> C -> d3 so the middle run B has both an
+    // upstream (A) and downstream (C) neighbour at depth 1, and A/C reach further at depth 2.
+    UpdateLineageRow a =
+        LineageTestUtils.createLineageRow(
+            openLineageDao,
+            "bfs_a",
+            "COMPLETE",
+            jobFacet,
+            List.of(new Dataset(NAMESPACE, "bfs_d0", null)),
+            List.of(new Dataset(NAMESPACE, "bfs_d1", null)));
+    UpdateLineageRow b =
+        LineageTestUtils.createLineageRow(
+            openLineageDao,
+            "bfs_b",
+            "COMPLETE",
+            jobFacet,
+            List.of(new Dataset(NAMESPACE, "bfs_d1", null)),
+            List.of(new Dataset(NAMESPACE, "bfs_d2", null)));
+    UpdateLineageRow c =
+        LineageTestUtils.createLineageRow(
+            openLineageDao,
+            "bfs_c",
+            "COMPLETE",
+            jobFacet,
+            List.of(new Dataset(NAMESPACE, "bfs_d2", null)),
+            List.of(new Dataset(NAMESPACE, "bfs_d3", null)));
+
+    // Populate denormalized tables AND lineage_edges for each run.
+    for (UUID runUuid : List.of(a.getRun().getUuid(), b.getRun().getUuid(), c.getRun().getUuid())) {
+      denormalizedLineageService.populateLineageForRun(runUuid);
+    }
+
+    // A second service that reads via the lineage_edges BFS path.
+    LineageService bfsService =
+        new LineageService(
+            lineageDao, jdbi.onDemand(JobDao.class), jdbi.onDemand(RunDao.class), true);
+
+    NodeId middle = NodeId.of(new RunId(b.getRun().getUuid()));
+    for (int depth : new int[] {1, 2, 5}) {
+      Lineage viaCte = lineageService.lineage(middle, depth, false);
+      Lineage viaBfs = bfsService.lineage(middle, depth, false);
+
+      java.util.Set<NodeId> cteNodes =
+          viaCte.getGraph().stream().map(Node::getId).collect(Collectors.toSet());
+      java.util.Set<NodeId> bfsNodes =
+          viaBfs.getGraph().stream().map(Node::getId).collect(Collectors.toSet());
+
+      assertThat(bfsNodes)
+          .withFailMessage(
+              "lineage_edges BFS must return the same node set as the recursive CTE at depth %d:"
+                  + " cte=%s bfs=%s",
+              depth, cteNodes, bfsNodes)
+          .isEqualTo(cteNodes);
+    }
+  }
+
+  @Test
+  public void testJobLineage_edgeBfs_matchesRecursiveCte() {
+    // Same chain A -> jd1 -> B -> jd2 -> C as the run test, but queried from a JOB node. Two jobs
+    // are adjacent when they share ANY dataset, so B reaches A (via jd1) and C (via jd2) at depth
+    // 1.
+    UpdateLineageRow a =
+        LineageTestUtils.createLineageRow(
+            openLineageDao,
+            "jbfs_a",
+            "COMPLETE",
+            jobFacet,
+            List.of(new Dataset(NAMESPACE, "jbfs_d0", null)),
+            List.of(new Dataset(NAMESPACE, "jbfs_d1", null)));
+    UpdateLineageRow b =
+        LineageTestUtils.createLineageRow(
+            openLineageDao,
+            "jbfs_b",
+            "COMPLETE",
+            jobFacet,
+            List.of(new Dataset(NAMESPACE, "jbfs_d1", null)),
+            List.of(new Dataset(NAMESPACE, "jbfs_d2", null)));
+    UpdateLineageRow c =
+        LineageTestUtils.createLineageRow(
+            openLineageDao,
+            "jbfs_c",
+            "COMPLETE",
+            jobFacet,
+            List.of(new Dataset(NAMESPACE, "jbfs_d2", null)),
+            List.of(new Dataset(NAMESPACE, "jbfs_d3", null)));
+
+    // Populate denormalized tables AND lineage_edges (incl. job<->dataset edges) for each run.
+    for (UUID runUuid : List.of(a.getRun().getUuid(), b.getRun().getUuid(), c.getRun().getUuid())) {
+      denormalizedLineageService.populateLineageForRun(runUuid);
+    }
+
+    LineageService bfsService =
+        new LineageService(
+            lineageDao, jdbi.onDemand(JobDao.class), jdbi.onDemand(RunDao.class), true);
+
+    NodeId middleJob = NodeId.of(new NamespaceName(NAMESPACE), new JobName("jbfs_b"));
+    for (int depth : new int[] {1, 2, 5}) {
+      Lineage viaCte = lineageService.lineage(middleJob, depth, false);
+      Lineage viaBfs = bfsService.lineage(middleJob, depth, false);
+
+      java.util.Set<NodeId> cteNodes =
+          viaCte.getGraph().stream().map(Node::getId).collect(Collectors.toSet());
+      java.util.Set<NodeId> bfsNodes =
+          viaBfs.getGraph().stream().map(Node::getId).collect(Collectors.toSet());
+
+      assertThat(bfsNodes)
+          .withFailMessage(
+              "job lineage_edges BFS must return the same node set as the recursive CTE at depth"
+                  + " %d: cte=%s bfs=%s",
+              depth, cteNodes, bfsNodes)
+          .isEqualTo(cteNodes);
+    }
+  }
+
+  @Test
   public void testParentRunLineage() {
     // Create parent run
     UpdateLineageRow parentRun =

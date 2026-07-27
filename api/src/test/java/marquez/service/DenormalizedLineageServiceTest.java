@@ -49,6 +49,7 @@ public class DenormalizedLineageServiceTest {
     // Clean up denormalized tables after each test
     jdbi.useHandle(
         handle -> {
+          handle.execute("DELETE FROM lineage_edges");
           handle.execute("DELETE FROM run_lineage_denormalized");
           handle.execute("DELETE FROM run_parent_lineage_denormalized");
           handle.execute("DELETE FROM job_denormalized");
@@ -142,6 +143,140 @@ public class DenormalizedLineageServiceTest {
                   .mapTo(Long.class)
                   .one();
           assertThat(runLineageCount).isEqualTo(1);
+        });
+  }
+
+  @Test
+  public void testLineageEdgesPopulatedForCompletedRun() {
+    // A COMPLETE run with one input and one output dataset must produce exactly:
+    //   - one CONSUMES edge: input dataset_version -> run
+    //   - one PRODUCES edge: run -> output dataset_version
+    UpdateLineageRow lineageRow =
+        LineageTestUtils.createLineageRow(
+            openLineageDao,
+            "edges_complete_job",
+            "COMPLETE",
+            JobFacet.builder().build(),
+            List.of(new Dataset("namespace", "edges_input", null)),
+            List.of(new Dataset("namespace", "edges_output", null)));
+    UUID runUuid = lineageRow.getRun().getUuid();
+
+    // Guard for the V107 backfill bug: a COMPLETE OpenLineage event must land as the
+    // Marquez RunState 'COMPLETED'. The backfill filters current_run_state IN ('COMPLETED', ...);
+    // if the stored token were 'COMPLETE' the historical backfill would skip every completed run.
+    jdbi.useHandle(
+        handle -> {
+          String state =
+              handle
+                  .createQuery("SELECT current_run_state FROM runs WHERE uuid = ?")
+                  .bind(0, runUuid)
+                  .mapTo(String.class)
+                  .one();
+          assertThat(state).isEqualTo("COMPLETED");
+        });
+
+    // When: populate denormalized lineage (this also writes lineage_edges)
+    denormalizedLineageService.populateLineageForRun(runUuid);
+
+    // Then: exactly one CONSUMES edge into the run and one PRODUCES edge out of the run
+    jdbi.useHandle(
+        handle -> {
+          Long consumes =
+              handle
+                  .createQuery(
+                      "SELECT COUNT(*) FROM lineage_edges WHERE to_node_id = ? AND edge_type = 'CONSUMES'")
+                  .bind(0, runUuid)
+                  .mapTo(Long.class)
+                  .one();
+          assertThat(consumes)
+              .withFailMessage("expected one CONSUMES edge (input dataset_version -> run)")
+              .isEqualTo(1);
+
+          Long produces =
+              handle
+                  .createQuery(
+                      "SELECT COUNT(*) FROM lineage_edges WHERE from_node_id = ? AND edge_type = 'PRODUCES'")
+                  .bind(0, runUuid)
+                  .mapTo(Long.class)
+                  .one();
+          assertThat(produces)
+              .withFailMessage("expected one PRODUCES edge (run -> output dataset_version)")
+              .isEqualTo(1);
+        });
+
+    // And: idempotent — re-running must not duplicate edges (ON CONFLICT DO NOTHING)
+    denormalizedLineageService.populateLineageForRun(runUuid);
+    jdbi.useHandle(
+        handle -> {
+          Long total =
+              handle
+                  .createQuery("SELECT COUNT(*) FROM lineage_edges WHERE run_uuid = ?")
+                  .bind(0, runUuid)
+                  .mapTo(Long.class)
+                  .one();
+          assertThat(total)
+              .withFailMessage("re-running populateLineageForRun must not duplicate edges")
+              .isEqualTo(2);
+        });
+  }
+
+  @Test
+  public void testLineageEdgesBackfillMatchesCompletedRuns() {
+    // Faithful regression test for the V107 backfill: a COMPLETED run must be picked up.
+    // The migration filtered current_run_state IN ('COMPLETED', 'FAILED', 'ABORTED').
+    // With the prior 'COMPLETE' token this backfill matched zero completed runs and the
+    // assertion below would fail with a count of 0.
+    LineageTestUtils.createLineageRow(
+        openLineageDao,
+        "backfill_job",
+        "COMPLETE",
+        JobFacet.builder().build(),
+        List.of(new Dataset("namespace", "backfill_input", null)),
+        List.of(new Dataset("namespace", "backfill_output", null)));
+
+    jdbi.useHandle(
+        handle -> {
+          // Measure the backfill in isolation from any live-path edges.
+          handle.execute("DELETE FROM lineage_edges");
+
+          int consumes =
+              handle
+                  .createUpdate(
+                      "INSERT INTO lineage_edges (from_node_id, from_type, to_node_id, to_type,"
+                          + " edge_type, namespace, run_uuid, run_date, created_at) "
+                          + "SELECT rim.dataset_version_uuid, 'dataset_version', r.uuid, 'run',"
+                          + " 'CONSUMES', r.namespace_name, r.uuid,"
+                          + " DATE(COALESCE(r.ended_at, r.started_at, r.created_at)), NOW() "
+                          + "FROM runs_input_mapping rim INNER JOIN runs r ON r.uuid = rim.run_uuid "
+                          + "WHERE r.current_run_state IN ('COMPLETED', 'FAILED', 'ABORTED') "
+                          + "ON CONFLICT (from_node_id, to_node_id, edge_type, run_date, namespace)"
+                          + " DO NOTHING")
+                  .execute();
+
+          int produces =
+              handle
+                  .createUpdate(
+                      "INSERT INTO lineage_edges (from_node_id, from_type, to_node_id, to_type,"
+                          + " edge_type, namespace, run_uuid, run_date, created_at) "
+                          + "SELECT dv.run_uuid, 'run', dv.uuid, 'dataset_version', 'PRODUCES',"
+                          + " r.namespace_name, dv.run_uuid,"
+                          + " DATE(COALESCE(r.ended_at, r.started_at, r.created_at)), NOW() "
+                          + "FROM dataset_versions dv INNER JOIN runs r ON r.uuid = dv.run_uuid "
+                          + "WHERE dv.run_uuid IS NOT NULL"
+                          + " AND r.current_run_state IN ('COMPLETED', 'FAILED', 'ABORTED') "
+                          + "ON CONFLICT (from_node_id, to_node_id, edge_type, run_date, namespace)"
+                          + " DO NOTHING")
+                  .execute();
+
+          assertThat(consumes + produces)
+              .withFailMessage(
+                  "V107 backfill must insert edges for COMPLETED runs; a count of 0 means the"
+                      + " current_run_state filter token is wrong")
+              .isGreaterThan(0);
+
+          Long total =
+              handle.createQuery("SELECT COUNT(*) FROM lineage_edges").mapTo(Long.class).one();
+          assertThat(total).isGreaterThan(0);
         });
   }
 

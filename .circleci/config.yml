@@ -14,9 +14,6 @@ only-on-release: &only-on-release
     branches:
       ignore: /.*/
 
-orbs:
-  codecov: codecov/codecov@3.2.3
-
 jobs:
   build-api:
     working_directory: ~/marquez
@@ -35,7 +32,6 @@ jobs:
       - run: ./gradlew --no-daemon --stacktrace api:javadoc
       - run: ./gradlew --no-daemon --stacktrace api:build
       - run: ./gradlew --no-daemon api:jacocoTestReport
-      - codecov/upload
       - store_test_results:
           path: api/build/test-results/test
       - store_artifacts:
@@ -104,7 +100,6 @@ jobs:
       - run: ./gradlew --no-daemon --stacktrace clients:java:javadoc
       - run: ./gradlew --no-daemon --stacktrace clients:java:build
       - run: ./gradlew --no-daemon clients:java:jacocoTestReport
-      - codecov/upload
       - store_test_results:
           path: clients/java/build/test-results/test
       - store_artifacts:
@@ -118,18 +113,17 @@ jobs:
   unit-test-client-python:
     working_directory: ~/marquez/clients/python
     docker:
-      - image: circleci/python:3.6
+      - image: cimg/python:3.9
     steps:
       - *checkout_project_root
       - run: pip install -e .[dev]
       - run: flake8
       - run: pytest --cov=marquez_python tests/
-      - codecov/upload
 
   build-client-python:
     working_directory: ~/marquez/clients/python
     docker:
-      - image: circleci/python:3.6
+      - image: cimg/python:3.9
     steps:
       - *checkout_project_root
       - run: python setup.py sdist bdist_wheel

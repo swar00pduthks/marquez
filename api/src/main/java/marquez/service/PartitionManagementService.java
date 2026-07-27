@@ -29,6 +29,29 @@ public class PartitionManagementService {
 
   private static final Logger log = LoggerFactory.getLogger(PartitionManagementService.class);
 
+  /**
+   * Composite RANGE(date)->HASH(namespace) tables (V107 lineage_edges, V108 run_facets). These are
+   * managed by the V110 helpers, not the single-level create_monthly_partition/drop_old_partitions.
+   *
+   * <p>{@code partitionPrefix} differs from {@code parentTable} for run_facets: it was partitioned
+   * via shadow-table swap, so its monthly partitions keep the {@code _p} shadow prefix
+   * (run_facets_p_y2026m01) even though the parent is now {@code run_facets}. {@code
+   * retentionMonths} follows the design doc: run_facets 12 months, lineage_edges 24 months.
+   */
+  private record CompositePartition(
+      String parentTable,
+      String partitionPrefix,
+      String hashColumn,
+      int hashModulus,
+      int retentionMonths) {}
+
+  private static final List<CompositePartition> COMPOSITE_PARTITIONS =
+      List.of(
+          new CompositePartition("lineage_edges", "lineage_edges", "namespace", 8, 24),
+          new CompositePartition("run_facets", "run_facets_p", "namespace", 8, 12),
+          new CompositePartition("dataset_facets", "dataset_facets_p", "namespace", 8, 12),
+          new CompositePartition("lineage_events", "lineage_events_p", "job_namespace", 8, 24));
+
   private final Jdbi jdbi;
   private final int monthsAhead;
   private final int retentionMonths;
@@ -59,6 +82,52 @@ public class PartitionManagementService {
         });
   }
 
+  /**
+   * Creates the composite RANGE->HASH monthly subtree for the lineage_edges / run_facets tables for
+   * the given date's month. Kept separate from {@link #ensurePartitionExists(LocalDate)} because
+   * the latter is also invoked from historical Flyway migrations (e.g. V86) that run before
+   * V107/V108 created these tables and before V110 created the helper functions — this method must
+   * only be called at runtime (after all migrations), e.g. by {@code PartitionManagementJob}.
+   */
+  public void ensureCompositePartitionExists(LocalDate date) {
+    LocalDate firstOfMonth = date.withDayOfMonth(1);
+    jdbi.useHandle(
+        handle -> {
+          for (CompositePartition cp : COMPOSITE_PARTITIONS) {
+            // A composite table may not be partitioned yet: on a large install run_facets stays a
+            // plain table until RUN_FACETS_PARTITION_V1 performs the swap. Skip until then.
+            if (!isPartitioned(handle, cp.parentTable())) {
+              continue;
+            }
+            handle.execute(
+                "SELECT create_monthly_hash_partition(?, ?, ?::date, ?, ?)",
+                cp.parentTable(),
+                cp.partitionPrefix(),
+                firstOfMonth,
+                cp.hashModulus(),
+                cp.hashColumn());
+          }
+        });
+  }
+
+  private boolean isPartitioned(org.jdbi.v3.core.Handle handle, String table) {
+    return handle
+        .createQuery(
+            "SELECT EXISTS(SELECT 1 FROM pg_partitioned_table WHERE partrelid = to_regclass(:t))")
+        .bind("t", table)
+        .mapTo(Boolean.class)
+        .one();
+  }
+
+  /**
+   * Creates composite RANGE->HASH partitions for the next N months starting from the given date.
+   */
+  public void createCompositePartitionsForPeriod(LocalDate startDate, int months) {
+    for (int i = 0; i < months; i++) {
+      ensureCompositePartitionExists(startDate.plusMonths(i));
+    }
+  }
+
   /** Creates partitions for the next N months starting from the given date. */
   public void createPartitionsForPeriod(LocalDate startDate, int months) {
     log.info("Creating partitions for {} months starting from {}", months, startDate);
@@ -87,6 +156,32 @@ public class PartitionManagementService {
           // Clean up run_parent_lineage_denormalized partitions
           handle.execute(
               "SELECT drop_old_partitions('run_parent_lineage_denormalized', ?)", retentionMonths);
+        });
+
+    cleanupOldCompositePartitions();
+  }
+
+  /**
+   * Drops monthly partitions of the composite RANGE->HASH tables that fall outside each table's
+   * retention window (DROP ... CASCADE removes the month's hash sub-partitions with it). The
+   * DEFAULT partition and any month within retention are preserved.
+   */
+  public void cleanupOldCompositePartitions() {
+    jdbi.useHandle(
+        handle -> {
+          for (CompositePartition cp : COMPOSITE_PARTITIONS) {
+            if (!isPartitioned(handle, cp.parentTable())) {
+              continue;
+            }
+            log.info(
+                "Dropping {} partitions older than {} months",
+                cp.parentTable(),
+                cp.retentionMonths());
+            handle.execute(
+                "SELECT drop_old_hash_partitions(?::regclass, ?)",
+                cp.parentTable(),
+                cp.retentionMonths());
+          }
         });
   }
 

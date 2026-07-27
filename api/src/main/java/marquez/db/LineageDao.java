@@ -418,6 +418,10 @@ public interface LineageDao {
       FROM lineage_nodes l
       LEFT JOIN run_facets rf ON rf.run_uuid = l.run_uuid
         AND rf.name IN (<includeFacets>)
+        -- prune the run_facets RANGE(lineage_event_time) partitions to the seed
+        -- runs' window (run_facets is partitioned in V108)
+        AND (:minDate::date IS NULL OR rf.lineage_event_time >= :minDate::date)
+        AND (:maxDate::date IS NULL OR rf.lineage_event_time < (:maxDate::date + 1))
       GROUP BY
         l.run_uuid, l.created_at, l.updated_at, l.started_at, l.ended_at,
         l.state, l.job_uuid, l.job_version_uuid, l.namespace_name, l.job_name, l.input_uuids, l.output_uuids
@@ -611,6 +615,9 @@ public interface LineageDao {
       FROM lineage_graph l
       LEFT JOIN run_facets rf ON (rf.run_uuid = l.uuid OR rf.run_uuid = l.run_uuid)
         AND rf.name IN (<includeFacets>)
+        -- prune the run_facets RANGE(lineage_event_time) partitions (V108)
+        AND (:minDate::date IS NULL OR rf.lineage_event_time >= :minDate::date)
+        AND (:maxDate::date IS NULL OR rf.lineage_event_time < (:maxDate::date + 1))
       GROUP BY
         COALESCE(l.run_uuid, l.uuid), l.created_at, l.updated_at, l.started_at, l.ended_at,
         l.state, l.job_uuid, l.job_version_uuid, l.namespace_name, l.job_name, l.input_uuids, l.output_uuids
@@ -648,14 +655,55 @@ public interface LineageDao {
              GROUP BY m.dataset_uuid
          ) t ON t.dataset_uuid = dv.dataset_uuid
          LEFT JOIN (
-             SELECT dvf.uuid AS dataset_uuid, JSONB_AGG(dvf.facet ORDER BY dvf.lineage_event_time ASC) AS facets
+             SELECT dvf.uuid AS dataset_uuid, dvf.run_uuid,
+                    JSONB_AGG(dvf.facet ORDER BY dvf.lineage_event_time ASC) AS facets
              FROM selected_dataset_version_facets dvf
-             WHERE dvf.run_uuid = dvf.run_uuid
-             GROUP BY dvf.uuid
-         ) f ON f.dataset_uuid = dv.uuid""")
+             WHERE dvf.run_uuid IS NOT NULL
+             GROUP BY dvf.uuid, dvf.run_uuid
+         ) f ON f.dataset_uuid = dv.uuid AND f.run_uuid = dv.run_uuid""")
   Set<DatasetVersionData> getDatasetVersionData(
       @BindList(value = "versions", onEmpty = BindList.EmptyHandling.NULL_STRING)
           Set<UUID> versions);
+
+  /**
+   * One forward hop of the lineage_edges BFS read path: the {@code to_node_id}s of edges of a given
+   * {@code edge_type} whose {@code from_node_id} is in the frontier. The run_date range prunes the
+   * RANGE(run_date)→HASH(namespace) partitions; pass NULL bounds to scan all partitions.
+   */
+  @SqlQuery(
+      """
+      SELECT DISTINCT to_node_id
+      FROM lineage_edges
+      WHERE from_node_id IN (<nodeIds>)
+        AND edge_type = :edgeType
+        AND (:minDate::date IS NULL OR run_date >= :minDate::date)
+        AND (:maxDate::date IS NULL OR run_date <= :maxDate::date)
+      """)
+  Set<UUID> findLineageEdgeTargets(
+      @BindList(value = "nodeIds", onEmpty = BindList.EmptyHandling.NULL_STRING) Set<UUID> nodeIds,
+      @Bind("edgeType") String edgeType,
+      @Bind("minDate") String minDate,
+      @Bind("maxDate") String maxDate);
+
+  /**
+   * One backward hop of the lineage_edges BFS read path: the {@code from_node_id}s of edges of a
+   * given {@code edge_type} whose {@code to_node_id} is in the frontier. Mirror of {@link
+   * #findLineageEdgeTargets} for upstream traversal.
+   */
+  @SqlQuery(
+      """
+      SELECT DISTINCT from_node_id
+      FROM lineage_edges
+      WHERE to_node_id IN (<nodeIds>)
+        AND edge_type = :edgeType
+        AND (:minDate::date IS NULL OR run_date >= :minDate::date)
+        AND (:maxDate::date IS NULL OR run_date <= :maxDate::date)
+      """)
+  Set<UUID> findLineageEdgeSources(
+      @BindList(value = "nodeIds", onEmpty = BindList.EmptyHandling.NULL_STRING) Set<UUID> nodeIds,
+      @Bind("edgeType") String edgeType,
+      @Bind("minDate") String minDate,
+      @Bind("maxDate") String maxDate);
 
   @SqlQuery(
       """

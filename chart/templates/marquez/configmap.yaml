@@ -33,9 +33,17 @@ data:
     # Enables database configuration overrides (see: https://www.dropwizard.io/en/stable/manual/configuration.html#database)
     db:
       driverClass: org.postgresql.Driver
-      url: jdbc:postgresql://${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}
+      # Add prepareThreshold=0 when PGBOUNCER_ENABLED=true (transaction mode requires no server-side prepared stmts)
+      # currentSchema is passed explicitly so the app and Flyway target a known
+      # schema. On PostgreSQL 15+ the role must own this schema (it no longer has
+      # CREATE on public by default). Defaults to public.
+      url: jdbc:postgresql://${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}?currentSchema=${POSTGRES_SCHEMA:-public}&sslmode=${POSTGRES_SSL_MODE:-prefer}&prepareThreshold=${PGBOUNCER_PREPARE_THRESHOLD:-0}
       user: ${POSTGRES_USER}
       password: ${POSTGRES_PASSWORD}
+      maxSize: ${DB_POOL_MAX_SIZE:-20}
+      minSize: ${DB_POOL_MIN_SIZE:-5}
+      maxWaitForConnection: 5s
+      validationQuery: "SELECT 1"
     # Enables retention policy configuration for database (default: disabled)
     {{- if .Values.marquez.dbRetention }}
     dbRetention:
@@ -49,6 +57,13 @@ data:
     # Enables Apache AGE graph extension features (V3 Graph API)
     ageEnabled: ${MARQUEZ_AGE_ENABLED}
     logging:
-      level: ${LOG_LEVEL}
+      level: ${LOG_LEVEL:-WARN}
       appenders:
         - type: console
+          logFormat: "%d{HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n"
+      loggers:
+        marquez: ${LOG_LEVEL:-WARN}
+        marquez.db: WARN
+        org.jdbi: WARN
+        org.postgresql: WARN
+        org.eclipse.jetty: WARN

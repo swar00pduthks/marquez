@@ -1,6 +1,6 @@
 # Marquez Data Model
 
-> **Last updated:** 2026-06-28 — verified against Flyway migration **V105** (`add_index_for_latest_run_lookup`).
+> **Last updated:** 2026-06-30 — verified against Flyway migration **V112** (`partition_lineage_events`).
 > This document is maintained by the Technical Writer agent. After any Flyway migration, run
 > `bmad/agents/technical-writer-agent.md` → "Audit Migration" to update this file.
 
@@ -367,6 +367,166 @@ These tables are maintained asynchronously by background jobs (backfill checkpoi
 
 ### `run_parent_lineage_denormalized`
 Same structure as `run_lineage_denormalized`. RANGE partitioned by `run_date`.
+
+> **V106** added safety-net `DEFAULT` partitions to both `run_lineage_denormalized`
+> and `run_parent_lineage_denormalized` (catch rows whose `run_date` has no monthly
+> partition), plus covering indexes for the recursive-CTE traversal join and the
+> `runs.parent_run_uuid` / `runs_input_mapping.run_uuid` / `dataset_versions.run_uuid`
+> lookups.
+
+### `lineage_edges` (V107; job↔dataset edges added in V109)
+**Partition strategy:** composite RANGE(`run_date`, monthly) → HASH(`namespace`, 8)
++ hash-subpartitioned `DEFAULT` (same convention as the denormalized tables:
+RANGE-by-date like `run_lineage_denormalized`, HASH-by-namespace like
+`dataset_denormalized`). Monthly partitions give O(1) retention (DROP an old
+month); the namespace hash gives per-tenant physical isolation so one high-volume
+namespace cannot bloat another's storage/IO/vacuum.
+
+Pre-materialized adjacency for BFS-style lineage reads (an alternative to the
+recursive CTE). Stores **two edge families** in one table — the node-id spaces are
+disjoint so they never collide:
+- **run ↔ dataset_version** (run / dataset-version lineage): one row per hop,
+  `run_uuid` set. Written at COMPLETE/FAIL/ABORT by
+  `DenormalizedLineageService.populateLineageEdgesForRun`, back-filled from
+  `runs_input_mapping` / `dataset_versions` by V107.
+- **job ↔ dataset** (job / dataset lineage, **V109**): `dataset --CONSUMES--> job`
+  (input) and `job --PRODUCES--> dataset` (output), `run_uuid` NULL. A BFS over
+  these reproduces the job-lineage adjacency (two jobs are connected when they
+  share ANY dataset). Written alongside run edges by
+  `populateLineageEdgesForRun`; back-filled from current `job_versions_io_mapping`
+  by V109 (`run_date` = the job version's `made_current_at`).
+
+| Column | Type |
+|--------|------|
+| `from_node_id` | UUID NOT NULL (part of PK) |
+| `from_type` | TEXT NOT NULL — `dataset_version` \| `run` \| `dataset` \| `job` |
+| `to_node_id` | UUID NOT NULL (part of PK) |
+| `to_type` | TEXT NOT NULL |
+| `edge_type` | TEXT NOT NULL — `PRODUCES` \| `CONSUMES` (part of PK) |
+| `namespace` | TEXT NOT NULL — namespace (tenant) of the run/job endpoint (HASH key, part of PK) |
+| `run_uuid` | UUID **NULL** — run endpoint of run edges; NULL for job↔dataset edges (V109 relaxed NOT NULL) |
+| `run_date` | DATE NOT NULL — RANGE partition key (part of PK) |
+| `created_at` | TIMESTAMPTZ NOT NULL DEFAULT NOW() |
+
+PK `(from_node_id, to_node_id, edge_type, run_date, namespace)` — `run_date` and
+`namespace` are functionally determined by the run/job endpoint, so including them
+in the key does not change physical-edge dedup. Parent indexes
+`idx_lineage_edges_downstream (from_node_id, to_type, run_date DESC)` and
+`idx_lineage_edges_upstream (to_node_id, from_type, run_date DESC)` propagate to
+every partition.
+
+> **Read note:** the BFS read path is wired behind the `MARQUEZ_LINEAGE_USE_EDGE_BFS`
+> flag (default OFF) in `LineageService` — run/dataset-version lineage via
+> `traverseRunLineageEdges`, job/dataset lineage via `traverseJobLineageEdges` —
+> hydrating the visited set with the existing queries so the emitted graph matches
+> the recursive-CTE path. A lookup keyed only on `from_node_id`/`to_node_id` scans
+> all partitions; passing a `run_date` range (e.g. the UI's time window) prunes to
+> one month's hash buckets. Run-edge BFS passes the run date range; job-edge BFS is
+> not date-bounded (job edges are dated by `made_current_at`) so it scans across
+> months and relies on the namespace hash + indexes.
+
+### `run_facets` (partitioned in V108, online cutover)
+**Partition strategy:** composite RANGE(`lineage_event_time`, monthly) →
+HASH(`namespace`, 8) + hash-subpartitioned `DEFAULT` — the top storage table
+(~7.3B rows / ~1.1 TB over 2 years at 1M events/day). V108 adds a `namespace`
+column (denormalized from `runs.namespace_name` via `run_uuid`; NULL when
+`run_uuid` is NULL) and builds the empty partitioned shadow. `run_facets` has no
+PRIMARY KEY (INSERT-only). The dead matviews `run_lineage_view` /
+`run_parent_lineage_view` (replaced by `run_lineage_denormalized`; refresher
+disabled) are dropped, not recreated.
+
+**Size-branched, online cutover** (V108 does not block startup):
+- **Small / empty (≤ 1 GiB — fresh installs, CI):** copy + atomic rename swap
+  **inline** in the migration (instant on an empty table), re-adding the
+  `run_facets_run_uuid_fkey` FK (→`runs` ON DELETE CASCADE) and `run_facets_view`.
+  Marker `run_facets_partition_state.state = 'SWAPPED'`.
+- **Large (> 1 GiB — production):** the migration only arms an **online cutover** —
+  an `AFTER INSERT` trigger mirrors every row with `created_at >= cutover` into the
+  shadow (dual-write), and records `cutover` + `state = 'DUAL_WRITE'`. The heavy
+  historical copy (`created_at < cutover`) and the swap are deferred to the
+  `RUN_FACETS_PARTITION_V1` backfill job (see below), off the startup path.
+
+The `created_at < cutover` / `>= cutover` split is disjoint by value, so the copy
+and the trigger each own every row exactly once — no primary key needed. The old
+table stays the source of truth until a count-verified atomic swap, so an
+interrupted copy loses nothing.
+
+| Column | Type |
+|--------|------|
+| `created_at` | TIMESTAMPTZ NOT NULL |
+| `run_uuid` | UUID (FK → runs, nullable) |
+| `lineage_event_time` | TIMESTAMPTZ NOT NULL — RANGE partition key |
+| `lineage_event_type` | VARCHAR NOT NULL |
+| `name` | VARCHAR NOT NULL |
+| `facet` | JSONB NOT NULL |
+| `namespace` | TEXT — HASH key; the run's `namespace_name` (tenant) |
+
+> **Read note:** facet lookups are keyed on `run_uuid`; to prune the partitions,
+> the lineage facet joins (`getRunLineageWithFacets` /
+> `getParentRunLineageWithFacets`) pass the seed runs' `lineage_event_time` range
+> (the same `:minDate`/`:maxDate` they already bind), pruning ~104 → ~8 partitions.
+
+### `dataset_facets` (partitioned in V111, online cutover)
+Same composite RANGE(`lineage_event_time`) → HASH(`namespace`, 8) scheme and the
+**identical size-branched online cutover** as `run_facets` (inline swap ≤ 1 GiB;
+large tables arm a dual-write trigger + `DATASET_FACETS_PARTITION_V1` background
+copy + count-verified swap). Differences from `run_facets`: three FKs
+(`dataset_uuid`→datasets, `dataset_version_uuid`→dataset_versions,
+`run_uuid`→runs), all restored at swap; dependent `dataset_facets_view` recreated;
+`namespace` denormalized from the run's `namespace_name`. INSERT-only, no PK.
+
+Both cutover jobs share `AbstractPartitionCutoverBackfillJob` (ctid-keyset copy +
+verified swap); each subclass supplies only its table-specific column list, FK/view
+DDL, and marker/trigger names.
+
+### `lineage_events` (partitioned in V112, online cutover)
+Same online cutover, RANGE(`event_time`) → **HASH(`job_namespace`, 8)** — it uses
+the existing `job_namespace` column, so no new column is added. Two differences
+handled by the shared base:
+- **Nullable boundary:** `created_at` (DEFAULT `now()`) is the cutover boundary,
+  but rows predating that column may be NULL. The backfill's `copyBoundaryPredicate`
+  is `created_at < :cutover OR created_at IS NULL`, so NULLs are copied as history
+  (new rows always get the default, so they're never NULL and stay on the trigger's
+  side — disjoint).
+- **Actively-refreshed matview:** `lineage_events_by_type_hourly_view` is dropped
+  before the rename and recreated `WITH NO DATA` after (instant, short lock), then
+  repopulated by the job's `afterSwapCommitted()` hook (`REFRESH MATERIALIZED
+  VIEW`). No FKs, so nothing else to restore.
+
+**V112 also generalizes** `create_monthly_hash_partition(parent, prefix, date,
+modulus, hash_column)` (V110's version hardcoded `HASH (namespace)`); the runtime
+lifecycle now passes each table's hash column (`namespace` for the facet/edge
+tables, `job_namespace` for `lineage_events`). `lineage_events` retention: 24 months.
+
+All three large facet/event tables (`run_facets`, `dataset_facets`,
+`lineage_events`) now use the same `AbstractPartitionCutoverBackfillJob`.
+
+### Partition lifecycle for the composite tables (V110)
+
+The pre-existing `create_monthly_partition()` / `drop_old_partitions()` helpers
+only understand the single-level denormalized tables (flat RANGE + denorm-specific
+indexes). V110 adds two helpers for the composite RANGE→HASH tables
+(`lineage_edges`, `run_facets`):
+
+- **`create_monthly_hash_partition(parent_table, partition_prefix, start_date, hash_modulus)`**
+  — creates one monthly RANGE partition that is itself HASH(`namespace`)-subpartitioned
+  into `hash_modulus` buckets. No index DDL: Postgres propagates the parent's
+  partitioned indexes to every new partition automatically (verified — function-created
+  partitions carry the same indexes as the V107/V108 ones). Advisory-locked +
+  exception-guarded for concurrent/idempotent runs. `partition_prefix` is passed
+  separately because `run_facets`' partitions keep the shadow `_p` prefix
+  (`run_facets_p_y2026m01`) after V108's rename swap.
+- **`drop_old_hash_partitions(parent_table, retention_months)`** — discovers monthly
+  partitions via `pg_inherits` (prefix-agnostic; the DEFAULT partition has no
+  `y####m##` suffix and is skipped) and `DROP … CASCADE`s any month older than the
+  retention window, removing its hash sub-partitions with it.
+
+`PartitionManagementJob` (runs at startup, then every `frequencyDays`) calls
+`createCompositePartitionsForPeriod` to provision upcoming months and
+`cleanupOldCompositePartitions` to enforce retention. Retention per the design doc:
+**`run_facets` 12 months, `lineage_edges` 24 months** (hash modulus 8). These run
+only at runtime — never from the historical Flyway migrations (V86 etc.) that
+predate the tables and helpers.
 
 ### `dataset_denormalized`
 **Partition strategy:** HASH by `namespace_uuid` (8 partitions)

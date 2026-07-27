@@ -64,14 +64,103 @@ public class LineageService extends DelegatingLineageDao {
 
   public record UpstreamRun(JobSummary job, RunSummary run, List<DatasetSummary> inputs) {}
 
+  /** Hard server-side depth caps to prevent runaway recursive CTEs and unbounded responses. */
+  public static final int MAX_DEPTH_V1 = 10;
+
+  public static final int MAX_DEPTH_V2 = 20;
+
   private final JobDao jobDao;
 
   private final RunDao runDao;
 
+  /**
+   * When true, run/dataset-version lineage reads traverse the pre-materialized {@code
+   * lineage_edges} adjacency table (BFS in Java) instead of the recursive CTE. Default false — the
+   * CTE path is unchanged until parity is proven. Toggled via env {@code
+   * MARQUEZ_LINEAGE_USE_EDGE_BFS}.
+   */
+  private final boolean useEdgeBfs;
+
   public LineageService(LineageDao delegate, JobDao jobDao, RunDao runDao) {
+    this(delegate, jobDao, runDao, false);
+  }
+
+  public LineageService(LineageDao delegate, JobDao jobDao, RunDao runDao, boolean useEdgeBfs) {
     super(delegate);
     this.jobDao = jobDao;
     this.runDao = runDao;
+    this.useEdgeBfs = useEdgeBfs;
+  }
+
+  /**
+   * Breadth-first traversal of the {@code lineage_edges} adjacency table, returning every run
+   * reachable within {@code depth} run-to-run hops of the seeds (inclusive). Each CTE-style run hop
+   * is two edge hops (run→dataset_version→run); both directions are followed so the result set is
+   * identical to the recursive CTE's {@code io.input_version = l.output_version OR
+   * io.output_version = l.input_version} adjacency. The {@code minDate}/{@code maxDate} bounds
+   * match the CTE's partition-pruning predicate and prune the RANGE(run_date)→HASH(namespace)
+   * partitions.
+   */
+  Set<UUID> traverseRunLineageEdges(
+      Set<UUID> seedRunIds, int depth, String minDate, String maxDate) {
+    Set<UUID> visited = new HashSet<>(seedRunIds);
+    Set<UUID> frontier = new HashSet<>(seedRunIds);
+    for (int level = 0; level < depth && !frontier.isEmpty(); level++) {
+      Set<UUID> next = new HashSet<>();
+
+      // Downstream: run --PRODUCES--> dataset_version --CONSUMES--> run'
+      Set<UUID> producedVersions = findLineageEdgeTargets(frontier, "PRODUCES", minDate, maxDate);
+      if (!producedVersions.isEmpty()) {
+        next.addAll(findLineageEdgeTargets(producedVersions, "CONSUMES", minDate, maxDate));
+      }
+
+      // Upstream: run' --PRODUCES--> dataset_version --CONSUMES--> run
+      Set<UUID> consumedVersions = findLineageEdgeSources(frontier, "CONSUMES", minDate, maxDate);
+      if (!consumedVersions.isEmpty()) {
+        next.addAll(findLineageEdgeSources(consumedVersions, "PRODUCES", minDate, maxDate));
+      }
+
+      next.removeAll(visited);
+      visited.addAll(next);
+      frontier = next;
+    }
+    return visited;
+  }
+
+  /**
+   * Breadth-first traversal of the job<->dataset edges in {@code lineage_edges}, returning every
+   * job reachable within {@code depth} job-to-job hops of the seeds (inclusive). Two jobs are
+   * adjacent when they share ANY dataset (input or output) — the same adjacency the job-lineage
+   * recursive CTE computes via {@code array_cat(inputs,outputs) && array_cat(inputs,outputs)}. Each
+   * hop expands job → all its datasets (outputs via PRODUCES, inputs via CONSUMES) → all jobs
+   * touching those datasets (producers + consumers). Reuses the run-path edge queries; the
+   * job/dataset UUID space is disjoint from the run/dataset_version space so there is no
+   * cross-family contamination.
+   */
+  Set<UUID> traverseJobLineageEdges(
+      Set<UUID> seedJobIds, int depth, String minDate, String maxDate) {
+    Set<UUID> visited = new HashSet<>(seedJobIds);
+    Set<UUID> frontier = new HashSet<>(seedJobIds);
+    for (int level = 0; level < depth && !frontier.isEmpty(); level++) {
+      // Datasets touched by the frontier jobs: outputs (job --PRODUCES--> dataset) and inputs
+      // (dataset --CONSUMES--> job).
+      Set<UUID> datasets = new HashSet<>();
+      datasets.addAll(findLineageEdgeTargets(frontier, "PRODUCES", minDate, maxDate));
+      datasets.addAll(findLineageEdgeSources(frontier, "CONSUMES", minDate, maxDate));
+
+      Set<UUID> next = new HashSet<>();
+      if (!datasets.isEmpty()) {
+        // Jobs touching those datasets: producers (job --PRODUCES--> dataset) and consumers
+        // (dataset --CONSUMES--> job).
+        next.addAll(findLineageEdgeSources(datasets, "PRODUCES", minDate, maxDate));
+        next.addAll(findLineageEdgeTargets(datasets, "CONSUMES", minDate, maxDate));
+      }
+
+      next.removeAll(visited);
+      visited.addAll(next);
+      frontier = next;
+    }
+    return visited;
   }
 
   // TODO make input parameters easily extendable if adding more options like 'withJobFacets'
@@ -80,6 +169,11 @@ public class LineageService extends DelegatingLineageDao {
   }
 
   public Lineage lineage(
+      NodeId nodeId, int depth, boolean aggregateToParentRun, Set<String> includeFacets) {
+    return lineageImpl(nodeId, Math.min(depth, MAX_DEPTH_V1), aggregateToParentRun, includeFacets);
+  }
+
+  private Lineage lineageImpl(
       NodeId nodeId, int depth, boolean aggregateToParentRun, Set<String> includeFacets) {
     log.debug("Attempting to get lineage for node '{}' with depth '{}'", nodeId.getValue(), depth);
 
@@ -115,6 +209,15 @@ public class LineageService extends DelegatingLineageDao {
         } else {
           runData = getParentRunLineage(runIds, depth, minDate, maxDate);
         }
+      } else if (useEdgeBfs) {
+        // BFS over lineage_edges resolves the full reachable run set; hydrate it at depth 0 (no
+        // further recursion) so the emitted graph is identical to the recursive-CTE path.
+        Set<UUID> reachableRuns = traverseRunLineageEdges(runIds, depth, minDate, maxDate);
+        if (includeFacets != null && !includeFacets.isEmpty()) {
+          runData = getRunLineageWithFacets(reachableRuns, 0, includeFacets, minDate, maxDate);
+        } else {
+          runData = getRunLineage(reachableRuns, 0, minDate, maxDate);
+        }
       } else {
         if (includeFacets != null && !includeFacets.isEmpty()) {
           runData = getRunLineageWithFacets(runIds, depth, includeFacets, minDate, maxDate);
@@ -142,7 +245,16 @@ public class LineageService extends DelegatingLineageDao {
       }
       UUID job = optionalUUID.get();
       log.debug("Attempting to get lineage for job '{}'", job);
-      Set<JobData> jobData = getLineage(Collections.singleton(job), depth);
+      Set<JobData> jobData;
+      if (useEdgeBfs) {
+        // BFS over the job<->dataset edges resolves the full reachable job set; hydrate it at
+        // depth 0 so the emitted graph matches the recursive-CTE path. Job lineage is not
+        // date-bounded, so no run_date pruning predicate is passed.
+        Set<UUID> reachableJobs = traverseJobLineageEdges(Set.of(job), depth, null, null);
+        jobData = getLineage(reachableJobs, 0);
+      } else {
+        jobData = getLineage(Collections.singleton(job), depth);
+      }
 
       // Ensure job data is not empty, an empty set cannot be passed to LineageDao.getCurrentRuns()
       // or
@@ -199,8 +311,11 @@ public class LineageService extends DelegatingLineageDao {
     log.debug(
         "Attempting to get V2 lineage for node '{}' with depth '{}'", nodeId.getValue(), depth);
 
+    // Run/dataset-version nodes use the same denormalized path as V1 — route through the shared
+    // implementation but cap to MAX_DEPTH_V2 (not V1) so V2 callers get the higher depth limit.
     if (nodeId.isRunType() || nodeId.isDatasetVersionType()) {
-      return lineage(nodeId, depth, aggregateToParentRun, includeFacets);
+      return lineageImpl(
+          nodeId, Math.min(depth, MAX_DEPTH_V2), aggregateToParentRun, includeFacets);
     }
 
     Optional<UUID> optionalUUID = getJobUuidV2(nodeId);
@@ -231,7 +346,17 @@ public class LineageService extends DelegatingLineageDao {
     String maxDate =
         dateRange != null && dateRange.maxDate() != null ? dateRange.maxDate().toString() : null;
 
-    Set<JobData> jobData = getLineageV2(Collections.singleton(job), depth, minDate, maxDate);
+    Set<JobData> jobData;
+    if (useEdgeBfs) {
+      // BFS over the job<->dataset edges resolves the full reachable job set; hydrate at depth 0
+      // so the emitted graph matches the recursive-CTE path. Job edges are dated by the job
+      // version's made_current_at (not run time), so no run_date pruning predicate is passed to
+      // the traversal; the run-derived date range still prunes the denormalized hydration reads.
+      Set<UUID> reachableJobs = traverseJobLineageEdges(Set.of(job), depth, null, null);
+      jobData = getLineageV2(reachableJobs, 0, minDate, maxDate);
+    } else {
+      jobData = getLineageV2(Collections.singleton(job), depth, minDate, maxDate);
+    }
     if (jobData.isEmpty()) {
       log.warn(
           "Failed to get V2 lineage for job '{}' associated with node '{}', returning orphan graph...",
@@ -253,7 +378,9 @@ public class LineageService extends DelegatingLineageDao {
     if (!datasetIds.isEmpty()) {
       datasets.addAll(this.getDatasetDataV2(datasetIds));
       if (datasets.isEmpty()) {
-        datasets.addAll(this.getDatasetData(datasetIds));
+        log.warn(
+            "V2 dataset lookup returned empty for {} UUIDs — denorm tables may be lagging behind normalized store",
+            datasetIds.size());
       }
     }
 
@@ -534,7 +661,7 @@ public class LineageService extends DelegatingLineageDao {
                         rd.getOutputDatasetVersions().stream()
                             .map(OutputDatasetVersion::getDatasetVersionId)))
             .collect(Collectors.toSet());
-    log.info("DatasetVersionIds found in run data: {}", datasetVersionIds);
+    log.debug("DatasetVersionIds found in run data: {}", datasetVersionIds.size());
 
     Set<DatasetVersionData> datasetVersions = new HashSet<>();
 
@@ -543,7 +670,7 @@ public class LineageService extends DelegatingLineageDao {
             datasetVersionIds.stream()
                 .map(DatasetVersionId::getVersion)
                 .collect(Collectors.toSet())));
-    log.debug("Retrieved dataset data: {}", datasetVersions);
+    log.debug("Retrieved {} dataset versions", datasetVersions.size());
 
     Map<UUID, DatasetVersionData> datasetVersionById =
         datasetVersions.stream()
@@ -583,11 +710,6 @@ public class LineageService extends DelegatingLineageDao {
           ds -> dsOutputToRun.computeIfAbsent(ds, e -> new HashSet<>()).add(data.getUuid()));
 
       NodeId origin = NodeId.of(RunId.of(data.getUuid()));
-      log.info(
-          "dsInputToRun: {}, dsOutputToRun: {}, runDataMap: {}",
-          dsInputToRun,
-          dsOutputToRun,
-          runDataMap);
       Node node =
           new Node(
               origin,

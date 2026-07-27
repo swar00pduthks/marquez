@@ -269,4 +269,96 @@ public class PartitionManagementServiceTest {
           log.info("Successfully verified date range for partition: {}", partitionName);
         });
   }
+
+  @Test
+  public void testEnsureCompositePartitionExists() {
+    // Given: a future month with no pre-created partition (V107/V108 only seed 2026).
+    LocalDate testDate = LocalDate.of(2030, 9, 15);
+
+    // When: we provision the composite RANGE->HASH subtree.
+    assertThatCode(() -> partitionManagementService.ensureCompositePartitionExists(testDate))
+        .doesNotThrowAnyException();
+    // And re-run to confirm idempotency.
+    assertThatCode(() -> partitionManagementService.ensureCompositePartitionExists(testDate))
+        .doesNotThrowAnyException();
+
+    // Then: each parent has the month partition + its 8 hash sub-partitions, and the
+    // sub-partitions inherit the parent's indexes (no per-partition index DDL in V110).
+    jdbi.useHandle(
+        handle -> {
+          for (String[] tbl :
+              new String[][] {{"lineage_edges", "lineage_edges"}, {"run_facets", "run_facets_p"}}) {
+            String month = tbl[1] + "_y2030m09";
+            Long hashChildren =
+                handle
+                    .createQuery("SELECT COUNT(*) FROM pg_inherits WHERE inhparent = :m::regclass")
+                    .bind("m", month)
+                    .mapTo(Long.class)
+                    .one();
+            assertThat(hashChildren)
+                .withFailMessage(
+                    "%s should have 8 hash sub-partitions, had %s", month, hashChildren)
+                .isEqualTo(8);
+
+            Long idxOnChild =
+                handle
+                    .createQuery("SELECT COUNT(*) FROM pg_index WHERE indrelid = :c::regclass")
+                    .bind("c", month + "_h0")
+                    .mapTo(Long.class)
+                    .one();
+            assertThat(idxOnChild)
+                .withFailMessage("%s_h0 should inherit the parent's indexes", month)
+                .isGreaterThanOrEqualTo(3);
+          }
+          log.info("Successfully verified composite partition creation for 2030-09");
+        });
+  }
+
+  @Test
+  public void testCleanupOldCompositePartitions() {
+    // Given: a clearly out-of-retention month (2020-01) and an in-window month (current month)
+    // for both composite tables.
+    LocalDate oldMonth = LocalDate.of(2020, 1, 1);
+    LocalDate recentMonth = LocalDate.now().withDayOfMonth(1);
+    partitionManagementService.ensureCompositePartitionExists(oldMonth);
+    partitionManagementService.ensureCompositePartitionExists(recentMonth);
+
+    // When: retention cleanup runs (lineage_edges 24mo, run_facets 12mo — both far past 2020).
+    assertThatCode(() -> partitionManagementService.cleanupOldCompositePartitions())
+        .doesNotThrowAnyException();
+
+    // Then: the 2020 month (and its hash children, via CASCADE) is gone for both tables, while the
+    // recent month and the DEFAULT safety-net partition survive.
+    jdbi.useHandle(
+        handle -> {
+          String recentSuffix =
+              String.format(
+                  "_y%04dm%02d", recentMonth.getYear(), recentMonth.getMonthValue()); // _y2026m06
+          for (String[] tbl :
+              new String[][] {{"lineage_edges", "lineage_edges"}, {"run_facets", "run_facets_p"}}) {
+            String prefix = tbl[1];
+            assertThat(regclassExists(handle, prefix + "_y2020m01"))
+                .withFailMessage("%s_y2020m01 should have been dropped by retention", prefix)
+                .isFalse();
+            assertThat(regclassExists(handle, prefix + "_y2020m01_h0"))
+                .withFailMessage("%s_y2020m01_h0 should be CASCADE-dropped with its month", prefix)
+                .isFalse();
+            assertThat(regclassExists(handle, prefix + recentSuffix))
+                .withFailMessage("%s%s (in retention window) should survive", prefix, recentSuffix)
+                .isTrue();
+            assertThat(regclassExists(handle, prefix + "_default"))
+                .withFailMessage("%s_default safety-net partition must never be dropped", prefix)
+                .isTrue();
+          }
+          log.info("Successfully verified composite retention cleanup");
+        });
+  }
+
+  private static boolean regclassExists(org.jdbi.v3.core.Handle handle, String relName) {
+    return handle
+        .createQuery("SELECT to_regclass(:n) IS NOT NULL")
+        .bind("n", relName)
+        .mapTo(Boolean.class)
+        .one();
+  }
 }

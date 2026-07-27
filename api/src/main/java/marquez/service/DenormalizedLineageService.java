@@ -536,6 +536,11 @@ public class DenormalizedLineageService {
             if (isParentRun(handle, runUuid)) {
               populateRunParentLineageDenormalized(handle, runUuid);
             }
+
+            // Step 5: Write pre-materialized edges to lineage_edges for BFS-in-Java reads.
+            // Each edge is a run↔dataset_version pair (CONSUMES or PRODUCES).
+            // ON CONFLICT DO NOTHING skips duplicate writes if the same run is reprocessed.
+            populateLineageEdgesForRun(handle, runUuid);
           });
 
       log.info("Successfully populated denormalized lineage tables for run: {}", runUuid);
@@ -684,6 +689,128 @@ public class DenormalizedLineageService {
     int insertedRows = handle.createUpdate(insertQuery).bind("runUuid", runUuid).execute();
     log.debug(
         "Inserted {} rows into run_parent_lineage_denormalized for run: {}", insertedRows, runUuid);
+  }
+
+  /**
+   * Writes pre-materialized run↔dataset_version edges to lineage_edges for BFS-in-Java reads.
+   * Called at COMPLETE/FAIL time only. Each row represents one hop between a run and a
+   * dataset_version (CONSUMES: dataset_version→run; PRODUCES: run→dataset_version). run_uuid is the
+   * run endpoint of the edge. ON CONFLICT DO NOTHING skips re-insertion if the same run reprocesses
+   * the same dataset_version.
+   */
+  private void populateLineageEdgesForRun(org.jdbi.v3.core.Handle handle, UUID runUuid) {
+    log.debug("Populating lineage_edges for run: {}", runUuid);
+
+    // CONSUMES edges: input dataset_version → run.
+    // namespace (the run's namespace) and run_date are part of the PK — both are
+    // functionally determined by the run, so the 5-column ON CONFLICT dedupes
+    // exactly one row per physical edge while feeding the RANGE→HASH partitioning.
+    String consumesSql =
+        """
+        INSERT INTO lineage_edges (
+            from_node_id, from_type, to_node_id, to_type,
+            edge_type, namespace, run_uuid, run_date, created_at
+        )
+        SELECT
+            rim.dataset_version_uuid   AS from_node_id,
+            'dataset_version'          AS from_type,
+            r.uuid                     AS to_node_id,
+            'run'                      AS to_type,
+            'CONSUMES'                 AS edge_type,
+            r.namespace_name           AS namespace,
+            r.uuid                     AS run_uuid,
+            DATE(COALESCE(r.ended_at, r.started_at, r.created_at)) AS run_date,
+            NOW()                      AS created_at
+        FROM runs r
+        INNER JOIN runs_input_mapping rim ON rim.run_uuid = r.uuid
+        WHERE r.uuid = :runUuid
+        ON CONFLICT (from_node_id, to_node_id, edge_type, run_date, namespace) DO NOTHING
+        """;
+
+    // PRODUCES edges: run → output dataset_version
+    String producesSql =
+        """
+        INSERT INTO lineage_edges (
+            from_node_id, from_type, to_node_id, to_type,
+            edge_type, namespace, run_uuid, run_date, created_at
+        )
+        SELECT
+            r.uuid                     AS from_node_id,
+            'run'                      AS from_type,
+            dv.uuid                    AS to_node_id,
+            'dataset_version'          AS to_type,
+            'PRODUCES'                 AS edge_type,
+            r.namespace_name           AS namespace,
+            r.uuid                     AS run_uuid,
+            DATE(COALESCE(r.ended_at, r.started_at, r.created_at)) AS run_date,
+            NOW()                      AS created_at
+        FROM runs r
+        INNER JOIN dataset_versions dv ON dv.run_uuid = r.uuid
+        WHERE r.uuid = :runUuid
+        ON CONFLICT (from_node_id, to_node_id, edge_type, run_date, namespace) DO NOTHING
+        """;
+
+    int consumesRows = handle.createUpdate(consumesSql).bind("runUuid", runUuid).execute();
+    int producesRows = handle.createUpdate(producesSql).bind("runUuid", runUuid).execute();
+
+    // Job<->dataset edges for the run's job (job & dataset lineage). run_uuid is NULL (a job edge
+    // has no run); a BFS over these reproduces the "two jobs share any dataset" adjacency. ON
+    // CONFLICT dedupes; edges age out with their run_date partition and are re-written by new runs.
+    String jobConsumesSql =
+        """
+        INSERT INTO lineage_edges (
+            from_node_id, from_type, to_node_id, to_type,
+            edge_type, namespace, run_uuid, run_date, created_at
+        )
+        SELECT DISTINCT
+            dv.dataset_uuid           AS from_node_id,
+            'dataset'                 AS from_type,
+            r.job_uuid                AS to_node_id,
+            'job'                     AS to_type,
+            'CONSUMES'                AS edge_type,
+            r.namespace_name          AS namespace,
+            NULL::uuid                AS run_uuid,
+            DATE(COALESCE(r.ended_at, r.started_at, r.created_at)) AS run_date,
+            NOW()                     AS created_at
+        FROM runs r
+        INNER JOIN runs_input_mapping rim ON rim.run_uuid = r.uuid
+        INNER JOIN dataset_versions dv ON dv.uuid = rim.dataset_version_uuid
+        WHERE r.uuid = :runUuid AND r.job_uuid IS NOT NULL
+        ON CONFLICT (from_node_id, to_node_id, edge_type, run_date, namespace) DO NOTHING
+        """;
+
+    String jobProducesSql =
+        """
+        INSERT INTO lineage_edges (
+            from_node_id, from_type, to_node_id, to_type,
+            edge_type, namespace, run_uuid, run_date, created_at
+        )
+        SELECT DISTINCT
+            r.job_uuid                AS from_node_id,
+            'job'                     AS from_type,
+            dv.dataset_uuid           AS to_node_id,
+            'dataset'                 AS to_type,
+            'PRODUCES'                AS edge_type,
+            r.namespace_name          AS namespace,
+            NULL::uuid                AS run_uuid,
+            DATE(COALESCE(r.ended_at, r.started_at, r.created_at)) AS run_date,
+            NOW()                     AS created_at
+        FROM runs r
+        INNER JOIN dataset_versions dv ON dv.run_uuid = r.uuid
+        WHERE r.uuid = :runUuid AND r.job_uuid IS NOT NULL
+        ON CONFLICT (from_node_id, to_node_id, edge_type, run_date, namespace) DO NOTHING
+        """;
+
+    int jobConsumesRows = handle.createUpdate(jobConsumesSql).bind("runUuid", runUuid).execute();
+    int jobProducesRows = handle.createUpdate(jobProducesSql).bind("runUuid", runUuid).execute();
+
+    log.debug(
+        "Populated lineage_edges for run {}: {} CONSUMES, {} PRODUCES, {} job-CONSUMES, {} job-PRODUCES",
+        runUuid,
+        consumesRows,
+        producesRows,
+        jobConsumesRows,
+        jobProducesRows);
   }
 
   /** Check if a run is a parent run (has child runs). */

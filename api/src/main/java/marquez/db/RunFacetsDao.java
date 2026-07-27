@@ -47,14 +47,16 @@ public interface RunFacetsDao {
          lineage_event_time,
          lineage_event_type,
          name,
-         facet
+         facet,
+         namespace
       ) VALUES (
          :createdAt,
          :runUuid,
          :lineageEventTime,
          :lineageEventType,
          :name,
-         :facet
+         :facet,
+         (SELECT namespace_name FROM runs WHERE uuid = :runUuid)
       )
       """)
   void insertRunFacet(
